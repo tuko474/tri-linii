@@ -1,19 +1,24 @@
-// Отрисовка поля на Canvas 2D. Читает состояние Game, ничего в нём не меняет.
+// Отрисовка поля на Canvas 2D с камерой. Читает состояние Game, ничего в нём не меняет.
 import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
-import { THRONE_POS } from '../sim/map';
+import { CAMPS, PITS, RIVER, RIVER_W, THRONE_POS, segDist } from '../sim/map';
 import type { Hero, Side } from '../sim/types';
 
 const C = {
   grass: '#2f4a33',
   grass2: '#36553a',
-  tree: '#1f3524',
-  tree2: '#284430',
+  grass3: '#2b4430',
+  tree: '#1c3221',
+  tree2: '#25412c',
+  tree3: '#2f5236',
   road: '#8a7550',
   roadEdge: '#6d5b3d',
+  bank: '#5d5a3e',
   river: '#2c5a72',
   river2: '#3b7391',
-  pad: '#5b5346',
+  stone: '#5b5346',
+  stoneDark: '#3b352d',
+  plank: '#5e4a2e',
   ink: '#f3ead6',
   dark: '#14121c',
   side: ['#5fd4c4', '#e0566b'],
@@ -27,124 +32,366 @@ function rng(seed: number) {
   };
 }
 
+const riverDist = (x: number, y: number) => {
+  let best = Infinity;
+  for (let i = 1; i < RIVER.length; i++) best = Math.min(best, segDist(x, y, RIVER[i - 1], RIVER[i]));
+  return best;
+};
+
+const BASE_HALF = 260; // половина стороны площадки базы
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private bg: HTMLCanvasElement = document.createElement('canvas');
-  k = 1;
+  private mini: HTMLCanvasElement = document.createElement('canvas');
   private dpr = 1;
+  vw = 0;
+  vh = 0;
+  cam = { x: 1000, y: 1450, z: 0.4 };
+  minZ = 0.15;
+  maxZ = 0.9;
+  private target: { x: number; y: number } | null = null;
+  private started = false;
   selected: Hero | null = null;
 
   constructor(private cv: HTMLCanvasElement, private g: Game) {
     this.ctx = cv.getContext('2d')!;
+    this.drawStatic();
   }
+
+  // ---------- камера ----------
 
   resize(cssW: number, cssH: number) {
     this.dpr = Math.min(2.5, window.devicePixelRatio || 1);
-    this.k = Math.min(cssW / WORLD.W, cssH / WORLD.H);
-    const w = Math.floor(WORLD.W * this.k);
-    const h = Math.floor(WORLD.H * this.k);
-    this.cv.style.width = w + 'px';
-    this.cv.style.height = h + 'px';
-    this.cv.width = Math.floor(w * this.dpr);
-    this.cv.height = Math.floor(h * this.dpr);
-    this.drawStatic();
+    this.vw = cssW;
+    this.vh = cssH;
+    this.cv.style.width = cssW + 'px';
+    this.cv.style.height = cssH + 'px';
+    this.cv.width = Math.floor(cssW * this.dpr);
+    this.cv.height = Math.floor(cssH * this.dpr);
+    this.minZ = Math.min(cssW / WORLD.W, cssH / WORLD.H);
+    this.maxZ = Math.max(this.minZ, Math.min(1.2, cssW / 380));
+    if (!this.started) {
+      // по умолчанию в кадре ~1300 единиц мира по ширине: своя база и ближние вышки
+      this.cam.z = cssW / 1300;
+      const t = THRONE_POS[0];
+      this.cam.x = t.x + 600;
+      this.cam.y = t.y - 600;
+      this.started = true;
+    }
+    this.clamp();
+  }
+
+  private clamp() {
+    const c = this.cam;
+    c.z = Math.max(this.minZ, Math.min(this.maxZ, c.z));
+    const hw = this.vw / 2 / c.z;
+    const hh = this.vh / 2 / c.z;
+    c.x = hw * 2 >= WORLD.W ? WORLD.W / 2 : Math.max(hw, Math.min(WORLD.W - hw, c.x));
+    c.y = hh * 2 >= WORLD.H ? WORLD.H / 2 : Math.max(hh, Math.min(WORLD.H - hh, c.y));
   }
 
   /** Перевод координат касания (CSS px внутри canvas) в мировые. */
   toWorld(px: number, py: number) {
-    return { x: px / this.k, y: py / this.k };
+    const c = this.cam;
+    return { x: c.x + (px - this.vw / 2) / c.z, y: c.y + (py - this.vh / 2) / c.z };
   }
+
+  pan(dx: number, dy: number) {
+    this.cam.x -= dx / this.cam.z;
+    this.cam.y -= dy / this.cam.z;
+    this.target = null;
+    this.clamp();
+  }
+
+  /** Масштаб вокруг точки касания: точка под пальцем остаётся на месте. */
+  zoomAt(factor: number, px: number, py: number) {
+    const w = this.toWorld(px, py);
+    this.cam.z *= factor;
+    this.clamp();
+    this.cam.x = w.x - (px - this.vw / 2) / this.cam.z;
+    this.cam.y = w.y - (py - this.vh / 2) / this.cam.z;
+    this.target = null;
+    this.clamp();
+  }
+
+  /** Мгновенно перевести камеру (миникарта). */
+  jump(x: number, y: number) {
+    this.cam.x = x;
+    this.cam.y = y;
+    this.target = null;
+    this.clamp();
+  }
+
+  /** Плавно перевести камеру к точке мира. */
+  focus(x: number, y: number) {
+    this.target = { x, y };
+  }
+
+  private stepCamera(dt: number) {
+    if (!this.target) return;
+    const k = 1 - Math.exp(-dt * 9);
+    this.cam.x += (this.target.x - this.cam.x) * k;
+    this.cam.y += (this.target.y - this.cam.y) * k;
+    const before = { x: this.cam.x, y: this.cam.y };
+    this.clamp();
+    const stuck = Math.abs(before.x - this.cam.x) + Math.abs(before.y - this.cam.y) > 0.5;
+    if (stuck || Math.hypot(this.target.x - this.cam.x, this.target.y - this.cam.y) < 2) this.target = null;
+  }
+
+  // ---------- статичный фон ----------
 
   private drawStatic() {
     const g = this.g;
-    this.bg.width = this.cv.width;
-    this.bg.height = this.cv.height;
+    const { W, H } = WORLD;
+    this.bg.width = W;
+    this.bg.height = H;
     const x = this.bg.getContext('2d')!;
-    x.setTransform(this.k * this.dpr, 0, 0, this.k * this.dpr, 0, 0);
 
+    // земля
     x.fillStyle = C.grass;
-    x.fillRect(0, 0, WORLD.W, WORLD.H);
+    x.fillRect(0, 0, W, H);
     const r = rng(7);
-    for (let i = 0; i < 260; i++) {
-      x.fillStyle = r() > 0.5 ? C.grass2 : '#2b4430';
+    for (let i = 0; i < 900; i++) {
+      x.fillStyle = r() > 0.5 ? C.grass2 : C.grass3;
+      x.globalAlpha = 0.7;
       x.beginPath();
-      x.arc(r() * WORLD.W, r() * WORLD.H, 20 + r() * 60, 0, 7);
+      x.arc(r() * W, r() * H, 30 + r() * 90, 0, 7);
+      x.fill();
+    }
+    x.globalAlpha = 1;
+    // оттенок территорий
+    ([0, 1] as Side[]).forEach((s) => {
+      const t = THRONE_POS[s];
+      const gr = x.createRadialGradient(t.x, t.y, 100, t.x, t.y, 1500);
+      gr.addColorStop(0, s === 0 ? 'rgba(95,212,196,.16)' : 'rgba(224,86,107,.16)');
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = gr;
+      x.fillRect(0, 0, W, H);
+    });
+
+    // река
+    x.lineCap = 'round';
+    x.lineJoin = 'round';
+    const river = () => {
+      x.beginPath();
+      RIVER.forEach(([px, py], i) => (i ? x.lineTo(px, py) : x.moveTo(px, py)));
+    };
+    river();
+    x.strokeStyle = C.bank;
+    x.lineWidth = RIVER_W + 36;
+    x.stroke();
+    x.strokeStyle = C.river;
+    x.lineWidth = RIVER_W;
+    x.stroke();
+    x.strokeStyle = C.river2;
+    x.lineWidth = RIVER_W * 0.45;
+    x.stroke();
+    x.strokeStyle = 'rgba(255,255,255,.12)';
+    x.lineWidth = 3;
+    x.setLineDash([40, 70]);
+    x.stroke();
+    x.setLineDash([]);
+
+    // логова боссов
+    for (const p of PITS) {
+      x.fillStyle = C.stoneDark;
+      x.beginPath();
+      x.arc(p.x, p.y, 175, 0, 7);
+      x.fill();
+      x.fillStyle = '#26303a';
+      x.beginPath();
+      x.arc(p.x, p.y, 145, 0, 7);
+      x.fill();
+      x.strokeStyle = 'rgba(243,210,122,.35)';
+      x.lineWidth = 4;
+      for (let i = 0; i < 3; i++) {
+        x.beginPath();
+        x.arc(p.x, p.y, 60 + i * 28, 0, 7);
+        x.stroke();
+      }
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        x.fillStyle = C.stone;
+        x.beginPath();
+        x.arc(p.x + Math.cos(a) * 160, p.y + Math.sin(a) * 160, 16, 0, 7);
+        x.fill();
+      }
+      x.fillStyle = 'rgba(243,234,214,.55)';
+      x.font = '700 30px Georgia, serif';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.fillText(p.name, p.x, p.y);
+    }
+
+    // лесные поляны
+    for (const c of CAMPS) {
+      x.fillStyle = '#3d5b3b';
+      x.beginPath();
+      x.ellipse(c.x, c.y, 85, 70, 0.4, 0, 7);
+      x.fill();
+      x.fillStyle = '#6b5a3f';
+      x.beginPath();
+      x.ellipse(c.x, c.y, 34, 26, 0.4, 0, 7);
+      x.fill();
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3 + 0.3;
+        x.fillStyle = C.stone;
+        x.beginPath();
+        x.arc(c.x + Math.cos(a) * 72, c.y + Math.sin(a) * 58, 9, 0, 7);
+        x.fill();
+      }
+    }
+
+    // площадки баз
+    ([0, 1] as Side[]).forEach((s) => {
+      const t = THRONE_POS[s];
+      const b = BASE_HALF;
+      x.fillStyle = C.stoneDark;
+      roundRect(x, t.x - b - 14, t.y - b - 14, (b + 14) * 2, (b + 14) * 2, 70);
+      x.fill();
+      x.fillStyle = C.stone;
+      roundRect(x, t.x - b, t.y - b, b * 2, b * 2, 60);
+      x.fill();
+      x.save();
+      roundRect(x, t.x - b, t.y - b, b * 2, b * 2, 60);
+      x.clip();
+      x.strokeStyle = 'rgba(0,0,0,.18)';
+      x.lineWidth = 2;
+      for (let i = -b; i <= b; i += 52) {
+        x.beginPath();
+        x.moveTo(t.x + i, t.y - b);
+        x.lineTo(t.x + i, t.y + b);
+        x.moveTo(t.x - b, t.y + i);
+        x.lineTo(t.x + b, t.y + i);
+        x.stroke();
+      }
+      x.restore();
+      x.strokeStyle = C.side[s];
+      x.lineWidth = 6;
+      x.globalAlpha = 0.6;
+      roundRect(x, t.x - b + 10, t.y - b + 10, (b - 10) * 2, (b - 10) * 2, 52);
+      x.stroke();
+      x.globalAlpha = 1;
+      // источник в углу базы — место возрождения
+      const fx = s === 0 ? t.x - 150 : t.x + 150;
+      const fy = s === 0 ? t.y + 150 : t.y - 150;
+      x.fillStyle = C.stoneDark;
+      x.beginPath();
+      x.arc(fx, fy, 62, 0, 7);
+      x.fill();
+      x.fillStyle = s === 0 ? '#3aa79a' : '#b8465a';
+      x.beginPath();
+      x.arc(fx, fy, 48, 0, 7);
+      x.fill();
+      x.fillStyle = 'rgba(255,255,255,.35)';
+      x.beginPath();
+      x.arc(fx - 12, fy - 12, 14, 0, 7);
+      x.fill();
+    });
+
+    // лес: деревья везде, кроме дорог, реки, баз, полян и логов
+    const tr = rng(42);
+    for (let i = 0; i < 5200; i++) {
+      const px = tr() * W;
+      const py = tr() * H;
+      const s = 18 + tr() * 22;
+      const free =
+        g.lanes.every((l) => l.dist(px, py) > 92 + s) &&
+        riverDist(px, py) > RIVER_W / 2 + 22 + s &&
+        THRONE_POS.every((t) => Math.max(Math.abs(t.x - px), Math.abs(t.y - py)) > BASE_HALF + 30 + s) &&
+        CAMPS.every((c) => Math.hypot(c.x - px, c.y - py) > 100 + s) &&
+        PITS.every((p) => Math.hypot(p.x - px, p.y - py) > 195 + s);
+      if (!free) continue;
+      x.fillStyle = 'rgba(0,0,0,.25)';
+      x.beginPath();
+      x.arc(px + 5, py + 8, s, 0, 7);
+      x.fill();
+      x.fillStyle = C.tree;
+      x.beginPath();
+      x.arc(px, py, s, 0, 7);
+      x.fill();
+      x.fillStyle = tr() > 0.4 ? C.tree2 : C.tree3;
+      x.beginPath();
+      x.arc(px - s * 0.2, py - s * 0.25, s * 0.72, 0, 7);
+      x.fill();
+    }
+    // валуны у краёв леса
+    const rr = rng(99);
+    for (let i = 0; i < 260; i++) {
+      const px = rr() * W;
+      const py = rr() * H;
+      const d = Math.min(...g.lanes.map((l) => l.dist(px, py)));
+      if (d < 100 || d > 140 || riverDist(px, py) < RIVER_W / 2 + 30) continue;
+      const s = 12 + rr() * 14;
+      x.fillStyle = C.stoneDark;
+      x.beginPath();
+      x.ellipse(px, py + 3, s * 1.2, s * 0.8, rr(), 0, 7);
+      x.fill();
+      x.fillStyle = '#7a7266';
+      x.beginPath();
+      x.ellipse(px - 2, py, s, s * 0.65, rr(), 0, 7);
       x.fill();
     }
 
-    // река по диагонали — граница половин карты
-    x.lineCap = 'round';
-    x.strokeStyle = C.river;
-    x.lineWidth = 90;
-    x.beginPath();
-    x.moveTo(-40, 1010);
-    x.bezierCurveTo(300, 960, 700, 840, 1040, 790);
-    x.stroke();
-    x.strokeStyle = C.river2;
-    x.lineWidth = 34;
-    x.stroke();
-
     // дороги
-    x.lineJoin = 'round';
     for (const lane of g.lanes) {
       x.beginPath();
       lane.pts.forEach(([px, py], i) => (i ? x.lineTo(px, py) : x.moveTo(px, py)));
       x.strokeStyle = C.roadEdge;
-      x.lineWidth = 92;
+      x.lineWidth = 104;
       x.stroke();
       x.strokeStyle = C.road;
-      x.lineWidth = 76;
+      x.lineWidth = 86;
       x.stroke();
-    }
-
-    // деревья вне дорог
-    const near = (px: number, py: number) => {
-      for (const lane of g.lanes) {
-        for (let s = 0; s <= lane.length; s += 25) {
-          const p = lane.at(s);
-          if (Math.hypot(p.x - px, p.y - py) < 85) return true;
-        }
-      }
-      return THRONE_POS.some((t) => Math.hypot(t.x - px, t.y - py) < 150);
-    };
-    const tr = rng(42);
-    for (let i = 0; i < 340; i++) {
-      const px = tr() * WORLD.W;
-      const py = tr() * WORLD.H;
-      if (near(px, py)) continue;
-      const s = 16 + tr() * 18;
-      x.fillStyle = C.tree;
-      x.beginPath();
-      x.arc(px, py + 4, s, 0, 7);
-      x.fill();
-      x.fillStyle = C.tree2;
-      x.beginPath();
-      x.arc(px - 3, py, s * 0.8, 0, 7);
-      x.fill();
-    }
-
-    // площадки вышек
-    for (const lane of g.lanes) {
-      BAL.slotT.forEach((t, i) => {
-        const p = lane.at(t * lane.length);
-        x.fillStyle = C.pad;
+      x.strokeStyle = 'rgba(0,0,0,.08)';
+      x.lineWidth = 4;
+      x.setLineDash([30, 40]);
+      x.stroke();
+      x.setLineDash([]);
+      // мост там, где дорога пересекает реку
+      for (let s = 0; s < lane.length; s += 13) {
+        const p = lane.at(s);
+        if (riverDist(p.x, p.y) > RIVER_W / 2 + 18) continue;
+        x.strokeStyle = C.plank;
+        x.lineWidth = 6;
         x.beginPath();
-        x.ellipse(p.x, p.y, 58, 46, 0, 0, 7);
-        x.fill();
-        x.strokeStyle = i < 3 ? C.sideDeep[0] : C.sideDeep[1];
-        x.lineWidth = 4;
+        x.moveTo(p.x - p.nx * 48, p.y - p.ny * 48);
+        x.lineTo(p.x + p.nx * 48, p.y + p.ny * 48);
         x.stroke();
-      });
+        x.fillStyle = '#3a2c1a';
+        x.fillRect(p.x - p.nx * 54 - 4, p.y - p.ny * 54 - 4, 8, 8);
+        x.fillRect(p.x + p.nx * 54 - 4, p.y + p.ny * 54 - 4, 8, 8);
+      }
     }
+
+    // мини-версия фона для миникарты
+    this.mini.width = 256;
+    this.mini.height = 256;
+    const m = this.mini.getContext('2d')!;
+    m.imageSmoothingQuality = 'high';
+    m.drawImage(this.bg, 0, 0, 256, 256);
   }
 
-  draw() {
-    const { ctx, g } = this;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.bg, 0, 0);
-    ctx.setTransform(this.k * this.dpr, 0, 0, this.k * this.dpr, 0, 0);
+  // ---------- кадр ----------
 
-    this.drawFronts();
+  draw(dt = 0) {
+    const { ctx, g, cam } = this;
+    this.stepCamera(dt);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = C.dark;
+    ctx.fillRect(0, 0, this.cv.width, this.cv.height);
+    const d = this.dpr;
+    ctx.setTransform(d * cam.z, 0, 0, d * cam.z, d * (this.vw / 2 - cam.x * cam.z), d * (this.vh / 2 - cam.y * cam.z));
+
+    // видимая часть фона
+    const sx = Math.max(0, Math.floor(cam.x - this.vw / 2 / cam.z) - 2);
+    const sy = Math.max(0, Math.floor(cam.y - this.vh / 2 / cam.z) - 2);
+    const sw = Math.min(WORLD.W - sx, Math.ceil(this.vw / cam.z) + 4);
+    const sh = Math.min(WORLD.H - sy, Math.ceil(this.vh / cam.z) + 4);
+    if (sw > 0 && sh > 0) ctx.drawImage(this.bg, sx, sy, sw, sh, sx, sy, sw, sh);
+
+    this.drawPads();
     for (const s of [0, 1] as Side[]) this.drawThrone(s);
     for (const w of g.wards) {
       const p = g.lanes[w.lane].pos(w.s, w.off);
@@ -167,19 +414,86 @@ export class Renderer {
     this.drawFx();
   }
 
-  /** Подсветка: до какой позиции дошла каждая сторона на линии. */
-  private drawFronts() {
+  /** Площадки вышек: цвет — чья это территория сейчас, передняя — где стоят герои. */
+  private drawPads() {
     const { ctx, g } = this;
     for (let l = 0; l < 3; l++) {
-      for (const side of [0, 1] as Side[]) {
-        const s = g.slotS(l, side);
-        const p = g.lanes[l].at(s);
-        ctx.fillStyle = side === 0 ? 'rgba(95,212,196,.22)' : 'rgba(224,86,107,.22)';
+      const lane = g.lanes[l];
+      BAL.slotT.forEach((t, i) => {
+        const p = lane.at(t * lane.length);
+        const owner = g.slotOwner(l, i);
+        const front = g.front[l][owner] === i;
+        ctx.fillStyle = C.stoneDark;
         ctx.beginPath();
-        ctx.ellipse(p.x, p.y, 64, 52, 0, 0, 7);
+        ctx.ellipse(p.x, p.y + 6, 66, 52, 0, 0, 7);
         ctx.fill();
-      }
+        ctx.fillStyle = C.stone;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, 62, 48, 0, 0, 7);
+        ctx.fill();
+        ctx.strokeStyle = C.side[owner];
+        ctx.globalAlpha = front ? 0.9 : 0.45;
+        ctx.lineWidth = front ? 6 : 4;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        if (!front) {
+          // пустая запасная позиция — каменная башенка
+          ctx.fillStyle = C.sideDeep[owner];
+          ctx.fillRect(p.x - 14, p.y - 30, 28, 34);
+          ctx.fillStyle = C.stoneDark;
+          for (let k = 0; k < 3; k++) ctx.fillRect(p.x - 16 + k * 12, p.y - 38, 8, 9);
+        }
+      });
     }
+  }
+
+  // ---------- миникарта ----------
+
+  drawMinimap(m: CanvasRenderingContext2D, size: number, dpr: number) {
+    const g = this.g;
+    m.setTransform(dpr, 0, 0, dpr, 0, 0);
+    m.drawImage(this.mini, 0, 0, size, size);
+    const k = size / WORLD.W;
+    for (let l = 0; l < 3; l++) {
+      const lane = g.lanes[l];
+      BAL.slotT.forEach((t, i) => {
+        const p = lane.at(t * lane.length);
+        m.fillStyle = C.side[g.slotOwner(l, i)];
+        m.fillRect(p.x * k - 3, p.y * k - 3, 6, 6);
+      });
+    }
+    for (const c of g.creeps) {
+      const p = g.creepPos(c);
+      m.fillStyle = c.side === 0 ? '#bff3ea' : '#ffb3bf';
+      m.fillRect(p.x * k - 1, p.y * k - 1, 2.5, 2.5);
+    }
+    ([0, 1] as Side[]).forEach((s) => {
+      const t = THRONE_POS[s];
+      const blink = g.throneUnderAttack(s) && Math.floor(performance.now() / 250) % 2 === 0;
+      m.fillStyle = blink ? '#fff1d6' : C.side[s];
+      m.beginPath();
+      m.arc(t.x * k, t.y * k, 6, 0, 7);
+      m.fill();
+    });
+    for (const h of g.heroes) {
+      if (h.dead) continue;
+      const p = g.heroPos(h);
+      m.fillStyle = C.dark;
+      m.beginPath();
+      m.arc(p.x * k, p.y * k, 4.5, 0, 7);
+      m.fill();
+      m.fillStyle = h.side === 0 ? C.side[0] : C.side[1];
+      m.beginPath();
+      m.arc(p.x * k, p.y * k, 3.2, 0, 7);
+      m.fill();
+    }
+    // рамка обзора
+    const c = this.cam;
+    const w = (this.vw / c.z) * k;
+    const h = (this.vh / c.z) * k;
+    m.strokeStyle = '#ffffff';
+    m.lineWidth = 1.5;
+    m.strokeRect(c.x * k - w / 2, c.y * k - h / 2, w, h);
   }
 
   private drawThrone(side: Side) {
@@ -386,4 +700,14 @@ function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: 
   ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
   ctx.fillStyle = col;
   ctx.fillRect(x, y, w * Math.max(0, Math.min(1, k)), h);
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

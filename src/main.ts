@@ -1,10 +1,10 @@
 // Точка входа: экраны меню → выбор → расстановка → бой → итог.
-import { BAL, Difficulty } from './data/config';
+import { BAL, Difficulty, WORLD } from './data/config';
 import { HEROES, heroById } from './data/heroes';
 import { Renderer } from './render/renderer';
 import { Bot, botPicks } from './sim/bot';
 import { Game } from './sim/game';
-import { LANE_NAMES } from './sim/map';
+import { LANE_NAMES, LANE_SHORT } from './sim/map';
 import type { Hero, Pick } from './sim/types';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -170,9 +170,11 @@ function buildPanel() {
     cast.type = 'button';
     cast.className = 'hb-cast';
     cast.setAttribute('aria-label', `${h.def.name}: ${h.def.skill.name}`);
-    cast.innerHTML = `${portrait(h.def.color, h.def.glyph)}<span>${h.def.name.split(' ')[0]}</span><span class="lname">${LANE_NAMES[h.lane]}</span><span class="cdv" hidden></span><span class="mana"></span>`;
+    cast.innerHTML = `${portrait(h.def.color, h.def.glyph)}<span>${h.def.name.split(' ')[0]}</span><span class="lname">${LANE_SHORT[h.lane]}</span><span class="cdv" hidden></span><span class="mana"></span>`;
     cast.onclick = () => {
       selected = h;
+      const hp = g.heroPos(h);
+      renderer?.focus(hp.x, hp.y);
       if (!g.cast(h)) pulse(cast);
     };
     const up = document.createElement('button');
@@ -222,7 +224,7 @@ function syncPanel() {
     const lvl = g.creepLvl[l][0];
     const maxed = lvl >= BAL.creepMaxLvl;
     const cost = g.creepUpCost(l, 0);
-    const html = `<span>Крипы · ${LANE_NAMES[l]}</span><small>ур. ${lvl} · у врага ${g.creepLvl[l][1]}</small><span class="cost">${maxed ? 'максимум' : '▲ ' + cost}</span>`;
+    const html = `<span>Крипы · ${LANE_SHORT[l]}</span><small>ур. ${lvl} · у врага ${g.creepLvl[l][1]}</small><span class="cost">${maxed ? 'максимум' : '▲ ' + cost}</span>`;
     if (b.dataset.h !== html) { b.innerHTML = html; b.dataset.h = html; }
     b.disabled = maxed || g.gold[0] < cost;
   });
@@ -243,16 +245,84 @@ function fit() {
   if (!renderer) return;
   const f = $('field');
   renderer.resize(f.clientWidth, f.clientHeight);
+  const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+  const ms = mini.clientWidth || 116;
+  mini.width = Math.round(ms * dpr);
+  mini.height = Math.round(ms * dpr);
 }
 new ResizeObserver(fit).observe($('field'));
 
-cv.addEventListener('pointerdown', (e) => {
-  if (!renderer || !game) return;
+// ---------- камера: перетаскивание, щипок, колесо, миникарта ----------
+const pts = new Map<number, { x: number; y: number }>();
+let moved = 0;
+let pinch = 0;
+const local = (e: PointerEvent) => {
   const r = cv.getBoundingClientRect();
-  const w = renderer.toWorld(e.clientX - r.left, e.clientY - r.top);
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+};
+cv.addEventListener('pointerdown', (e) => {
+  cv.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId, local(e));
+  if (pts.size === 1) moved = 0;
+  if (pts.size === 2) {
+    const [a, b] = [...pts.values()];
+    pinch = Math.hypot(a.x - b.x, a.y - b.y);
+    moved = 99;
+  }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!renderer || !pts.has(e.pointerId)) return;
+  const prev = pts.get(e.pointerId)!;
+  const cur = local(e);
+  if (pts.size === 1) {
+    moved += Math.abs(cur.x - prev.x) + Math.abs(cur.y - prev.y);
+    if (moved > 8) renderer.pan(cur.x - prev.x, cur.y - prev.y);
+    pts.set(e.pointerId, cur);
+  } else if (pts.size === 2) {
+    const before = [...pts.values()];
+    const midB = { x: (before[0].x + before[1].x) / 2, y: (before[0].y + before[1].y) / 2 };
+    pts.set(e.pointerId, cur);
+    const [a, b] = [...pts.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (pinch > 0 && d > 0) renderer.zoomAt(d / pinch, mid.x, mid.y);
+    renderer.pan(mid.x - midB.x, mid.y - midB.y);
+    pinch = d;
+  }
+});
+const endPtr = (e: PointerEvent) => {
+  if (!pts.has(e.pointerId)) return;
+  const wasTap = pts.size === 1 && moved <= 8;
+  pts.delete(e.pointerId);
+  if (pts.size < 2) pinch = 0;
+  if (!wasTap || !renderer || !game || e.type === 'pointercancel') return;
+  const p = local(e);
+  const w = renderer.toWorld(p.x, p.y);
   const h = renderer.heroAt(w.x, w.y);
   selected = h && h.side === 0 ? h : null;
-});
+};
+cv.addEventListener('pointerup', endPtr);
+cv.addEventListener('pointercancel', endPtr);
+cv.addEventListener('wheel', (e) => {
+  if (!renderer) return;
+  e.preventDefault();
+  const p = local(e as unknown as PointerEvent);
+  renderer.zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+}, { passive: false });
+
+const mini = $<HTMLCanvasElement>('mini');
+const miniCtx = mini.getContext('2d')!;
+let miniDrag = false;
+const miniJump = (e: PointerEvent) => {
+  if (!renderer) return;
+  const r = mini.getBoundingClientRect();
+  const k = WORLD.W / r.width;
+  renderer.jump((e.clientX - r.left) * k, (e.clientY - r.top) * k);
+};
+mini.addEventListener('pointerdown', (e) => { miniDrag = true; mini.setPointerCapture(e.pointerId); miniJump(e); });
+mini.addEventListener('pointermove', (e) => { if (miniDrag) miniJump(e); });
+mini.addEventListener('pointerup', () => { miniDrag = false; });
+mini.addEventListener('pointercancel', () => { miniDrag = false; });
 
 $('autoBtn').onclick = () => {
   if (!game) return;
@@ -306,7 +376,8 @@ function frame(now: number) {
       }
     }
     renderer.selected = selected;
-    renderer.draw();
+    renderer.draw(dt);
+    renderer.drawMinimap(miniCtx, mini.clientWidth || 116, Math.min(2.5, window.devicePixelRatio || 1));
     syncPanel();
     if (game.winner !== null) finish();
   }

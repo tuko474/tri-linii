@@ -2,7 +2,7 @@
 // Это пригодится для онлайна: тот же код сможет крутиться на сервере.
 import { BAL, CreepKind, Difficulty } from '../data/config';
 import { heroById } from '../data/heroes';
-import { LaneGeo, LANE_NAMES, THRONE_POS, buildLanes } from './map';
+import { GUARD_R, LaneGeo, LANE_NAMES, THRONE_POS, THRONE_R, buildLanes } from './map';
 import type { Creep, Fx, GameEvent, Hero, Pick, Proj, Side, Target, Ward } from './types';
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
@@ -52,9 +52,19 @@ export class Game {
   slotS(lane: number, side: Side): number {
     const f = this.front[lane][side];
     const L = this.lanes[lane].length;
-    if (side === 0 && f < 0) return BAL.throneGuardT[0] * L;
-    if (side === 1 && f > 5) return BAL.throneGuardT[1] * L;
+    if (side === 0 && f < 0) return GUARD_R;
+    if (side === 1 && f > 5) return L - GUARD_R;
     return BAL.slotT[f] * L;
+  }
+
+  /** Точка на линии, откуда бьют трон стороны side. */
+  throneS(lane: number, side: Side): number {
+    return side === 0 ? THRONE_R : this.lanes[lane].length - THRONE_R;
+  }
+
+  /** Владелец площадки вышки: сторона, чья территория её покрывает. */
+  slotOwner(lane: number, slot: number): Side {
+    return slot <= this.front[lane][0] ? 0 : 1;
   }
 
   atThrone(lane: number, side: Side): boolean {
@@ -308,7 +318,6 @@ export class Game {
   private spawnWave() {
     this.waveNo++;
     for (let lane = 0; lane < 3; lane++) {
-      const L = this.lanes[lane].length;
       for (const side of [0, 1] as Side[]) {
         const lvl = this.creepLvl[lane][side];
         const kinds: CreepKind[] = [];
@@ -318,10 +327,11 @@ export class Game {
         if (lvl >= 6) kinds.push('ranged');
         if (this.waveNo % BAL.siegeEvery === 0) kinds.push('siege');
         const dir = side === 0 ? 1 : -1;
-        const base = BAL.throneT[side] * L;
+        const base = this.throneS(lane, side);
         kinds.forEach((kind, i) => {
           const st = BAL.creep[kind];
-          const mul = 1 + BAL.creepLvlMul * lvl;
+          const late = Math.max(0, this.t - BAL.lateGameFrom) / 60;
+          const mul = (1 + BAL.creepLvlMul * lvl) * (1 + BAL.lateGamePerMin * late);
           this.creeps.push({
             uid: this.uid++, kind, side, lane,
             s: base - dir * i * 28,
@@ -400,7 +410,6 @@ export class Game {
       if (c.stunT > 0) { c.stunT -= dt; continue; }
 
       const dir = c.side === 0 ? 1 : -1;
-      const L = this.lanes[c.lane].length;
       const reach = c.range + c.r;
 
       // 1. вражеский крип в зоне атаки
@@ -421,7 +430,7 @@ export class Game {
 
       // 3. вражеский трон
       if (!target) {
-        const throneS = BAL.throneT[1 - c.side] * L;
+        const throneS = this.throneS(c.lane, (1 - c.side) as Side);
         if ((throneS - c.s) * dir <= reach + 30) target = { kind: 'throne', side: (1 - c.side) as Side };
       }
 

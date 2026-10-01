@@ -151,9 +151,11 @@ h2 { font-size: 22px; }
 .throne-bar b { display: block; height: 100%; width: 100%; transition: width .2s; }
 .throne-bar.foe b { background: var(--dark); }
 .throne-bar.mine b { background: var(--light); }
-.field { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; position: relative; background: #1d2d22; }
+.field { flex: 1; min-height: 0; position: relative; background: #14121c; overflow: hidden; }
+.field > #cv { position: absolute; inset: 0; }
 canvas { display: block; touch-action: none; }
-.toasts { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.minimap { position: absolute; top: 8px; left: 8px; width: 116px; height: 116px; border-radius: 10px; border: 2px solid rgba(243,234,214,.55); box-shadow: 0 4px 14px rgba(0,0,0,.45); touch-action: none; cursor: pointer; }
+.toasts { position: absolute; top: 10px; left: 136px; right: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
 .toast { background: rgba(23,20,42,.92); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; animation: toast 3s forwards; }
 .toast.good { border-color: var(--light); color: var(--light); }
 .toast.bad { border-color: var(--dark); color: #ff9aa8; }
