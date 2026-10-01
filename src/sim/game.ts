@@ -759,8 +759,15 @@ export class Game {
     c.slowT = Math.max(c.slowT, t);
   }
 
+  /** Насколько глубоко в своей половине стоят герои линии: 0 — передняя позиция … 3 — у трона. */
+  depth(lane: number, side: Side): number {
+    const f = this.front[lane][side];
+    return side === 0 ? 2 - f : f - 3;
+  }
+
   private hitHero(h: Hero, dmg: number) {
     if (h.dead) return;
+    if (!h.trip) dmg *= 1 - BAL.depthArmor[Math.max(0, Math.min(3, this.depth(h.lane, h.side)))];
     h.hp -= dmg;
     h.flash = 0.12;
     if (h.hp <= 0) {

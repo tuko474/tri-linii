@@ -10,7 +10,7 @@ for (let i = 0; i < N; i++) {
   g.autoCast = [true, true];
   const bots = [new Bot(0), new Bot(1)];
   const dt = 1 / 30;
-  while (g.winner === null && g.t < 1800) {
+  while (g.winner === null && g.t < 3600) {
     bots[0].update(g, dt);
     bots[1].update(g, dt);
     g.update(dt);

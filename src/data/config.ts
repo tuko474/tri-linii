@@ -1,6 +1,6 @@
 // Баланс игры. Все числа в одном месте, чтобы крутить их без поиска по коду.
 
-export const WORLD = { W: 2400, H: 2400 };
+export const WORLD = { W: 4200, H: 2400 };
 
 export type CreepKind = 'melee' | 'ranged' | 'siege' | 'lord';
 
@@ -17,7 +17,7 @@ export interface CreepStats {
 export const BAL = {
   startGold: 250,
   passiveGold: 3, // золота в секунду
-  throneHp: 2500,
+  throneHp: 3600,
   heroRespawn: 12, // сек, если на линии жив хотя бы один союзный герой
   pushRespawn: 3, // сек после отката линии
   heroRegen: 0.006, // доля HP в секунду
@@ -28,17 +28,20 @@ export const BAL = {
   // Позиции вышек вдоль линии (доля длины от трона игрока).
   // 0..2 — сторона игрока, 3..5 — сторона противника.
   slotT: [0.2, 0.32, 0.44, 0.56, 0.68, 0.8],
+  // Чем глубже позиция в своей половине, тем меньше урона получают её герои (как вышки у базы).
+  // Индекс: 0 — передняя, 1 — средняя, 2 — у базы, 3 — у трона.
+  depthArmor: [0, 0.2, 0.35, 0.5],
 
   creep: {
-    melee: { hp: 300, dmg: 19, range: 40, rate: 1.0, speed: 110, gold: 12, r: 12 },
-    ranged: { hp: 200, dmg: 24, range: 165, rate: 1.25, speed: 110, gold: 16, r: 10 },
-    siege: { hp: 650, dmg: 70, range: 270, rate: 2.6, speed: 80, gold: 40, r: 16 },
+    melee: { hp: 300, dmg: 19, range: 40, rate: 1.0, speed: 80, gold: 12, r: 12 },
+    ranged: { hp: 200, dmg: 24, range: 165, rate: 1.25, speed: 80, gold: 16, r: 10 },
+    siege: { hp: 650, dmg: 70, range: 270, rate: 2.6, speed: 62, gold: 40, r: 16 },
     // Лорд, перешедший на сторону победителя: идёт по линии как огромный крип
-    lord: { hp: 2600, dmg: 85, range: 70, rate: 1.3, speed: 85, gold: 150, r: 34 },
+    lord: { hp: 2600, dmg: 85, range: 70, rate: 1.3, speed: 65, gold: 150, r: 34 },
   } as Record<CreepKind, CreepStats>,
 
-  lateGameFrom: 600, // с 10-й минуты крипы усиливаются сами, чтобы бой не тянулся вечно
-  lateGamePerMin: 0.12, // +12% HP и урона за каждую минуту после этого
+  lateGameFrom: 1200, // с 20-й минуты крипы усиливаются сами, чтобы бой не тянулся вечно
+  lateGamePerMin: 0.2, // +20% HP и урона за каждую минуту после этого
   creepLvlMul: 0.2, // +20% HP и урона за уровень волны
   creepMaxLvl: 12,
   creepUpCost: (lvl: number) => 110 + 65 * lvl,

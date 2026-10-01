@@ -386,9 +386,9 @@ function fit() {
   const f = $('field');
   renderer.resize(f.clientWidth, f.clientHeight);
   const dpr = Math.min(2.5, window.devicePixelRatio || 1);
-  const ms = mini.clientWidth || 108;
+  const ms = mini.clientWidth || 150;
   mini.width = Math.round(ms * dpr);
-  mini.height = Math.round(ms * dpr);
+  mini.height = Math.round(((ms * WORLD.H) / WORLD.W) * dpr);
 }
 new ResizeObserver(fit).observe($('field'));
 
@@ -459,8 +459,7 @@ let miniDrag = false;
 const miniJump = (e: PointerEvent) => {
   if (!renderer) return;
   const r = mini.getBoundingClientRect();
-  const k = WORLD.W / r.width;
-  renderer.jump((e.clientX - r.left) * k, (e.clientY - r.top) * k);
+  renderer.jump(((e.clientX - r.left) * WORLD.W) / r.width, ((e.clientY - r.top) * WORLD.H) / r.height);
 };
 mini.addEventListener('pointerdown', (e) => { miniDrag = true; mini.setPointerCapture(e.pointerId); miniJump(e); });
 mini.addEventListener('pointermove', (e) => { if (miniDrag) miniJump(e); });
@@ -551,7 +550,7 @@ function frame(now: number) {
     }
     renderer.selected = selected;
     renderer.draw(running ? dt : 0);
-    renderer.drawMinimap(miniCtx, mini.clientWidth || 108, Math.min(2.5, window.devicePixelRatio || 1));
+    renderer.drawMinimap(miniCtx, mini.clientWidth || 150, Math.min(2.5, window.devicePixelRatio || 1));
     syncPanel();
     if (running) {
       const tense = game.throneUnderAttack(0) || game.heroes.some((h) => h.trip?.phase === 'fight' && h.side === 0);

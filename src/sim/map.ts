@@ -101,24 +101,49 @@ export const RIVER: [number, number][] = (() => {
     const t = i / 40;
     const x = -120 + (W + 240) * t;
     const y = -120 + (H + 240) * t;
-    const wob = Math.sin(t * Math.PI * 3) * 70;
-    pts.push([x + wob * 0.707, y - wob * 0.707]);
+    const wob = Math.sin(t * Math.PI * 3) * 80;
+    const L = Math.hypot(W, H);
+    pts.push([x + (wob * H) / L, y - (wob * W) / L]);
   }
   return pts;
 })();
 export const RIVER_W = 190;
 
-/** Логова будущих боссов в реке. */
+/** На чьей половине точка: 0 — снизу слева от реки (игрок), 1 — сверху справа. */
+export const halfOf = (x: number, y: number): 0 | 1 => (y * W > x * H ? 0 : 1);
+
+const onRiver = (t: number) => ({ x: -120 + (W + 240) * t, y: -120 + (H + 240) * t });
+
+/** Логова боссов в реке: Лорд ближе к верхней линии, Черепаха — к нижней. */
 export const PITS = [
-  { x: 760, y: 760, name: 'Лорд' },
-  { x: W - 760, y: H - 760, name: 'Черепаха' },
+  { ...onRiver(0.31), name: 'Лорд' },
+  { ...onRiver(0.69), name: 'Черепаха' },
 ];
 
-/** Лесные лагеря (поляны). Зеркально для обеих сторон. */
+/** Лесные лагеря (поляны): подбираются автоматически в лесу каждой половины, зеркально. */
 export const CAMPS: { x: number; y: number }[] = (() => {
-  const mine = [
-    { x: 560, y: 1250 }, { x: 830, y: 1350 }, { x: 540, y: 1660 },
-    { x: 1150, y: 1900 }, { x: 1460, y: 1720 }, { x: 1200, y: 1560 },
-  ];
-  return [...mine, ...mine.map((p) => ({ x: W - p.x, y: H - p.y }))];
+  const lanes = buildLanes();
+  const ok = (x: number, y: number) =>
+    halfOf(x, y) === 0 &&
+    lanes.every((l) => l.dist(x, y) > 260) &&
+    RIVER.every((_, i) => i === 0 || segDist(x, y, RIVER[i - 1], RIVER[i]) > RIVER_W / 2 + 200) &&
+    THRONE_POS.every((t) => Math.hypot(t.x - x, t.y - y) > 700) &&
+    PITS.every((p) => Math.hypot(p.x - x, p.y - y) > 450) &&
+    x > 200 && y > 200 && x < W - 200 && y < H - 200;
+  const cand: { x: number; y: number }[] = [];
+  for (let y = 150; y < H; y += 60) for (let x = 150; x < W; x += 60) if (ok(x, y)) cand.push({ x, y });
+  // самые удалённые друг от друга точки
+  const picked: { x: number; y: number }[] = [];
+  if (cand.length) picked.push(cand[Math.floor(cand.length / 2)]);
+  while (picked.length < 8 && cand.length) {
+    let best = cand[0];
+    let bd = -1;
+    for (const c of cand) {
+      const d = Math.min(...picked.map((p) => Math.hypot(p.x - c.x, p.y - c.y)));
+      if (d > bd) { bd = d; best = c; }
+    }
+    if (bd < 380) break;
+    picked.push(best);
+  }
+  return [...picked, ...picked.map((p) => ({ x: W - p.x, y: H - p.y }))];
 })();

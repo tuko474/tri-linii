@@ -4,7 +4,8 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
-  --mini: 108px;
+  --mini: 150px;
+  --mini-h: calc(var(--mini) * 4 / 7);
   --night: #17142a;
   --panel: #221d3a;
   --panel2: #2b2549;
@@ -158,7 +159,7 @@ canvas { display: block; }
 
 .minimap {
   top: calc(8px + var(--sat)); left: calc(8px + var(--sal));
-  width: var(--mini); height: var(--mini);
+  width: var(--mini); height: var(--mini-h);
   border-radius: 10px; border: 2px solid rgba(243,234,214,.55);
   box-shadow: 0 4px 14px rgba(0,0,0,.45); touch-action: none; cursor: pointer;
 }

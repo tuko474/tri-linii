@@ -39,6 +39,8 @@ const riverDist = (x: number, y: number) => {
 };
 
 const BASE_HALF = 260; // половина стороны площадки базы
+/** Фон хранится в уменьшенном виде, чтобы широкая карта не съедала память телефона. */
+const BG_SCALE = 0.7;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -72,11 +74,11 @@ export class Renderer {
     this.minZ = Math.min(cssW / WORLD.W, cssH / WORLD.H);
     this.maxZ = Math.max(this.minZ, Math.min(1.2, cssW / 380));
     if (!this.started) {
-      // по умолчанию в кадре ~1500 единиц мира по длинной стороне: своя база и ближние вышки
-      this.cam.z = Math.max(cssW, cssH) / 1500;
+      // по умолчанию в кадре ~2300 единиц мира по длинной стороне: своя база и ближние вышки
+      this.cam.z = Math.max(cssW, cssH) / 2300;
       const t = THRONE_POS[0];
-      this.cam.x = t.x + 620;
-      this.cam.y = t.y - 380;
+      this.cam.x = t.x + 950;
+      this.cam.y = t.y - 520;
       this.started = true;
     }
     this.clamp();
@@ -144,15 +146,17 @@ export class Renderer {
   private drawStatic() {
     const g = this.g;
     const { W, H } = WORLD;
-    this.bg.width = W;
-    this.bg.height = H;
+    this.bg.width = Math.ceil(W * BG_SCALE);
+    this.bg.height = Math.ceil(H * BG_SCALE);
     const x = this.bg.getContext('2d')!;
+    x.scale(BG_SCALE, BG_SCALE);
+    const area = (W * H) / (2400 * 2400);
 
     // земля
     x.fillStyle = C.grass;
     x.fillRect(0, 0, W, H);
     const r = rng(7);
-    for (let i = 0; i < 900; i++) {
+    for (let i = 0; i < 900 * area; i++) {
       x.fillStyle = r() > 0.5 ? C.grass2 : C.grass3;
       x.globalAlpha = 0.7;
       x.beginPath();
@@ -292,7 +296,7 @@ export class Renderer {
 
     // лес: деревья везде, кроме дорог, реки, баз, полян и логов
     const tr = rng(42);
-    for (let i = 0; i < 5200; i++) {
+    for (let i = 0; i < 5200 * area; i++) {
       const px = tr() * W;
       const py = tr() * H;
       const s = 18 + tr() * 22;
@@ -318,7 +322,7 @@ export class Renderer {
     }
     // валуны у краёв леса
     const rr = rng(99);
-    for (let i = 0; i < 260; i++) {
+    for (let i = 0; i < 260 * area; i++) {
       const px = rr() * W;
       const py = rr() * H;
       const d = Math.min(...g.lanes.map((l) => l.dist(px, py)));
@@ -366,11 +370,11 @@ export class Renderer {
     }
 
     // мини-версия фона для миникарты
-    this.mini.width = 256;
-    this.mini.height = 256;
+    this.mini.width = 320;
+    this.mini.height = Math.round((320 * H) / W);
     const m = this.mini.getContext('2d')!;
     m.imageSmoothingQuality = 'high';
-    m.drawImage(this.bg, 0, 0, 256, 256);
+    m.drawImage(this.bg, 0, 0, this.mini.width, this.mini.height);
   }
 
   // ---------- кадр ----------
@@ -389,7 +393,7 @@ export class Renderer {
     const sy = Math.max(0, Math.floor(cam.y - this.vh / 2 / cam.z) - 2);
     const sw = Math.min(WORLD.W - sx, Math.ceil(this.vw / cam.z) + 4);
     const sh = Math.min(WORLD.H - sy, Math.ceil(this.vh / cam.z) + 4);
-    if (sw > 0 && sh > 0) ctx.drawImage(this.bg, sx, sy, sw, sh, sx, sy, sw, sh);
+    if (sw > 0 && sh > 0) ctx.drawImage(this.bg, sx * BG_SCALE, sy * BG_SCALE, sw * BG_SCALE, sh * BG_SCALE, sx, sy, sw, sh);
 
     this.drawPads();
     for (const s of [0, 1] as Side[]) this.drawThrone(s);
@@ -573,9 +577,10 @@ export class Renderer {
   // ---------- миникарта ----------
 
   drawMinimap(m: CanvasRenderingContext2D, size: number, dpr: number) {
+    // size — ширина миникарты в CSS-пикселях, высота по пропорциям карты
     const g = this.g;
     m.setTransform(dpr, 0, 0, dpr, 0, 0);
-    m.drawImage(this.mini, 0, 0, size, size);
+    m.drawImage(this.mini, 0, 0, size, (size * WORLD.H) / WORLD.W);
     const k = size / WORLD.W;
     for (let l = 0; l < 3; l++) {
       const lane = g.lanes[l];

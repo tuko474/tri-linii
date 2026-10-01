@@ -1,6 +1,7 @@
 // Простой противник. Играет по тем же правилам и тем же кнопкам, что и игрок.
 import { HEROES } from '../data/heroes';
 import type { Game } from './game';
+import { halfOf } from './map';
 import type { Hero, Pick, Side } from './types';
 
 export function botPicks(): Pick[] {
@@ -95,7 +96,7 @@ export class Bot {
       const h = this.spare(g, 1)[0];
       if (!h) return;
       const from = g.heroPos(h);
-      const camps = g.neutrals.filter((n) => n.kind === 'camp' && n.alive && (me === 0 ? n.y > n.x : n.y < n.x));
+      const camps = g.neutrals.filter((n) => n.kind === 'camp' && n.alive && halfOf(n.x, n.y) === me);
       camps.sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
       if (camps[0]) g.sendParty(me, camps[0].id, [h]);
     }
