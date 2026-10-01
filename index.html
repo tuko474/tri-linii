@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#17142a">
+<title>Три Линии</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Philosopher:wght@700&family=PT+Sans:wght@400;700&display=swap">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<!--APP-->
+<div id="app">
+
+  <section class="screen" id="menu">
+    <div class="menu-art" aria-hidden="true">
+      <span class="lane l1"></span><span class="lane l2"></span><span class="lane l3"></span>
+      <span class="throne t-top"></span><span class="throne t-bot"></span>
+    </div>
+    <h1 class="logo">Три Линии</h1>
+    <p class="tagline">Пять героев. Три линии. Один трон, который надо снести.</p>
+    <div class="seg" id="diff" role="radiogroup" aria-label="Сложность бота"></div>
+    <button type="button" class="btn primary big" id="toPick">В бой</button>
+    <button type="button" class="btn ghost" id="howBtn">Как играть</button>
+  </section>
+
+  <section class="screen" id="how" hidden>
+    <h2>Как играть</h2>
+    <ol class="rules">
+      <li>Выбери 5 героев и расставь их по трём линиям. На каждой линии нужен хотя бы один.</li>
+      <li>Герои стоят на месте как вышки: бьют вражеских крипов автоатакой и способностью. Нажми на портрет внизу, чтобы применить способность.</li>
+      <li>Крипы идут волнами с обеих сторон. Улучшай свою волну на линии, чтобы она дошла до вражеских героев.</li>
+      <li>Если все вражеские герои на линии пали, враг откатывается на позицию назад, а твои герои встают на его место.</li>
+      <li>После трёх откатов путь к трону открыт. Снеси трон — победа.</li>
+    </ol>
+    <button type="button" class="btn primary" id="howBack">Понятно</button>
+  </section>
+
+  <section class="screen scroll" id="pick" hidden>
+    <header class="bar">
+      <button type="button" class="btn icon" id="pickBack" aria-label="Назад">‹</button>
+      <h2>Выбор героев</h2>
+      <span class="count" id="pickCount">0/5</span>
+    </header>
+    <div class="cards" id="cards"></div>
+    <div class="sticky-cta"><button type="button" class="btn primary big" id="toPlace" disabled>Расставить по линиям</button></div>
+  </section>
+
+  <section class="screen" id="place" hidden>
+    <header class="bar">
+      <button type="button" class="btn icon" id="placeBack" aria-label="Назад">‹</button>
+      <h2>Расстановка</h2>
+      <span class="count" id="placeHint"></span>
+    </header>
+    <p class="hint">Нажми на героя, затем на линию. Герои встанут на дальнюю от трона вышку.</p>
+    <div class="lanes" id="laneCols"></div>
+    <div class="sticky-cta"><button type="button" class="btn primary big" id="startBattle">Начать бой</button></div>
+  </section>
+
+  <section class="screen battle" id="battle" hidden>
+    <header class="hud">
+      <div class="throne-bar foe"><span>Трон врага</span><i><b id="foeHp"></b></i></div>
+      <div class="hud-btns">
+        <button type="button" class="btn chip" id="autoBtn" aria-pressed="false">Авто</button>
+        <button type="button" class="btn chip" id="speedBtn">×1</button>
+        <button type="button" class="btn chip" id="pauseBtn" aria-label="Пауза">❚❚</button>
+      </div>
+    </header>
+    <div class="field" id="field">
+      <canvas id="cv"></canvas>
+      <div class="toasts" id="toasts" aria-live="polite"></div>
+    </div>
+    <footer class="panel">
+      <div class="panel-top">
+        <div class="throne-bar mine"><span>Твой трон</span><i><b id="myHp"></b></i></div>
+        <div class="gold" id="gold">0</div>
+      </div>
+      <div class="herobar" id="herobar"></div>
+      <div class="creepbar" id="creepbar"></div>
+      <p class="wave" id="waveInfo"></p>
+    </footer>
+    <div class="modal" id="pauseModal" hidden>
+      <div class="sheet">
+        <h2>Пауза</h2>
+        <button type="button" class="btn primary" id="resume">Продолжить</button>
+        <button type="button" class="btn ghost" id="surrender">Сдаться</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="result" hidden>
+    <h1 class="logo" id="resTitle">Победа</h1>
+    <p class="tagline" id="resText"></p>
+    <dl class="stats" id="resStats"></dl>
+    <button type="button" class="btn primary big" id="again">Ещё бой</button>
+    <button type="button" class="btn ghost" id="toMenu">В меню</button>
+  </section>
+
+</div>
+<!--/APP-->
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

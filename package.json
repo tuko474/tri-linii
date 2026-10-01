@@ -1,0 +1,26 @@
+{
+  "name": "tri-linii",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Три Линии — мобильная лейн-стратегия: герои-вышки, волны крипов, снеси вражеский трон",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview --host",
+    "sim": "tsc -p tsconfig.test.json && node -e \"require('fs').writeFileSync('.simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node .simtest/tools/simtest.js 20",
+    "single": "tsc -p tsconfig.single.json && python3 tools/bundle.py",
+    "android": "npm run build && npx cap sync android && npx cap open android",
+    "ios": "npm run build && npx cap sync ios && npx cap open ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "typescript": "^6.0.0",
+    "vite": "^7.0.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0"
+  }
+}

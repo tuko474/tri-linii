@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "module": "CommonJS", "moduleResolution": "node10", "ignoreDeprecations": "6.0", "noEmit": false, "outDir": ".simtest", "isolatedModules": false },
+  "include": ["src/data", "src/sim", "tools/simtest.ts"]
+}

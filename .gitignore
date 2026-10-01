@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-single/
+.single/
+.simtest/
+android/app/build/
+ios/App/Pods/
+*.keystore
+*.jks
