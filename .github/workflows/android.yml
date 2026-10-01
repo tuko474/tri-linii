@@ -59,12 +59,13 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../tri-linii-0.1.${{ github.run_number }}.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../tri-linii.apk
 
       - name: Сохранить APK в Actions
         uses: actions/upload-artifact@v4
         with:
           name: tri-linii-apk
-          path: tri-linii-*.apk
+          path: tri-linii-0.*.apk
 
       - name: Опубликовать в Releases
         uses: softprops/action-gh-release@v2
@@ -72,5 +73,7 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: Три Линии 0.1.${{ github.run_number }}
           body: Тестовая сборка для Android. Скачай .apk на телефон и установи.
-          files: tri-linii-*.apk
-          prerelease: true
+          files: |
+            tri-linii-0.*.apk
+            tri-linii.apk
+          make_latest: true
