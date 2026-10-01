@@ -38,10 +38,12 @@ jobs:
           if [ ! -d android ]; then npx cap add android; fi
           npx cap sync android
 
-      - name: Портретная ориентация
+      - name: Горизонталь и полный экран
         run: |
           M=android/app/src/main/AndroidManifest.xml
-          grep -q 'screenOrientation' "$M" || sed -i 's/android:name=".MainActivity"/android:name=".MainActivity"\n            android:screenOrientation="portrait"/' "$M"
+          sed -i 's/ *android:screenOrientation="[a-zA-Z]*"//' "$M"
+          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity"\n            android:screenOrientation="sensorLandscape"/' "$M"
+          cp tools/android/MainActivity.java android/app/src/main/java/com/trilinii/game/MainActivity.java
 
       - name: Иконка и заставка
         continue-on-error: true # если не выйдет — останется стандартная иконка, сборка продолжится

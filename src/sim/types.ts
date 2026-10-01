@@ -22,6 +22,32 @@ export interface Hero {
   s: number; // позиция вдоль линии
   flash: number;
   casts: number;
+  trip: Trip | null; // поход к боссу или в лес; null — герой стоит на линии
+}
+
+export interface Trip {
+  nid: number; // индекс нейтрала
+  phase: 'go' | 'fight' | 'back';
+  x: number;
+  y: number;
+  idx: number; // место в отряде
+}
+
+export type NeutralKind = 'lord' | 'turtle' | 'camp';
+
+export interface Neutral {
+  id: number;
+  kind: NeutralKind;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  dmg: number;
+  alive: boolean;
+  respawnT: number;
+  atkCd: number;
+  hits: number;
+  flash: number;
 }
 
 export interface Creep {
@@ -84,7 +110,7 @@ export interface Fx {
 
 export interface GameEvent {
   text: string;
-  side: Side; // в чью пользу
+  side: Side | null; // в чью пользу; null — нейтральное сообщение
 }
 
 export interface Pick {

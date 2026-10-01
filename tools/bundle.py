@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_JS = ROOT / '.single'
 ORDER = [
     'data/config.js', 'data/heroes.js', 'sim/map.js', 'sim/game.js', 'sim/bot.js',
-    'render/renderer.js', 'main.js',
+    'render/renderer.js', 'audio.js', 'main.js',
 ]
 
 parts = []

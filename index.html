@@ -25,7 +25,7 @@
     <button type="button" class="btn ghost" id="howBtn">Как играть</button>
   </section>
 
-  <section class="screen" id="how" hidden>
+  <section class="screen scroll" id="how" hidden>
     <h2>Как играть</h2>
     <ol class="rules">
       <li>Выбери 5 героев и расставь их по трём линиям. На каждой линии нужен хотя бы один.</li>
@@ -34,6 +34,7 @@
       <li>Если все вражеские герои на линии пали, враг откатывается на позицию назад, а твои герои встают на его место.</li>
       <li>После трёх откатов путь к трону открыт. Снеси трон — победа.</li>
       <li>Карту двигай пальцем, приближай двумя пальцами. Миникарта в углу показывает всё поле — нажми на неё, чтобы перейти.</li>
+      <li>В реке появляются Черепаха (золото команде) и Лорд (переходит на твою сторону и идёт по линии). Нажми на них или на лесной лагерь и отправь героев. Пока герои в походе, их линия пуста: если вражеские крипы дойдут до позиции, она будет потеряна. Если враг пришёл к тому же боссу — сначала бой между героями.</li>
     </ol>
     <button type="button" class="btn primary" id="howBack">Понятно</button>
   </section>
@@ -60,28 +61,46 @@
   </section>
 
   <section class="screen battle" id="battle" hidden>
-    <header class="hud">
-      <div class="throne-bar foe"><span>Трон врага</span><i><b id="foeHp"></b></i></div>
-      <div class="hud-btns">
-        <button type="button" class="btn chip" id="autoBtn" aria-pressed="false">Авто</button>
-        <button type="button" class="btn chip" id="speedBtn">×1</button>
-        <button type="button" class="btn chip" id="pauseBtn" aria-label="Пауза">❚❚</button>
+    <div class="field" id="field"><canvas id="cv"></canvas></div>
+    <canvas id="mini" class="minimap" aria-label="Миникарта: нажми, чтобы перейти"></canvas>
+
+    <header class="hud-top">
+      <div class="thrones">
+        <div class="throne-bar mine"><span>Твой трон</span><i><b id="myHp"></b></i></div>
+        <div class="clock"><b id="clock">0:00</b><small id="waveInfo"></small></div>
+        <div class="throne-bar foe"><span>Трон врага</span><i><b id="foeHp"></b></i></div>
       </div>
     </header>
-    <div class="field" id="field">
-      <canvas id="cv"></canvas>
-      <canvas id="mini" class="minimap" aria-label="Миникарта: нажми, чтобы перейти"></canvas>
-      <div class="toasts" id="toasts" aria-live="polite"></div>
+    <div class="hud-btns">
+      <button type="button" class="btn chip" id="soundBtn" aria-label="Звук">♪</button>
+      <button type="button" class="btn chip" id="autoBtn" aria-pressed="false">Авто</button>
+      <button type="button" class="btn chip" id="speedBtn">×1</button>
+      <button type="button" class="btn chip" id="pauseBtn" aria-label="Пауза">❚❚</button>
     </div>
-    <footer class="panel">
-      <div class="panel-top">
-        <div class="throne-bar mine"><span>Твой трон</span><i><b id="myHp"></b></i></div>
-        <div class="gold" id="gold">0</div>
-      </div>
-      <div class="herobar" id="herobar"></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <div class="bosses" id="bosses"></div>
+
+    <div class="left-dock">
+      <div class="gold" id="gold">0</div>
       <div class="creepbar" id="creepbar"></div>
-      <p class="wave" id="waveInfo"></p>
-    </footer>
+    </div>
+    <div class="herobar" id="herobar"></div>
+
+    <div class="modal" id="tripModal" hidden>
+      <div class="sheet trip">
+        <h2 id="tripTitle">Лорд</h2>
+        <p class="hint" id="tripText"></p>
+        <div class="trip-heroes" id="tripHeroes"></div>
+        <p class="warn" id="tripWarn"></p>
+        <div class="row">
+          <button type="button" class="btn ghost" id="tripCancel">Отмена</button>
+          <button type="button" class="btn ghost" id="tripRecall" hidden>Вернуть отряд</button>
+          <button type="button" class="btn primary" id="tripGo">Отправить</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal" id="pauseModal" hidden>
       <div class="sheet">
         <h2>Пауза</h2>

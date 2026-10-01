@@ -2,7 +2,7 @@
 import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
 import { CAMPS, PITS, RIVER, RIVER_W, THRONE_POS, segDist } from '../sim/map';
-import type { Hero, Side } from '../sim/types';
+import type { Hero, Neutral, Side } from '../sim/types';
 
 const C = {
   grass: '#2f4a33',
@@ -72,11 +72,11 @@ export class Renderer {
     this.minZ = Math.min(cssW / WORLD.W, cssH / WORLD.H);
     this.maxZ = Math.max(this.minZ, Math.min(1.2, cssW / 380));
     if (!this.started) {
-      // по умолчанию в кадре ~1300 единиц мира по ширине: своя база и ближние вышки
-      this.cam.z = cssW / 1300;
+      // по умолчанию в кадре ~1500 единиц мира по длинной стороне: своя база и ближние вышки
+      this.cam.z = Math.max(cssW, cssH) / 1500;
       const t = THRONE_POS[0];
-      this.cam.x = t.x + 600;
-      this.cam.y = t.y - 600;
+      this.cam.x = t.x + 620;
+      this.cam.y = t.y - 380;
       this.started = true;
     }
     this.clamp();
@@ -393,6 +393,8 @@ export class Renderer {
 
     this.drawPads();
     for (const s of [0, 1] as Side[]) this.drawThrone(s);
+    for (const n of g.neutrals) this.drawNeutral(n);
+    this.drawTripPaths();
     for (const w of g.wards) {
       const p = g.lanes[w.lane].pos(w.s, w.off);
       ctx.fillStyle = '#2d6b57';
@@ -412,6 +414,127 @@ export class Renderer {
       ctx.fill();
     }
     this.drawFx();
+  }
+
+  private drawNeutral(n: Neutral) {
+    const { ctx, g } = this;
+    const R = BAL.neutral[n.kind].r;
+    if (!n.alive) {
+      if (n.kind === 'camp') return;
+      ctx.fillStyle = 'rgba(243,234,214,.8)';
+      ctx.font = '700 28px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(clock(n.respawnT), n.x, n.y + 44);
+      return;
+    }
+    ctx.save();
+    ctx.translate(n.x, n.y);
+    const white = n.flash > 0;
+    if (n.kind === 'lord') {
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.beginPath();
+      ctx.ellipse(6, 14, R, R * 0.8, 0, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = white ? '#fff' : '#5b3a8c';
+      ctx.beginPath();
+      ctx.arc(0, 0, R, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = white ? '#fff' : '#8a63c9';
+      ctx.beginPath();
+      ctx.arc(0, -6, R * 0.72, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = '#e8dcc0';
+      for (const sx of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(sx * R * 0.45, -R * 0.55);
+        ctx.lineTo(sx * R * 0.95, -R * 1.25);
+        ctx.lineTo(sx * R * 0.2, -R * 0.7);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = '#ffd25a';
+      for (const sx of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(sx * R * 0.28, -R * 0.12, 7, 0, 7);
+        ctx.fill();
+      }
+    } else if (n.kind === 'turtle') {
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.beginPath();
+      ctx.ellipse(6, 12, R * 1.1, R * 0.8, 0, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = white ? '#fff' : '#6fae6a';
+      ctx.beginPath();
+      ctx.arc(0, -R * 0.9, R * 0.35, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = white ? '#fff' : '#3f7a45';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, R * 1.05, R * 0.85, 0, 0, 7);
+      ctx.fill();
+      ctx.strokeStyle = '#9ccf7e';
+      ctx.lineWidth = 4;
+      hex(ctx, R * 0.42);
+      ctx.stroke();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + (i * Math.PI) / 3;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * R * 0.42, Math.sin(a) * R * 0.42);
+        ctx.lineTo(Math.cos(a) * R * 0.85, Math.sin(a) * R * 0.7);
+        ctx.stroke();
+      }
+    } else {
+      for (const [ox, oy, k] of [[-18, 6, 1], [20, -4, 0.8]] as const) {
+        ctx.fillStyle = 'rgba(0,0,0,.3)';
+        ctx.beginPath();
+        ctx.arc(ox + 3, oy + 5, R * k, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = white ? '#fff' : '#8b6b3e';
+        ctx.beginPath();
+        ctx.arc(ox, oy, R * k, 0, 7);
+        ctx.fill();
+        ctx.fillStyle = '#f0d36a';
+        ctx.beginPath();
+        ctx.arc(ox - 6 * k, oy - 4, 3.5, 0, 7);
+        ctx.arc(ox + 6 * k, oy - 4, 3.5, 0, 7);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    if (n.hp < n.maxHp || n.kind !== 'camp') {
+      const w = n.kind === 'camp' ? 60 : 150;
+      const y = n.y - R - (n.kind === 'lord' ? 50 : 26);
+      bar(ctx, n.x - w / 2, y, w, n.kind === 'camp' ? 6 : 10, n.hp / n.maxHp, '#f0a24a');
+    }
+    // отряды у логова — по цвету команды
+    for (const side of [0, 1] as Side[]) {
+      if (g.party(n.id, side, 'fight').length && n.kind !== 'camp') {
+        ctx.strokeStyle = C.side[side];
+        ctx.lineWidth = 4;
+        ctx.setLineDash([12, 10]);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, R + 95, side === 0 ? Math.PI * 0.5 : -Math.PI * 0.5, side === 0 ? Math.PI * 1.5 : Math.PI * 0.5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  private drawTripPaths() {
+    const { ctx, g } = this;
+    ctx.lineWidth = 4;
+    ctx.setLineDash([14, 12]);
+    for (const h of g.heroes) {
+      if (h.side !== 0 || !h.trip || h.trip.phase === 'fight') continue;
+      const n = g.neutrals[h.trip.nid];
+      const to = h.trip.phase === 'go' ? { x: n.x, y: n.y } : g.laneSpot(h);
+      ctx.strokeStyle = 'rgba(95,212,196,.55)';
+      ctx.beginPath();
+      ctx.moveTo(h.trip.x, h.trip.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   /** Площадки вышек: цвет — чья это территория сейчас, передняя — где стоят герои. */
@@ -475,6 +598,14 @@ export class Renderer {
       m.arc(t.x * k, t.y * k, 6, 0, 7);
       m.fill();
     });
+    for (const n of g.neutrals) {
+      if (!n.alive) continue;
+      m.fillStyle = n.kind === 'lord' ? '#a982f0' : n.kind === 'turtle' ? '#7fd68a' : '#c9a35a';
+      const r = n.kind === 'camp' ? 2.5 : 5.5;
+      m.beginPath();
+      m.arc(n.x * k, n.y * k, r, 0, 7);
+      m.fill();
+    }
     for (const h of g.heroes) {
       if (h.dead) continue;
       const p = g.heroPos(h);
@@ -587,7 +718,7 @@ export class Renderer {
       ctx.restore();
       return;
     }
-    if (this.selected === h) {
+    if (this.selected === h && !h.trip) {
       ctx.strokeStyle = 'rgba(243,210,122,.6)';
       ctx.setLineDash([10, 8]);
       ctx.lineWidth = 3;
@@ -672,6 +803,14 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  neutralAt(wx: number, wy: number): Neutral | null {
+    for (const n of this.g.neutrals) {
+      const R = BAL.neutral[n.kind].r + (n.kind === 'camp' ? 70 : 90);
+      if (Math.hypot(n.x - wx, n.y - wy) <= R) return n;
+    }
+    return null;
+  }
+
   heroAt(wx: number, wy: number): Hero | null {
     let best: Hero | null = null;
     let bd = 60;
@@ -710,4 +849,9 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+export function clock(sec: number) {
+  const t = Math.max(0, Math.ceil(sec));
+  return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
 }

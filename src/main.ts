@@ -1,7 +1,8 @@
 // Точка входа: экраны меню → выбор → расстановка → бой → итог.
 import { BAL, Difficulty, WORLD } from './data/config';
 import { HEROES, heroById } from './data/heroes';
-import { Renderer } from './render/renderer';
+import { Sound } from './audio';
+import { Renderer, clock } from './render/renderer';
 import { Bot, botPicks } from './sim/bot';
 import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
@@ -134,10 +135,13 @@ let game: Game | null = null;
 let renderer: Renderer | null = null;
 let bot: Bot | null = null;
 let paused = false;
+let modalPause = false;
 let speed = 1;
 let selected: Hero | null = null;
-let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLButtonElement; cdv: HTMLElement; mana: HTMLElement }[] = [];
+let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLButtonElement; cdv: HTMLElement; mana: HTMLElement; badge: HTMLElement }[] = [];
 let creepBtns: HTMLButtonElement[] = [];
+let bossBtns: HTMLButtonElement[] = [];
+let campHintShown = false;
 const cv = $<HTMLCanvasElement>('cv');
 
 function startBattle() {
@@ -146,11 +150,14 @@ function startBattle() {
   bot = new Bot(1);
   renderer = new Renderer(cv, game);
   paused = false;
+  modalPause = false;
   speed = 1;
   selected = null;
+  campHintShown = store.get('tl-camphint') === '1';
   $('speedBtn').textContent = '×1';
   $('autoBtn').setAttribute('aria-pressed', String(game.autoCast[0]));
   $('pauseModal').hidden = true;
+  $('tripModal').hidden = true;
   $('toasts').innerHTML = '';
   buildPanel();
   show('battle');
@@ -166,24 +173,32 @@ function buildPanel() {
   for (const h of mine) {
     const wrap = document.createElement('div');
     wrap.className = 'hb';
+    const lname = document.createElement('span');
+    lname.className = 'lname';
+    lname.textContent = LANE_SHORT[h.lane];
     const cast = document.createElement('button');
     cast.type = 'button';
     cast.className = 'hb-cast';
     cast.setAttribute('aria-label', `${h.def.name}: ${h.def.skill.name}`);
-    cast.innerHTML = `${portrait(h.def.color, h.def.glyph)}<span>${h.def.name.split(' ')[0]}</span><span class="lname">${LANE_SHORT[h.lane]}</span><span class="cdv" hidden></span><span class="mana"></span>`;
+    cast.innerHTML = `${portrait(h.def.color, h.def.glyph)}<span class="cdv" hidden></span><span class="mana"></span><span class="badge" hidden></span>`;
     cast.onclick = () => {
       selected = h;
       const hp = g.heroPos(h);
       renderer?.focus(hp.x, hp.y);
-      if (!g.cast(h)) pulse(cast);
+      if (!g.cast(h)) { pulse(cast); sound.play('deny'); }
     };
     const up = document.createElement('button');
     up.type = 'button';
     up.className = 'btn hb-up';
-    up.onclick = () => { selected = h; g.levelHero(h); };
-    wrap.append(cast, up);
+    up.onclick = () => { selected = h; if (!g.levelHero(h)) sound.play('deny'); };
+    wrap.append(lname, cast, up);
     hb.appendChild(wrap);
-    heroBtns.push({ h, cast, up, cdv: cast.querySelector('.cdv') as HTMLElement, mana: cast.querySelector('.mana') as HTMLElement });
+    heroBtns.push({
+      h, cast, up,
+      cdv: cast.querySelector('.cdv') as HTMLElement,
+      mana: cast.querySelector('.mana') as HTMLElement,
+      badge: cast.querySelector('.badge') as HTMLElement,
+    });
   }
   const cb = $('creepbar');
   cb.innerHTML = '';
@@ -191,8 +206,19 @@ function buildPanel() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'btn cb';
-    b.onclick = () => g.upgradeCreeps(l, 0);
+    b.onclick = () => { if (!g.upgradeCreeps(l, 0)) sound.play('deny'); };
     cb.appendChild(b);
+    return b;
+  });
+  const bb = $('bosses');
+  bb.innerHTML = '';
+  bossBtns = [0, 1].map((nid) => {
+    const n = g.neutrals[nid];
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'boss ' + n.kind;
+    b.onclick = () => openTrip(nid);
+    bb.appendChild(b);
     return b;
   });
 }
@@ -201,52 +227,166 @@ function pulse(el: HTMLElement) {
   el.animate?.([{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'none' }], { duration: 160 });
 }
 
+function toast(text: string, cls: string) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + cls;
+  t.textContent = text;
+  const box = $('toasts');
+  box.appendChild(t);
+  while (box.children.length > 3) box.firstElementChild?.remove();
+  setTimeout(() => t.remove(), 3500);
+}
+
 function syncPanel() {
   const g = game!;
   $('gold').textContent = String(Math.floor(g.gold[0]));
   $('myHp').style.width = (100 * g.throne[0]) / BAL.throneHp + '%';
   $('foeHp').style.width = (100 * g.throne[1]) / BAL.throneHp + '%';
+  $('clock').textContent = clock(g.t);
+  $('waveInfo').textContent = `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с`;
   for (const b of heroBtns) {
     const { h } = b;
-    const ready = g.canCast(h);
-    b.cast.classList.toggle('ready', ready);
+    b.cast.classList.toggle('ready', g.canCast(h));
     b.cast.classList.toggle('sel', selected === h);
     if (h.dead) { b.cdv.hidden = false; b.cdv.textContent = '✝' + Math.ceil(h.respawn); }
     else if (h.cd > 0) { b.cdv.hidden = false; b.cdv.textContent = String(Math.ceil(h.cd)); }
     else b.cdv.hidden = true;
     b.mana.style.width = (100 * h.mana) / h.maxMana + '%';
+    const trip = h.trip ? (h.trip.phase === 'back' ? '↩' : '⚔') : '';
+    b.badge.hidden = !trip;
+    b.badge.textContent = trip;
     const maxed = h.lvl >= BAL.heroMaxLvl;
     const cost = g.heroUpCost(h);
-    b.up.textContent = maxed ? `ур.${h.lvl} макс` : `ур.${h.lvl} ▲${cost}`;
+    b.up.textContent = maxed ? `${h.lvl} макс` : `${h.lvl} ▲${cost}`;
     b.up.disabled = maxed || g.gold[0] < cost;
   }
   creepBtns.forEach((b, l) => {
     const lvl = g.creepLvl[l][0];
     const maxed = lvl >= BAL.creepMaxLvl;
     const cost = g.creepUpCost(l, 0);
-    const html = `<span>Крипы · ${LANE_SHORT[l]}</span><small>ур. ${lvl} · у врага ${g.creepLvl[l][1]}</small><span class="cost">${maxed ? 'максимум' : '▲ ' + cost}</span>`;
+    const html = `<span>Крипы ${LANE_SHORT[l]}</span><small>${lvl} · враг ${g.creepLvl[l][1]}</small><span class="cost">${maxed ? 'макс' : '▲ ' + cost}</span>`;
     if (b.dataset.h !== html) { b.innerHTML = html; b.dataset.h = html; }
     b.disabled = maxed || g.gold[0] < cost;
   });
-  const m = Math.floor(g.t / 60);
-  const s = Math.floor(g.t % 60);
-  $('waveInfo').textContent = `${m}:${String(s).padStart(2, '0')} · волна ${g.waveNo} · следующая через ${Math.ceil(g.waveTimer)} с`;
+  bossBtns.forEach((b, nid) => {
+    const n = g.neutrals[nid];
+    const mine = g.party(nid, 0).length;
+    const foes = g.party(nid, 1).length;
+    let status: string;
+    if (!n.alive) status = 'через ' + clock(n.respawnT);
+    else if (mine && foes) status = 'бой с врагом!';
+    else if (mine) status = `отряд: ${Math.round((100 * n.hp) / n.maxHp)}%`;
+    else if (foes) status = 'там враг!';
+    else status = 'бросить вызов';
+    const icon = n.kind === 'lord' ? '♛' : '◈';
+    const html = `<i>${icon}</i>${g.neutralName(n)}<small>${status}</small>`;
+    if (b.dataset.h !== html) { b.innerHTML = html; b.dataset.h = html; }
+    b.classList.toggle('alive', n.alive && !mine);
+    b.classList.toggle('fight', n.alive && foes > 0);
+  });
 
-  for (const e of g.events.splice(0)) {
-    const t = document.createElement('div');
-    t.className = 'toast ' + (e.side === 0 ? 'good' : 'bad');
-    t.textContent = e.text;
-    $('toasts').appendChild(t);
-    setTimeout(() => t.remove(), 3100);
+  for (const e of g.events.splice(0)) toast(e.text, e.side === null ? 'info' : e.side === 0 ? 'good' : 'bad');
+  if (!campHintShown && g.neutrals.some((n) => n.kind === 'camp' && n.alive)) {
+    campHintShown = true;
+    store.set('tl-camphint', '1');
+    toast('В лесу появились монстры: нажми на лагерь и отправь героя за золотом', 'info');
   }
+  for (const s of g.sfx.splice(0)) sound.play(s);
 }
+
+// ---------- окно похода ----------
+let tripNid = -1;
+let tripPick = new Set<Hero>();
+
+function openTrip(nid: number) {
+  const g = game;
+  if (!g) return;
+  sound.play('tap');
+  const n = g.neutrals[nid];
+  tripNid = nid;
+  const mineOut = g.party(nid, 0);
+  const free = g.heroes.filter((h) => h.side === 0 && !h.dead && !h.trip);
+  const name = g.neutralName(n);
+  $('tripTitle').textContent = n.kind === 'camp' ? 'Лесной лагерь' : name;
+  const reward = n.kind === 'lord'
+    ? 'Победивший Лорда получает его в союзники: Лорд идёт по линии, где ты продвинулся дальше всего, и ломает позиции врага.'
+    : n.kind === 'turtle'
+      ? `Черепаха даёт команде ${BAL.neutral.turtle.gold} золота.`
+      : `Лесные монстры дают ${BAL.neutral.camp.gold} золота. Хватит одного героя.`;
+  const foe = g.party(nid, 1).length ? ' Там уже вражеские герои — сначала придётся победить их.' : '';
+  $('tripText').textContent = n.alive ? reward + foe : `${name} появится через ${clock(n.respawnT)}. ${reward}`;
+  tripPick = new Set();
+  if (n.kind === 'camp' && free.length) {
+    // предложим героя ближе всего к лагерю
+    const best = [...free].sort((a, b) => dist(g.heroPos(a), n) - dist(g.heroPos(b), n))[0];
+    tripPick.add(best);
+  }
+  renderTripHeroes();
+  $('tripRecall').hidden = mineOut.length === 0;
+  $('tripModal').hidden = false;
+  modalPause = true;
+}
+
+function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function renderTripHeroes() {
+  const g = game!;
+  const n = g.neutrals[tripNid];
+  const el = $('tripHeroes');
+  el.innerHTML = '';
+  const mine = g.heroes.filter((h) => h.side === 0).sort((a, b) => a.lane - b.lane);
+  for (const h of mine) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'trip-hero';
+    const busy = h.dead ? 'погиб' : h.trip ? (h.trip.nid === tripNid ? 'уже здесь' : 'в походе') : '';
+    b.disabled = !!busy || !n.alive;
+    b.setAttribute('aria-pressed', String(tripPick.has(h)));
+    b.innerHTML = `${portrait(h.def.color, h.def.glyph)}${h.def.name.split(' ')[0]}<small>${busy || `${LANE_SHORT[h.lane]} · ур. ${h.lvl}`}</small><span class="hpbar"><b style="width:${(100 * h.hp) / h.maxHp}%"></b></span>`;
+    b.onclick = () => {
+      if (tripPick.has(h)) tripPick.delete(h); else tripPick.add(h);
+      renderTripHeroes();
+    };
+    el.appendChild(b);
+  }
+  // предупреждение: какие линии останутся пустыми
+  const empty = [0, 1, 2].filter((l) => {
+    const onLane = g.heroesOn(l, 0).filter((h) => !h.dead && !h.trip && !tripPick.has(h));
+    return tripPick.size > 0 && onLane.length === 0 && [...tripPick].some((h) => h.lane === l);
+  });
+  $('tripWarn').textContent = empty.length
+    ? `${empty.map((l) => LANE_NAMES[l]).join(' и ')} линия останется без героев — вражеские крипы смогут занять позицию.`
+    : '';
+  const go = $<HTMLButtonElement>('tripGo');
+  go.disabled = tripPick.size === 0 || !n.alive;
+  go.textContent = tripPick.size ? `Отправить (${tripPick.size})` : 'Выбери героев';
+}
+
+function closeTrip() {
+  $('tripModal').hidden = true;
+  modalPause = false;
+}
+$('tripCancel').onclick = closeTrip;
+$('tripGo').onclick = () => {
+  if (game && game.sendParty(0, tripNid, [...tripPick])) {
+    const n = game.neutrals[tripNid];
+    renderer?.focus(n.x, n.y);
+  }
+  closeTrip();
+};
+$('tripRecall').onclick = () => {
+  game?.recall(0, tripNid);
+  closeTrip();
+};
 
 function fit() {
   if (!renderer) return;
   const f = $('field');
   renderer.resize(f.clientWidth, f.clientHeight);
   const dpr = Math.min(2.5, window.devicePixelRatio || 1);
-  const ms = mini.clientWidth || 116;
+  const ms = mini.clientWidth || 108;
   mini.width = Math.round(ms * dpr);
   mini.height = Math.round(ms * dpr);
 }
@@ -299,7 +439,10 @@ const endPtr = (e: PointerEvent) => {
   const p = local(e);
   const w = renderer.toWorld(p.x, p.y);
   const h = renderer.heroAt(w.x, w.y);
-  selected = h && h.side === 0 ? h : null;
+  if (h && h.side === 0) { selected = h; return; }
+  const n = renderer.neutralAt(w.x, w.y);
+  if (n) { openTrip(n.id); return; }
+  selected = null;
 };
 cv.addEventListener('pointerup', endPtr);
 cv.addEventListener('pointercancel', endPtr);
@@ -335,21 +478,51 @@ $('pauseBtn').onclick = () => { paused = true; $('pauseModal').hidden = false; }
 $('resume').onclick = () => { paused = false; $('pauseModal').hidden = true; };
 $('surrender').onclick = () => { if (game) { game.winner = 1; } $('pauseModal').hidden = true; paused = false; };
 document.addEventListener('visibilitychange', () => {
+  sound.suspend(document.hidden);
   if (document.hidden && game && game.winner === null && !$('battle').hidden) { paused = true; $('pauseModal').hidden = false; }
 });
+
+// ---------- звук ----------
+const SOUND_LABEL = { all: '♪', sfx: '🔉', off: '🔇' } as const;
+const SOUND_TEXT = { all: 'Звук и музыка', sfx: 'Только эффекты', off: 'Без звука' } as const;
+const sound = new Sound(store.get('tl-sound'));
+const syncSoundBtn = () => {
+  $('soundBtn').textContent = SOUND_LABEL[sound.mode];
+  $('soundBtn').setAttribute('aria-label', SOUND_TEXT[sound.mode]);
+};
+syncSoundBtn();
+$('soundBtn').onclick = () => {
+  sound.unlock();
+  const m = sound.cycle();
+  store.set('tl-sound', m);
+  syncSoundBtn();
+  toast(SOUND_TEXT[m], 'info');
+};
+// звук можно включить только после касания
+document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
+
+// горизонтальный полноэкранный режим в браузере (в приложении он включён всегда)
+function goFullscreen() {
+  const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
+  if (document.fullscreenElement || !el.requestFullscreen) return;
+  el.requestFullscreen()
+    .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+    .catch(() => undefined);
+}
+$('toPick').addEventListener('click', goFullscreen);
 
 function finish() {
   const g = game!;
   const win = g.winner === 0;
+  sound.play(win ? 'win' : 'lose');
   $('resTitle').textContent = win ? 'Победа' : 'Поражение';
   $('resText').textContent = win ? 'Вражеский трон разрушен.' : 'Твой трон пал. Попробуй другую расстановку.';
-  const m = Math.floor(g.t / 60);
-  const s = Math.floor(g.t % 60);
   const myLvl = g.heroes.filter((h) => h.side === 0).reduce((a, h) => a + h.lvl, 0);
   $('resStats').innerHTML = `
-    <dt>Длительность</dt><dd>${m}:${String(s).padStart(2, '0')}</dd>
+    <dt>Длительность</dt><dd>${clock(g.t)}</dd>
     <dt>Убито крипов</dt><dd>${g.stats.kills[0]}</dd>
-    <dt>Продавлено линий</dt><dd>${g.stats.pushes[0]}</dd>
+    <dt>Продавлено позиций</dt><dd>${g.stats.pushes[0]}</dd>
+    <dt>Лорд / Черепаха / лагеря</dt><dd>${g.stats.lords[0]} / ${g.stats.turtles[0]} / ${g.stats.camps[0]}</dd>
     <dt>Сумма уровней героев</dt><dd>${myLvl}</dd>
     <dt>Заработано золота</dt><dd>${Math.round(g.stats.goldEarned[0])}</dd>`;
   if (win) store.set('tl-wins', String(Number(store.get('tl-wins') || 0) + 1));
@@ -367,7 +540,8 @@ function frame(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   if (game && renderer && bot) {
-    if (!paused && game.winner === null) {
+    const running = !paused && !modalPause && game.winner === null;
+    if (running) {
       acc += dt * speed;
       while (acc >= STEP) {
         bot.update(game, STEP);
@@ -376,9 +550,13 @@ function frame(now: number) {
       }
     }
     renderer.selected = selected;
-    renderer.draw(dt);
-    renderer.drawMinimap(miniCtx, mini.clientWidth || 116, Math.min(2.5, window.devicePixelRatio || 1));
+    renderer.draw(running ? dt : 0);
+    renderer.drawMinimap(miniCtx, mini.clientWidth || 108, Math.min(2.5, window.devicePixelRatio || 1));
     syncPanel();
+    if (running) {
+      const tense = game.throneUnderAttack(0) || game.heroes.some((h) => h.trip?.phase === 'fight' && h.side === 0);
+      sound.tickMusic(dt, tense);
+    }
     if (game.winner !== null) finish();
   }
   requestAnimationFrame(frame);
