@@ -142,7 +142,7 @@ function resetLobby() {
   $('roomCode').hidden = true;
   $<HTMLButtonElement>('hostBtn').disabled = false;
   $<HTMLButtonElement>('joinBtn').disabled = false;
-  lobbyStatus(netMode() === 'peer'
+  lobbyStatus(netMode() === 'net'
     ? 'Оба телефона должны быть в интернете. Лучше всего — в одной Wi-Fi сети.'
     : 'Проверочный режим: сеть работает в установленном приложении. Здесь можно открыть игру в двух вкладках.');
 }
@@ -187,7 +187,7 @@ function onConnected(l: Link, role: 'host' | 'guest') {
   mode = role;
   me = role === 'host' ? 0 : 1;
   foeOwned = [];
-  lobbyStatus('Соперник найден!');
+  lobbyStatus(`Соперник найден${l.via !== 'local' && l.via !== 'peer' ? ` (через ${l.via})` : ''}!`);
   l.onMessage = onNet;
   l.onClose = () => {
     link = null;
@@ -984,7 +984,7 @@ function frame(now: number) {
       game.sfx = game.sfx.filter((x) => x.to !== 1);
       snapTimer -= dt;
       if (snapTimer <= 0 || game.winner !== null) {
-        snapTimer = 0.1;
+        snapTimer = link.snapEvery;
         link.send({ t: 'snap', s: game.snapshot(), ev: outEv.splice(0), sfx: outSfx.splice(0) });
       }
     }
