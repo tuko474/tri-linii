@@ -187,12 +187,24 @@ function onConnected(l: Link, role: 'host' | 'guest') {
   mode = role;
   me = role === 'host' ? 0 : 1;
   foeOwned = [];
-  lobbyStatus(`Соперник найден${l.via !== 'local' && l.via !== 'peer' ? ` (через ${l.via})` : ''}!`);
+  lobbyStatus('Соперник найден!');
+  netLost = false;
   l.onMessage = onNet;
+  l.onStatus = (ok) => {
+    netLost = !ok;
+    if (!ok) { toast('Связь с соперником прервалась — переподключаемся…', 'bad'); return; }
+    toast('Связь восстановлена', 'good');
+    // на время обрыва таймер выбора не должен съедать ход
+    if (draft && !draft.done) {
+      pickDeadline = performance.now() + PICK_SECONDS * 1000;
+      if (mode === 'host') link?.send({ t: 'draft', picks: draft.picks, left: PICK_SECONDS });
+    }
+  };
   l.onClose = () => {
     link = null;
     if (game && game.winner === null && (mode === 'host' || mode === 'guest')) {
       game.winner = me;
+      netLost = false;
       toast('Соперник отключился — победа за тобой', 'info');
     } else if (!$('draft').hidden || !$('place').hidden) {
       toast('Соперник отключился', 'bad');
@@ -345,6 +357,7 @@ function tickDraft(now: number) {
   $('draftTimer').textContent = String(left);
   const turn = draft.turn()!;
   if (mode === 'guest') return; // таймер ведёт хост
+  if (netLost) { pickDeadline = now + PICK_SECONDS * 1000; return; } // пока нет связи, ход не сгорает
   if (mode === 'bot' && turn !== me && now >= botPickAt) { doPick(turn, botDraftPick(draft, turn)); return; }
   if (now >= pickDeadline) {
     const allowed = turn === me ? meta.owned : mode === 'bot' ? HEROES.map((h) => h.id) : foeOwned;
@@ -447,6 +460,8 @@ let renderer: Renderer | null = null;
 let bot: Bot | null = null;
 let paused = false;
 let modalPause = false;
+/** Сетевая игра: связь с соперником временно пропала — бой стоит на паузе у обоих. */
+let netLost = false;
 let speed = 1;
 let selected: Hero | null = null;
 let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLElement; cdv: HTMLElement; mana: HTMLElement; badge: HTMLElement; back: HTMLButtonElement; lname: HTMLElement }[] = [];
@@ -1077,7 +1092,7 @@ function frame(now: number) {
   if (game && renderer) {
     const net = mode !== 'bot';
     // в сетевой игре пауза и окна не останавливают бой
-    const running = (net || (!paused && !modalPause)) && game.winner === null;
+    const running = (net ? !netLost : !paused && !modalPause) && game.winner === null;
     if (running) {
       acc += dt * speed;
       while (acc >= STEP) {

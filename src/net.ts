@@ -13,6 +13,8 @@ export interface Link {
   /** Как часто хосту слать снимки боя (через брокер — реже, чтобы не упереться в лимиты). */
   snapEvery: number;
   via: string;
+  /** Связь пропала (false) или вернулась (true) — для подсказки на экране. */
+  onStatus?: (ok: boolean) => void;
 }
 
 /** Публичные брокеры MQTT по WebSocket. Можно переопределить в localStorage 'tl-brokers' (JSON-массив). */
@@ -56,7 +58,7 @@ export function netMode(): 'net' | 'local' {
   return location.hash.includes('local') ? 'local' : 'net';
 }
 
-function makeLink(sendRaw: (s: string) => void, closeRaw: () => void, via = 'peer', snapEvery = 0.1): Link & { feed(raw: string): void; dead(): void } {
+function makeLink(sendRaw: (s: string) => void, closeRaw: () => void, via = 'peer', snapEvery = 0.1): Link & { feed(raw: string): void; dead(): void; closed: boolean } {
   const link = {
     onMessage: (_: any) => undefined as void,
     onClose: () => undefined as void,
@@ -85,28 +87,101 @@ function makeLink(sendRaw: (s: string) => void, closeRaw: () => void, via = 'pee
 
 const TOPIC = (code: string) => `trilinii/v2/${code}`;
 
-/** Связь через брокер с сердцебиением: если 12 секунд тишины — соединение считается потерянным. */
-function mqttLink(m: Mqtt, sendTopic: string, recvTopic: string): Link {
-  let lastIn = performance.now();
-  let lastOut = 0;
-  let hb = 0;
+/**
+ * Надёжная связь через несколько брокеров сразу.
+ * Мобильный интернет иногда молча «замораживает» соединение с зарубежным сервером: сокет
+ * формально открыт, но данные не идут. Поэтому:
+ *  - держим соединения со всеми доступными брокерами, служебные сообщения шлём через все;
+ *  - тяжёлые снимки боя — только через тот брокер, откуда последним что-то пришло;
+ *  - если от брокера 7 секунд тишины — переподключаемся к нему заново в фоне;
+ *  - соединение с соперником считается потерянным, только если 45 секунд не работает ни один брокер.
+ * Сообщения нумеруются, повторы (пришедшие через разные брокеры) отбрасываются.
+ */
+function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: string): Link {
+  type C = { url: string; m: Mqtt | null; lastIn: number; lastOut: number; connecting: boolean; retryAt: number };
+  const now = () => performance.now();
+  const conns: C[] = urls.map((url) => ({ url, m: null, lastIn: 0, lastOut: 0, connecting: false, retryAt: 0 }));
+  let seq = 0;
+  const seen = new Set<number>();
+  let maxSeen = 0;
+  let lastAny = now();
+  let wasOk = true;
+  let timer = 0;
+
   const link = makeLink(
-    (s) => { lastOut = performance.now(); m.publish(sendTopic, s); },
-    () => { clearInterval(hb); m.close(); },
-    host(m.url),
+    (s) => {
+      const t = now();
+      const live = conns.filter((c) => c.m && !c.m.closed);
+      if (!live.length) return;
+      // снимок боя — через самый «свежий» брокер, остальное — через все
+      const bulk = s.startsWith('{"t":"snap"');
+      const targets = bulk ? [live.reduce((a, b) => (b.lastIn > a.lastIn ? b : a))] : live;
+      const raw = `{"q":${++seq},"d":${s}}`;
+      for (const c of targets) { c.lastOut = t; c.m!.publish(sendTopic, raw); }
+    },
+    () => { clearInterval(timer); for (const c of conns) c.m?.close(); },
+    'mqtt',
     0.2,
-  );
-  m.subscribe(recvTopic, (raw) => {
-    lastIn = performance.now();
-    if (raw === '{"t":"hb"}') return;
-    link.feed(raw);
-  });
-  hb = window.setInterval(() => {
-    const now = performance.now();
-    if (now - lastOut > 2000) { lastOut = now; m.publish(sendTopic, '{"t":"hb"}'); }
-    if (now - lastIn > 12000) { clearInterval(hb); m.close(); link.dead(); }
+  ) as ReturnType<typeof makeLink> & { onStatus?: (ok: boolean) => void };
+
+  const attach = (c: C, m: Mqtt) => {
+    c.m = m;
+    c.lastIn = now(); // даём новому соединению время показать себя
+    m.subscribe(recvTopic, (raw) => {
+      const t = now();
+      c.lastIn = t;
+      lastAny = t;
+      if (raw === '{"t":"hb"}') return;
+      let q = 0;
+      let body = raw;
+      const mm = /^\{"q":(\d+),"d":/.exec(raw);
+      if (mm) {
+        q = Number(mm[1]);
+        if (seen.has(q)) return;
+        seen.add(q);
+        if (q > maxSeen) maxSeen = q;
+        if (seen.size > 600) for (const k of seen) if (k < maxSeen - 400) seen.delete(k);
+        body = raw.slice(mm[0].length, -1);
+      }
+      link.feed(body);
+    });
+    m.onClose = () => { if (c.m === m) { c.m = null; c.retryAt = now() + 1000; } };
+  };
+
+  const reconnect = (c: C) => {
+    if (c.connecting || link.closed) return;
+    c.connecting = true;
+    Mqtt.connect(c.url, 6000).then((m) => {
+      c.connecting = false;
+      if (link.closed) { m.close(); return; }
+      attach(c, m);
+    }, () => {
+      c.connecting = false;
+      c.retryAt = now() + 5000;
+    });
+  };
+
+  for (const m of first) {
+    const c = conns.find((x) => x.url === m.url);
+    if (c) attach(c, m);
+  }
+  // остальные брокеры подключаем в фоне — запасные пути
+  for (const c of conns) if (!c.m) reconnect(c);
+
+  timer = window.setInterval(() => {
+    if (link.closed) { clearInterval(timer); return; }
+    const t = now();
+    for (const c of conns) {
+      if (c.m && !c.m.closed) {
+        if (t - c.lastOut > 2000) { c.lastOut = t; c.m.publish(sendTopic, '{"t":"hb"}'); }
+        // тишина: соединение, вероятно, «заморожено» — пересоздаём
+        if (t - c.lastIn > 7000) { const m = c.m; c.m = null; m.onClose = () => undefined; m.close(); c.retryAt = t + 500; }
+      } else if (!c.connecting && t >= c.retryAt) reconnect(c);
+    }
+    const ok = t - lastAny < 5000;
+    if (ok !== wasOk) { wasOk = ok; link.onStatus?.(ok); }
+    if (t - lastAny > 45000) { clearInterval(timer); for (const c of conns) c.m?.close(); link.dead(); }
   }, 1000);
-  m.onClose = () => { clearInterval(hb); link.dead(); };
   return link;
 }
 
@@ -114,7 +189,8 @@ function mqttLink(m: Mqtt, sendTopic: string, recvTopic: string): Link {
 export async function hostRoom(code: string, onStatus: (s: string) => void): Promise<Link> {
   if (netMode() === 'local') return localLink(code, 'host', onStatus);
   onStatus('Подключаемся к серверам…');
-  const tried = await Promise.allSettled(brokers().map((u) => Mqtt.connect(u)));
+  const urls = brokers();
+  const tried = await Promise.allSettled(urls.map((u) => Mqtt.connect(u)));
   const conns = tried.filter((r): r is PromiseFulfilledResult<Mqtt> => r.status === 'fulfilled').map((r) => r.value);
   if (!conns.length) {
     onStatus('Серверы-посредники недоступны, пробуем запасной способ…');
@@ -131,9 +207,11 @@ export async function hostRoom(code: string, onStatus: (s: string) => void): Pro
         try { id = JSON.parse(raw).id; } catch { return; }
         if (!id) return;
         done = true;
-        for (const o of conns) if (o !== m) o.close();
-        m.publish(`${T}/g/${id}`, '{"t":"welcome"}');
-        resolve(mqttLink(m, `${T}/g/${id}`, `${T}/h/${id}`));
+        const live = conns.filter((c) => !c.closed);
+        // сначала подписка на сообщения гостя, потом приглашение — чтобы не потерять его первое сообщение
+        const link = multiLink(urls, live, `${T}/g/${id}`, `${T}/h/${id}`);
+        for (const c of live) c.publish(`${T}/g/${id}`, '{"t":"welcome"}');
+        resolve(link);
       });
     }
   });
@@ -144,8 +222,9 @@ export async function joinRoom(code: string, onStatus: (s: string) => void): Pro
   if (netMode() === 'local') return localLink(code, 'guest', onStatus);
   const T = TOPIC(code);
   const id = Math.random().toString(36).slice(2, 10);
+  const urls = brokers();
   let reached = 0;
-  for (const url of brokers()) {
+  for (const url of urls) {
     onStatus(`Ищем комнату на ${host(url)}…`);
     let m: Mqtt;
     try { m = await Mqtt.connect(url, 5000); } catch { continue; }
@@ -156,7 +235,7 @@ export async function joinRoom(code: string, onStatus: (s: string) => void): Pro
       m.publish(`${T}/k`, JSON.stringify({ id }));
       setTimeout(() => m.publish(`${T}/k`, JSON.stringify({ id })), 1200);
     });
-    if (welcomed) return mqttLink(m, `${T}/h/${id}`, `${T}/g/${id}`);
+    if (welcomed) return multiLink(urls, [m], `${T}/h/${id}`, `${T}/g/${id}`);
     m.close();
   }
   if (!reached) {
