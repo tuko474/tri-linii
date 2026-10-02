@@ -3,7 +3,7 @@
 import type { Link } from './net';
 
 /** Адрес сервера по умолчанию. Пусто — сервера пока нет, игра работает как раньше. */
-export const SERVER_URL = '';
+export const SERVER_URL = 'wss://31-31-192-98.sslip.io';
 
 export interface Profile {
   id: string;
