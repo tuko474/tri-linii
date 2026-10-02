@@ -81,7 +81,8 @@ export class Bot {
     // Боссы: идём сами или перехватываем, если туда пошёл игрок.
     for (const n of g.neutrals.slice(0, 2)) {
       if (!n.alive) continue;
-      const contest = g.party(n.id, foe).length > 0;
+      // видит ли бот врага у логова — сквозь туман войны он не подглядывает
+      const contest = g.party(n.id, foe).length > 0 && g.visible(me, n.x, n.y);
       const chance = contest ? 0.6 : n.kind === 'lord' ? 0.35 : 0.25;
       if (Math.random() > chance) continue;
       const team = this.spare(g, n.kind === 'lord' ? 3 : 2);

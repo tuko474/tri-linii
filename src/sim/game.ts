@@ -2,6 +2,7 @@
 // Это пригодится для онлайна: тот же код сможет крутиться на сервере.
 import { BAL, CreepKind, Difficulty } from '../data/config';
 import { heroById } from '../data/heroes';
+import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
 import { CAMPS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Side, Target, Ward } from './types';
 
@@ -20,6 +21,11 @@ export class Game {
   sfx: string[] = [];
   /** 0 — Лорд, 1 — Черепаха, дальше лесные лагеря. */
   neutrals: Neutral[] = [];
+  /** Сферы рас, полученные с Лорда: orbs[side][race]. */
+  orbs: [Partial<Record<RaceId, number>>, Partial<Record<RaceId, number>>] = [{}, {}];
+  /** Источники обзора для тумана войны: [x, y, радиус], пересчитываются несколько раз в секунду. */
+  vision: [[number, number, number][], [number, number, number][]] = [[], []];
+  private visionT = 0;
 
   gold: [number, number] = [BAL.startGold, BAL.startGold];
   throne: [number, number] = [BAL.throneHp, BAL.throneHp];
@@ -59,6 +65,9 @@ export class Game {
     mk('lord', PITS[0].x, PITS[0].y);
     mk('turtle', PITS[1].x, PITS[1].y);
     for (const c of CAMPS) mk('camp', c.x, c.y);
+    this.refreshStats(0);
+    this.refreshStats(1);
+    this.updateVision();
   }
 
   // ---------- геометрия ----------
@@ -107,6 +116,114 @@ export class Game {
     return this.lanes[h.lane].pos(h.s, h.off);
   }
 
+  // ---------- расы ----------
+
+  /** Сколько «голов» каждой расы у стороны, с учётом сфер Лорда. */
+  raceCounts(side: Side): Record<RaceId, number> {
+    const c = {} as Record<RaceId, number>;
+    for (const r of RACE_IDS) c[r] = this.orbs[side][r] ?? 0;
+    for (const h of this.heroes) if (h.side === side) c[h.def.race]++;
+    return c;
+  }
+
+  /** Активные бонусы стороны: раса → индекс уровня. */
+  activeRaces(side: Side): { race: RaceId; count: number; tier: number }[] {
+    const c = this.raceCounts(side);
+    return RACE_IDS.map((race) => ({ race, count: c[race], tier: tierIndex(race, c[race]) })).filter((x) => x.count > 0);
+  }
+
+  private raceFx(side: Side): Partial<Record<RaceId, RaceFx>> {
+    const out: Partial<Record<RaceId, RaceFx>> = {};
+    for (const a of this.activeRaces(side)) if (a.tier >= 0) out[a.race] = RACES[a.race].tiers[a.tier].fx;
+    return out;
+  }
+
+  /** Итоговые модификаторы героя: своей расы + общекомандные. */
+  heroMods(h: Hero) {
+    const all = this.raceFx(h.side);
+    const own = all[h.def.race] ?? {};
+    let allLs = 0, allSpell = 1, allAtk = 1, allArmor = 0;
+    for (const fx of Object.values(all)) {
+      allLs += fx?.allLifesteal ?? 0;
+      allSpell *= fx?.allSpellMul ?? 1;
+      allAtk *= fx?.allAtkMul ?? 1;
+      allArmor += fx?.allArmor ?? 0;
+    }
+    return {
+      hpMul: own.hpMul ?? 1,
+      atkMul: (own.atkMul ?? 1) * allAtk,
+      rateMul: own.rateMul ?? 1,
+      cdMul: own.cdMul ?? 1,
+      spellMul: (own.spellMul ?? 1) * allSpell,
+      lifesteal: (own.lifesteal ?? 0) + allLs,
+      respawnMul: own.respawnMul ?? 1,
+      armor: Math.min(0.6, (own.armor ?? 0) + allArmor),
+    };
+  }
+
+  sideMods(side: Side) {
+    let goldMul = 1, creepMul = 1;
+    for (const fx of Object.values(this.raceFx(side))) {
+      goldMul *= fx?.goldMul ?? 1;
+      creepMul *= fx?.creepMul ?? 1;
+    }
+    return { goldMul, creepMul };
+  }
+
+  /** Пересчитать HP и урон героев стороны после прокачки или новой сферы. */
+  refreshStats(side: Side) {
+    for (const h of this.heroes) {
+      if (h.side !== side) continue;
+      const m = this.heroMods(h);
+      const k = h.lvl - 1;
+      const ratio = h.maxHp > 0 ? h.hp / h.maxHp : 1;
+      h.maxHp = h.def.hp * (1 + BAL.heroHpPerLvl * k) * m.hpMul;
+      h.hp = h.dead ? 0 : Math.max(1, ratio * h.maxHp);
+      h.dmg = h.def.dmg * (1 + BAL.heroDmgPerLvl * k) * m.atkMul;
+      h.maxMana = h.def.mana * (1 + BAL.heroManaPerLvl * k);
+    }
+  }
+
+  /** Герой нанёс урон — вампиризм от рас. */
+  private dealt(h: Hero | undefined, dmg: number) {
+    if (!h || h.dead) return;
+    const ls = this.heroMods(h).lifesteal;
+    if (ls > 0) h.hp = Math.min(h.maxHp, h.hp + dmg * ls);
+  }
+
+  // ---------- туман войны ----------
+
+  private updateVision() {
+    for (const side of [0, 1] as Side[]) {
+      const v: [number, number, number][] = [];
+      const t = THRONE_POS[side];
+      v.push([t.x, t.y, 1000]);
+      for (const h of this.heroes) if (h.side === side && !h.dead) { const p = this.heroPos(h); v.push([p.x, p.y, 650]); }
+      for (const c of this.creeps) if (c.side === side && !c.dead) { const p = this.creepPos(c); v.push([p.x, p.y, 380]); }
+      for (const w of this.wards) if (w.side === side) { const p = this.lanes[w.lane].pos(w.s, w.off); v.push([p.x, p.y, 320]); }
+      for (let l = 0; l < 3; l++) {
+        const lane = this.lanes[l];
+        BAL.slotT.forEach((tt, i) => {
+          if (this.slotOwner(l, i) !== side) return;
+          const p = lane.at(tt * lane.length);
+          v.push([p.x, p.y, 450]);
+        });
+      }
+      this.vision[side] = v;
+    }
+  }
+
+  /** Видит ли сторона точку (не в тумане). */
+  visible(side: Side, x: number, y: number, pad = 0): boolean {
+    for (const [vx, vy, r] of this.vision[side]) {
+      const dx = vx - x;
+      const dy = vy - y;
+      const rr = r + pad;
+      if (dx * dx + dy * dy <= rr * rr) return true;
+    }
+    return false;
+  }
+
   /** Место героя на его позиции линии (куда он вернётся из похода). */
   laneSpot(h: Hero) {
     return this.lanes[h.lane].pos(h.s, h.off);
@@ -136,13 +253,10 @@ export class Game {
     const cost = this.heroUpCost(h);
     if (h.lvl >= BAL.heroMaxLvl || this.gold[h.side] < cost) return false;
     this.gold[h.side] -= cost;
+    const before = h.maxHp;
     h.lvl++;
-    const k = h.lvl - 1;
-    const newMax = h.def.hp * (1 + BAL.heroHpPerLvl * k);
-    h.hp += newMax - h.maxHp;
-    h.maxHp = newMax;
-    h.dmg = h.def.dmg * (1 + BAL.heroDmgPerLvl * k);
-    h.maxMana = h.def.mana * (1 + BAL.heroManaPerLvl * k);
+    this.refreshStats(h.side);
+    if (!h.dead) h.hp = Math.min(h.maxHp, h.hp + Math.max(0, h.maxHp - before));
     if (!h.dead) this.fxRingAtHero(h, '#f3d27a', 40);
     if (h.side === 0) this.sfx.push('levelUp');
     return true;
@@ -166,8 +280,11 @@ export class Game {
     if (!this.canCast(h)) return false;
     if (h.trip) return h.trip.phase === 'fight' ? this.castTrip(h) : false;
     const sk = h.def.skill;
-    const pow = sk.power + sk.perLvl * (h.lvl - 1);
+    const mods = this.heroMods(h);
+    const pow = (sk.power + sk.perLvl * (h.lvl - 1)) * mods.spellMul;
     const range = sk.range ?? h.def.range;
+    let dealtSum = 0;
+    const hit = (c: Creep, d: number) => { dealtSum += Math.min(d, Math.max(0, c.hp)); this.hitCreep(c, d); };
     const enemies = this.creeps.filter((c) => !c.dead && c.side !== h.side && c.lane === h.lane);
     const inRange = enemies.filter((c) => Math.abs(c.s - h.s) <= range);
     const lane = this.lanes[h.lane];
@@ -187,8 +304,9 @@ export class Game {
         const center = best.s;
         for (const e of enemies) {
           if (Math.abs(e.s - center) > R) continue;
-          this.hitCreep(e, pow);
+          hit(e, pow);
           if (sk.slow) this.slowCreep(e, sk.slow, sk.slowT ?? 2);
+          if (sk.stun) e.stunT = Math.max(e.stunT, sk.stun);
         }
         const p = lane.at(center);
         this.fx.push({ kind: 'ring', x: p.x, y: p.y, r: R, color: h.def.color, t: 0, life: 0.6 });
@@ -197,10 +315,10 @@ export class Game {
       }
       case 'around': {
         const R = sk.radius ?? 140;
-        const hit = enemies.filter((e) => Math.abs(e.s - h.s) <= R);
-        if (hit.length < need) break;
-        for (const e of hit) {
-          this.hitCreep(e, pow);
+        const near = enemies.filter((e) => Math.abs(e.s - h.s) <= R);
+        if (near.length < need) break;
+        for (const e of near) {
+          hit(e, pow);
           if (sk.stun) e.stunT = Math.max(e.stunT, sk.stun);
         }
         this.fxRingAtHero(h, h.def.color, R);
@@ -216,7 +334,7 @@ export class Game {
           done.add(cur);
           const to = this.creepPos(cur);
           this.fx.push({ kind: 'bolt', x: from.x, y: from.y, x2: to.x, y2: to.y, color: h.def.color, t: 0, life: 0.35 });
-          this.hitCreep(cur, pow * Math.pow(0.9, i));
+          hit(cur, pow * Math.pow(0.9, i));
           from = to;
           const prev: Creep = cur;
           const next = enemies
@@ -235,7 +353,7 @@ export class Game {
         for (const c of targets) {
           const to = this.creepPos(c);
           this.fx.push({ kind: 'beam', x: from.x, y: from.y, x2: to.x, y2: to.y, color: h.def.color, t: 0, life: 0.25 });
-          this.hitCreep(c, pow);
+          hit(c, pow);
           if (sk.slow) this.slowCreep(c, sk.slow, sk.slowT ?? 2);
         }
         ok = true;
@@ -243,7 +361,7 @@ export class Game {
       }
       case 'drain': {
         if (inRange.length < need) break;
-        for (const c of inRange) this.hitCreep(c, pow);
+        for (const c of inRange) hit(c, pow);
         const heal = inRange.length * pow * 0.25;
         for (const a of this.heroesOn(h.lane, h.side)) if (!a.dead && !a.trip) this.healHero(a, heal);
         this.fxRingAtHero(h, h.def.color, range);
@@ -257,7 +375,7 @@ export class Game {
         const from = this.heroPos(h);
         const to = this.creepPos(tgt);
         this.fx.push({ kind: 'beam', x: from.x, y: from.y, x2: to.x, y2: to.y, color: '#fff3c4', t: 0, life: 0.4 });
-        this.hitCreep(tgt, pow);
+        hit(tgt, pow);
         ok = true;
         break;
       }
@@ -281,7 +399,7 @@ export class Game {
         if (strict && !hurt && near.length < 3) break;
         if (!strict && !hurt && near.length === 0 && allies.every((a) => a.hp >= a.maxHp)) break;
         for (const a of allies) this.healHero(a, pow);
-        for (const e of near) this.hitCreep(e, pow * 0.35);
+        for (const e of near) hit(e, pow * 0.35);
         this.fxRingAtHero(h, h.def.color, R);
         ok = true;
         break;
@@ -289,8 +407,9 @@ export class Game {
     }
 
     if (ok) {
+      this.dealt(h, dealtSum);
       h.mana -= sk.mana;
-      h.cd = sk.cd;
+      h.cd = sk.cd * mods.cdMul;
       h.casts++;
       if (h.side === 0) this.sfx.push('cast:' + sk.kind);
     }
@@ -320,12 +439,15 @@ export class Game {
       h.trip = { nid, phase: 'go', x: p.x, y: p.y, idx: idx++ };
       sent++;
     }
-    if (sent && n.kind !== 'camp') {
-      const name = this.neutralName(n);
-      this.events.push({ text: side === 0 ? `Твои герои идут на: ${name}` : `Враг идёт на: ${name}`, side: side === 0 ? null : 1 });
-      if (side === 1) this.sfx.push('alert');
+    if (sent && n.kind !== 'camp' && side === 0) {
+      this.events.push({ text: `Твои герои идут на: ${this.neutralName(n)}`, side: null });
     }
     return sent;
+  }
+
+  /** Срочно вернуть одного героя на линию. */
+  recallHero(h: Hero) {
+    if (h.trip) h.trip.phase = 'back';
   }
 
   /** Вернуть героев стороны на линии (всех или от одного нейтрала). */
@@ -390,8 +512,9 @@ export class Game {
     if (this.autoCast[h.side] && this.canCast(h)) this.castTrip(h);
     h.atkCd -= dt;
     if (h.atkCd > 0) return;
-    h.atkCd = h.def.rate;
+    h.atkCd = h.def.rate * this.heroMods(h).rateMul;
     const to = tg.hero ? this.heroPos(tg.hero) : { x: n.x, y: n.y };
+    this.dealt(h, h.dmg);
     if (h.def.range >= 150) this.fx.push({ kind: 'beam', x: t.x, y: t.y, x2: to.x, y2: to.y, color: h.def.color, t: 0, life: 0.15 });
     if (tg.hero) this.hitHero(tg.hero, h.dmg);
     else if (tg.n) this.hitNeutral(tg.n, h.dmg, h.side);
@@ -401,7 +524,8 @@ export class Game {
   private castTrip(h: Hero): boolean {
     if (!this.canCast(h)) return false;
     const sk = h.def.skill;
-    const pow = sk.power + sk.perLvl * (h.lvl - 1);
+    const mods = this.heroMods(h);
+    const pow = (sk.power + sk.perLvl * (h.lvl - 1)) * mods.spellMul;
     const mates = this.party(h.trip!.nid, h.side, 'fight');
     if (sk.kind === 'heal') {
       if (!mates.some((m) => m.hp < m.maxHp * 0.8)) return false;
@@ -418,10 +542,11 @@ export class Game {
         this.hitHero(tg.hero, dmg * 0.7);
         if (sk.stun) tg.hero.atkCd = Math.max(tg.hero.atkCd, sk.stun);
       } else this.hitNeutral(tg.n!, dmg, h.side);
+      this.dealt(h, dmg * 0.7);
       if (sk.kind === 'drain') for (const m of mates) this.healHero(m, pow * 0.4);
     }
     h.mana -= sk.mana;
-    h.cd = sk.cd;
+    h.cd = sk.cd * mods.cdMul;
     h.casts++;
     if (h.side === 0) this.sfx.push('cast:' + sk.kind);
     return true;
@@ -491,12 +616,23 @@ export class Game {
       this.stats.lords[side]++;
       const lane = this.bestLane(side);
       this.spawnLordCreep(side, lane);
+      const race = this.rollOrb(side);
+      const rn = RACES[race].name;
       this.events.push({
-        text: side === 0 ? `Лорд на твоей стороне! Идёт по линии: ${LANE_NAMES[lane]}` : `Враг подчинил Лорда: ${LANE_NAMES[lane]} линия`,
+        text: side === 0 ? `Лорд на твоей стороне (${LANE_NAMES[lane]} линия) и сфера расы: ${rn} +1` : `Враг подчинил Лорда (${LANE_NAMES[lane]} линия) и получил сферу: ${rn}`,
         side,
       });
       this.sfx.push(side === 0 ? 'bossDown' : 'bad');
     }
+  }
+
+  /** Сфера случайной расы из тех, что есть в команде: +1 к счётчику расы. */
+  private rollOrb(side: Side): RaceId {
+    const mine = [...new Set(this.heroes.filter((h) => h.side === side).map((h) => h.def.race))];
+    const race = mine[Math.floor(Math.random() * mine.length)];
+    this.orbs[side][race] = (this.orbs[side][race] ?? 0) + 1;
+    this.refreshStats(side);
+    return race;
   }
 
   /** Линия, где сторона продвинулась дальше всего. При равенстве — центр. */
@@ -534,6 +670,8 @@ export class Game {
       this.spawnWave();
     }
 
+    this.visionT -= dt;
+    if (this.visionT <= 0) { this.visionT = 0.2; this.updateVision(); }
     this.updateHeroes(dt);
     this.updateNeutrals(dt);
     this.updateWards(dt);
@@ -581,7 +719,7 @@ export class Game {
         kinds.forEach((kind, i) => {
           const st = BAL.creep[kind];
           const late = Math.max(0, this.t - BAL.lateGameFrom) / 60;
-          const mul = (1 + BAL.creepLvlMul * lvl) * (1 + BAL.lateGamePerMin * late);
+          const mul = (1 + BAL.creepLvlMul * lvl) * (1 + BAL.lateGamePerMin * late) * this.sideMods(side).creepMul;
           this.creeps.push({
             uid: this.uid++, kind, side, lane,
             s: base - dir * i * 28,
@@ -618,12 +756,13 @@ export class Game {
       if (h.atkCd > 0) continue;
       const tgt = this.nearestEnemyCreep(h.lane, h.side, h.s, h.def.range);
       if (!tgt) continue;
-      h.atkCd = h.def.rate;
+      h.atkCd = h.def.rate * this.heroMods(h).rateMul;
       if (h.def.range < 150) {
+        this.dealt(h, Math.min(h.dmg, tgt.hp));
         this.hitCreep(tgt, h.dmg);
       } else {
         const p = this.heroPos(h);
-        this.projs.push({ x: p.x, y: p.y, target: { kind: 'creep', c: tgt }, dmg: h.dmg, speed: 700, color: h.def.color, size: 4 });
+        this.projs.push({ x: p.x, y: p.y, src: h, target: { kind: 'creep', c: tgt }, dmg: h.dmg, speed: 700, color: h.def.color, size: 4 });
       }
     }
   }
@@ -718,6 +857,7 @@ export class Game {
       const step = p.speed * dt;
       if (d <= step) {
         p.speed = 0;
+        if (p.src && p.target.kind === 'creep') this.dealt(p.src, Math.min(p.dmg, Math.max(0, p.target.c.hp)));
         this.applyHit(p.target, p.dmg);
       } else {
         p.x += (dx / d) * step;
@@ -744,12 +884,13 @@ export class Game {
     if (c.hp <= 0) {
       c.dead = true;
       const killer = (1 - c.side) as Side;
-      this.addGold(killer, c.gold);
+      const gold = Math.round(c.gold * this.sideMods(killer).goldMul);
+      this.addGold(killer, gold);
       this.stats.kills[killer]++;
       if (killer === 0) {
         this.sfx.push(c.kind === 'lord' ? 'bossDown' : 'kill');
         const p = this.creepPos(c);
-        this.fx.push({ kind: 'text', x: p.x, y: p.y, text: '+' + c.gold, color: '#f3d27a', t: 0, life: 0.9 });
+        this.fx.push({ kind: 'text', x: p.x, y: p.y, text: '+' + gold, color: '#f3d27a', t: 0, life: 0.9 });
       }
     }
   }
@@ -768,13 +909,14 @@ export class Game {
   private hitHero(h: Hero, dmg: number) {
     if (h.dead) return;
     if (!h.trip) dmg *= 1 - BAL.depthArmor[Math.max(0, Math.min(3, this.depth(h.lane, h.side)))];
+    dmg *= 1 - this.heroMods(h).armor;
     h.hp -= dmg;
     h.flash = 0.12;
     if (h.hp <= 0) {
       h.hp = 0;
       h.dead = true;
       h.trip = null;
-      h.respawn = BAL.heroRespawn;
+      h.respawn = BAL.heroRespawn * this.heroMods(h).respawnMul;
       this.sfx.push('heroDie:' + h.side);
       this.onHeroDown(h);
     }

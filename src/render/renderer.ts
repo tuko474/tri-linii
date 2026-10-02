@@ -3,6 +3,7 @@ import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
 import { CAMPS, PITS, RIVER, RIVER_W, THRONE_POS, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
+import { drawHeroFigure } from './art';
 
 const C = {
   grass: '#2f4a33',
@@ -401,6 +402,7 @@ export class Renderer {
     this.drawTripPaths();
     for (const w of g.wards) {
       const p = g.lanes[w.lane].pos(w.s, w.off);
+      if (w.side !== 0 && !g.visible(0, p.x, p.y)) continue;
       ctx.fillStyle = '#2d6b57';
       ctx.fillRect(p.x - 7, p.y - 18, 14, 26);
       ctx.fillStyle = '#5fc9a8';
@@ -408,16 +410,53 @@ export class Renderer {
       ctx.arc(p.x, p.y - 20, 8, 0, 7);
       ctx.fill();
     }
-    for (const c of g.creeps) this.drawCreep(c);
-    for (const h of g.heroes) this.drawHero(h);
+    for (const c of g.creeps) if (this.seen(c.side, g.creepPos(c))) this.drawCreep(c);
+    for (const h of g.heroes) if (h.side === 0 || (!h.dead && this.seen(h.side, g.heroPos(h)))) this.drawHero(h);
 
     for (const p of g.projs) {
+      if (!g.visible(0, p.x, p.y)) continue;
       ctx.fillStyle = p.color;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, 7);
       ctx.fill();
     }
     this.drawFx();
+    this.drawFog();
+  }
+
+  /** Свои видны всегда, чужие — только вне тумана. */
+  private seen(side: Side, p: { x: number; y: number }) {
+    return side === 0 || this.g.visible(0, p.x, p.y);
+  }
+
+  private fog: HTMLCanvasElement = document.createElement('canvas');
+
+  /** Туман войны: тёмная пелена с «дырами» вокруг всего, что видит игрок. */
+  private drawFog() {
+    const { ctx, g } = this;
+    const K = 16;
+    const f = this.fog;
+    if (f.width !== Math.ceil(WORLD.W / K)) {
+      f.width = Math.ceil(WORLD.W / K);
+      f.height = Math.ceil(WORLD.H / K);
+    }
+    const x = f.getContext('2d')!;
+    x.globalCompositeOperation = 'source-over';
+    x.clearRect(0, 0, f.width, f.height);
+    x.fillStyle = 'rgba(6,8,18,.66)';
+    x.fillRect(0, 0, f.width, f.height);
+    x.globalCompositeOperation = 'destination-out';
+    for (const [vx, vy, r] of g.vision[0]) {
+      const gr = x.createRadialGradient(vx / K, vy / K, (r / K) * 0.7, vx / K, vy / K, r / K);
+      gr.addColorStop(0, 'rgba(0,0,0,1)');
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = gr;
+      x.beginPath();
+      x.arc(vx / K, vy / K, r / K, 0, 7);
+      x.fill();
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(f, 0, 0, WORLD.W, WORLD.H);
   }
 
   private drawNeutral(n: Neutral) {
@@ -505,6 +544,8 @@ export class Renderer {
       }
     }
     ctx.restore();
+    // в тумане не видно, кто бьёт босса и сколько у него HP
+    if (!g.visible(0, n.x, n.y, 60)) return;
     if (n.hp < n.maxHp || n.kind !== 'camp') {
       const w = n.kind === 'camp' ? 60 : 150;
       const y = n.y - R - (n.kind === 'lord' ? 50 : 26);
@@ -592,6 +633,7 @@ export class Renderer {
     }
     for (const c of g.creeps) {
       const p = g.creepPos(c);
+      if (!this.seen(c.side, p)) continue;
       m.fillStyle = c.side === 0 ? '#bff3ea' : '#ffb3bf';
       m.fillRect(p.x * k - 1, p.y * k - 1, 2.5, 2.5);
     }
@@ -614,6 +656,7 @@ export class Renderer {
     for (const h of g.heroes) {
       if (h.dead) continue;
       const p = g.heroPos(h);
+      if (!this.seen(h.side, p)) continue;
       m.fillStyle = C.dark;
       m.beginPath();
       m.arc(p.x * k, p.y * k, 4.5, 0, 7);
@@ -623,6 +666,11 @@ export class Renderer {
       m.arc(p.x * k, p.y * k, 3.2, 0, 7);
       m.fill();
     }
+    // туман на миникарте
+    m.save();
+    m.scale(k, k);
+    m.drawImage(this.fog, 0, 0, WORLD.W, WORLD.H);
+    m.restore();
     // рамка обзора
     const c = this.cam;
     const w = (this.vw / c.z) * k;
@@ -706,7 +754,7 @@ export class Renderer {
   private drawHero(h: Hero) {
     const { ctx, g } = this;
     const p = g.heroPos(h);
-    const R = 30;
+    const R = 40;
     ctx.save();
     ctx.translate(p.x, p.y);
     if (h.dead) {
@@ -732,40 +780,43 @@ export class Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    ctx.fillStyle = C.dark;
+    // подставка в цвет команды
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
     ctx.beginPath();
-    ctx.arc(0, 4, R + 6, 0, 7);
+    ctx.ellipse(0, R * 0.95, R * 1.05, R * 0.42, 0, 0, 7);
     ctx.fill();
-    ctx.fillStyle = C.side[h.side];
+    ctx.fillStyle = C.sideDeep[h.side];
     ctx.beginPath();
-    ctx.arc(0, 0, R + 5, 0, 7);
+    ctx.ellipse(0, R * 0.85, R * 0.95, R * 0.36, 0, 0, 7);
     ctx.fill();
-    ctx.fillStyle = h.flash > 0 ? '#ffffff' : h.def.color;
-    ctx.beginPath();
-    ctx.arc(0, 0, R, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = C.dark;
-    ctx.font = '800 30px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(h.def.glyph, 0, 2);
+    ctx.strokeStyle = C.side[h.side];
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    // фигурка
+    ctx.save();
+    ctx.translate(0, -R * 0.15);
+    ctx.scale(R * 1.15, R * 1.15);
+    if (h.side === 1) ctx.scale(-1, 1); // враги смотрят в другую сторону
+    drawHeroFigure(ctx, h.def, h.flash > 0);
+    ctx.restore();
     // уровень
     ctx.fillStyle = '#f3d27a';
     ctx.beginPath();
-    ctx.arc(R - 2, R - 4, 17, 0, 7);
+    ctx.arc(R + 4, R * 0.55, 15, 0, 7);
     ctx.fill();
     ctx.fillStyle = C.dark;
-    ctx.font = '800 22px system-ui, sans-serif';
-    ctx.fillText(String(h.lvl), R - 2, R - 2);
+    ctx.font = '800 19px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(h.lvl), R + 4, R * 0.55 + 1);
     // полоски HP и маны
-    bar(ctx, -36, -R - 22, 72, 8, h.hp / h.maxHp, h.side === 0 ? '#7ee07a' : '#ff6f7f');
-    bar(ctx, -36, -R - 12, 72, 5, h.mana / h.maxMana, '#6fa8ff');
-    if (g.canCast(h)) {
-      ctx.strokeStyle = '#f3d27a';
-      ctx.lineWidth = 3;
+    bar(ctx, -36, -R * 1.75 - 14, 72, 8, h.hp / h.maxHp, h.side === 0 ? '#7ee07a' : '#ff6f7f');
+    bar(ctx, -36, -R * 1.75 - 4, 72, 5, h.mana / h.maxMana, '#6fa8ff');
+    if (g.canCast(h) && h.side === 0) {
+      ctx.fillStyle = '#f3d27a';
       ctx.beginPath();
-      ctx.arc(0, 0, R + 9, 0, 7);
-      ctx.stroke();
+      ctx.moveTo(-6, -R * 1.75 - 30); ctx.lineTo(6, -R * 1.75 - 30); ctx.lineTo(0, -R * 1.75 - 20); ctx.closePath();
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -773,6 +824,7 @@ export class Renderer {
   private drawFx() {
     const ctx = this.ctx;
     for (const f of this.g.fx) {
+      if (!this.g.visible(0, f.x, f.y, 40)) continue;
       const k = f.t / f.life;
       ctx.globalAlpha = 1 - k;
       if (f.kind === 'ring') {

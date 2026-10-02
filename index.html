@@ -21,6 +21,7 @@
     <h1 class="logo">Три Линии</h1>
     <p class="tagline">Пять героев. Три линии. Один трон, который надо снести.</p>
     <div class="seg" id="diff" role="radiogroup" aria-label="Сложность бота"></div>
+    <p class="crystals" id="crystalsMenu"></p>
     <button type="button" class="btn primary big" id="toPick">В бой</button>
     <button type="button" class="btn ghost" id="howBtn">Как играть</button>
   </section>
@@ -34,6 +35,8 @@
       <li>Если все вражеские герои на линии пали, враг откатывается на позицию назад, а твои герои встают на его место.</li>
       <li>После трёх откатов путь к трону открыт. Снеси трон — победа.</li>
       <li>Карту двигай пальцем, приближай двумя пальцами. Миникарта в углу показывает всё поле — нажми на неё, чтобы перейти.</li>
+      <li>У каждого героя есть раса. 2, 3, 4 или 5 героев одной расы включают бонус для команды. Лорд, кроме всего прочего, даёт сферу расы — она считается за ещё одного героя этой расы.</li>
+      <li>Врагов, боссов и лес скрывает туман войны: ты видишь только то, что рядом с твоими героями, крипами и вышками. Если вражеского героя нет на линии — думай, где он.</li>
       <li>В реке появляются Черепаха (золото команде) и Лорд (переходит на твою сторону и идёт по линии). Нажми на них или на лесной лагерь и отправь героев. Пока герои в походе, их линия пуста: если вражеские крипы дойдут до позиции, она будет потеряна. Если враг пришёл к тому же боссу — сначала бой между героями.</li>
     </ol>
     <button type="button" class="btn primary" id="howBack">Понятно</button>
@@ -43,8 +46,10 @@
     <header class="bar">
       <button type="button" class="btn icon" id="pickBack" aria-label="Назад">‹</button>
       <h2>Выбор героев</h2>
+      <span class="crystals" id="crystalsPick"></span>
       <span class="count" id="pickCount">0/5</span>
     </header>
+    <div class="syn-preview" id="pickSyn"></div>
     <div class="cards" id="cards"></div>
     <div class="sticky-cta"><button type="button" class="btn primary big" id="toPlace" disabled>Расставить по линиям</button></div>
   </section>
@@ -63,6 +68,7 @@
   <section class="screen battle" id="battle" hidden>
     <div class="field" id="field"><canvas id="cv"></canvas></div>
     <canvas id="mini" class="minimap" aria-label="Миникарта: нажми, чтобы перейти"></canvas>
+    <div class="synergy" id="synergy"></div>
 
     <header class="hud-top">
       <div class="thrones">
@@ -114,6 +120,7 @@
     <h1 class="logo" id="resTitle">Победа</h1>
     <p class="tagline" id="resText"></p>
     <dl class="stats" id="resStats"></dl>
+    <p class="crystals reward" id="resReward"></p>
     <button type="button" class="btn primary big" id="again">Ещё бой</button>
     <button type="button" class="btn ghost" id="toMenu">В меню</button>
   </section>

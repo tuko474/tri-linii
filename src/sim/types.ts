@@ -88,6 +88,7 @@ export type Target = { kind: 'creep'; c: Creep } | { kind: 'hero'; h: Hero } | {
 export interface Proj {
   x: number;
   y: number;
+  src?: Hero; // кто выпустил (для вампиризма)
   target: Target;
   dmg: number;
   speed: number;
