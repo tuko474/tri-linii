@@ -78,6 +78,17 @@ export class Bot {
     }
     if (busy) return;
 
+    // Стражи логов: держим под контролем, чтобы видеть, кто бьёт Лорда и Черепаху.
+    for (const gd of g.neutrals) {
+      if (gd.kind !== 'guard' || gd.owner === me || !gd.alive) continue;
+      if (Math.random() > 0.3) continue;
+      const team = this.spare(g, gd.owner === null ? 1 : 2);
+      if (team.length) {
+        g.sendParty(me, gd.id, team);
+        return;
+      }
+    }
+
     // Боссы: идём сами или перехватываем, если туда пошёл игрок.
     for (const n of g.neutrals.slice(0, 2)) {
       if (!n.alive) continue;

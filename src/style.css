@@ -180,7 +180,7 @@ canvas { display: block; }
 .hud-btns { top: calc(6px + var(--sat)); right: calc(8px + var(--sar)); display: flex; gap: 5px; }
 .btn.chip { padding: 7px 9px; font-size: 13px; border-radius: 9px; background: rgba(43,37,73,.92); min-width: 36px; }
 
-.toasts { top: calc(58px + var(--sat)); left: calc(var(--mini) + 18px + var(--sal)); right: calc(110px + var(--sar)); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.toasts { top: calc(92px + var(--sat)); left: calc(var(--mini) + 18px + var(--sal)); right: calc(110px + var(--sar)); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
 .toast { background: rgba(23,20,42,.92); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; font-weight: 700; font-size: 13px; animation: toast 3.4s forwards; text-align: center; }
 .toast.good { border-color: var(--light); color: var(--light); }
 .toast.bad { border-color: var(--dark); color: #ff9aa8; }
@@ -322,3 +322,11 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 }
 .boss.recall-all { border-color: var(--light); }
 .boss.recall-all i { background: var(--light); }
+
+.boss small.own { color: var(--light); }
+.orb-chip {
+  left: calc(var(--mini) + 18px + var(--sal)); top: calc(58px + var(--sat));
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 999px;
+  background: rgba(23,20,42,.88); border: 1px solid #a982f0; color: #d9c7ff; font: 700 12px var(--body); font-variant-numeric: tabular-nums;
+}
+.orb-chip img { width: 22px; height: 22px; }

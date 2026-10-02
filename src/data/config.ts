@@ -1,6 +1,6 @@
 // Баланс игры. Все числа в одном месте, чтобы крутить их без поиска по коду.
 
-export const WORLD = { W: 4200, H: 2400 };
+export const WORLD = { W: 5400, H: 3000 };
 
 export type CreepKind = 'melee' | 'ranged' | 'siege' | 'lord';
 
@@ -33,11 +33,11 @@ export const BAL = {
   depthArmor: [0, 0.2, 0.35, 0.5],
 
   creep: {
-    melee: { hp: 300, dmg: 19, range: 40, rate: 1.0, speed: 80, gold: 12, r: 12 },
-    ranged: { hp: 200, dmg: 24, range: 165, rate: 1.25, speed: 80, gold: 16, r: 10 },
-    siege: { hp: 650, dmg: 70, range: 270, rate: 2.6, speed: 62, gold: 40, r: 16 },
+    melee: { hp: 300, dmg: 19, range: 40, rate: 1.0, speed: 92, gold: 12, r: 12 },
+    ranged: { hp: 200, dmg: 24, range: 165, rate: 1.25, speed: 92, gold: 16, r: 10 },
+    siege: { hp: 650, dmg: 70, range: 270, rate: 2.6, speed: 72, gold: 40, r: 16 },
     // Лорд, перешедший на сторону победителя: идёт по линии как огромный крип
-    lord: { hp: 2600, dmg: 85, range: 70, rate: 1.3, speed: 65, gold: 150, r: 34 },
+    lord: { hp: 2600, dmg: 85, range: 70, rate: 1.3, speed: 74, gold: 150, r: 34 },
   } as Record<CreepKind, CreepStats>,
 
   lateGameFrom: 1200, // с 20-й минуты крипы усиливаются сами, чтобы бой не тянулся вечно
@@ -50,9 +50,14 @@ export const BAL = {
   neutral: {
     lord: { name: 'Лорд', hp: 3200, hpPerMin: 260, dmg: 55, rate: 1.4, first: 180, respawn: 180, r: 64 },
     turtle: { name: 'Черепаха', hp: 1700, hpPerMin: 140, dmg: 32, rate: 1.3, first: 75, respawn: 120, r: 54, gold: 320 },
+    // Страж у входа в логово: после захвата даёт обзор логова, его можно перехватить
+    guard: { name: 'Страж', hp: 950, hpPerMin: 80, dmg: 24, rate: 1.2, first: 20, respawn: 0, r: 30 },
     camp: { name: 'Лесные', hp: 520, hpPerMin: 45, dmg: 14, rate: 1.2, first: 25, respawn: 60, r: 24, gold: 70 },
   },
-  tripSpeed: 320, // скорость героя в походе
+  tripSpeed: 360, // скорость героя в походе
+  // Обзор (туман войны): радиусы видимости
+  vision: { throne: 1000, hero: 450, creep: 300, ward: 280, slot: 380, guard: 260 },
+  pitZone: 290, // радиус логова: внутрь видно только со стражем или отрядом в логове
   neutralRegen: 0.08, // доля HP в секунду, когда рядом никого
   tripReach: 230, // с какого расстояния герои в походе бьют цель
 

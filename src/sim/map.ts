@@ -64,7 +64,7 @@ export function segDist(px: number, py: number, a: [number, number], b: [number,
 }
 
 const { W, H } = WORLD;
-const M = 330; // отступ баз от края
+const M = 360; // отступ баз от края
 
 export const THRONE_POS: [{ x: number; y: number }, { x: number; y: number }] = [
   { x: M, y: H - M },
@@ -79,7 +79,7 @@ export const GUARD_R = 300;
 export const LANE_NAMES = ['Верхняя', 'Центр', 'Нижняя'];
 export const LANE_SHORT = ['Верх', 'Центр', 'Низ'];
 
-const E = 300; // линия вдоль края — на таком расстоянии от него
+const E = 320; // линия вдоль края — на таком расстоянии от него
 
 export function buildLanes(): LaneGeo[] {
   const b = THRONE_POS[0];
@@ -120,6 +120,14 @@ export const PITS = [
   { ...onRiver(0.69), name: 'Черепаха' },
 ];
 
+/** Стражи у входа в логова: вдоль реки в сторону центра карты. */
+export const GUARD_POS = PITS.map((p) => {
+  const dx = W / 2 - p.x;
+  const dy = H / 2 - p.y;
+  const d = Math.hypot(dx, dy) || 1;
+  return { x: p.x + (dx / d) * 400, y: p.y + (dy / d) * 400 };
+});
+
 /** Лесные лагеря (поляны): подбираются автоматически в лесу каждой половины, зеркально. */
 export const CAMPS: { x: number; y: number }[] = (() => {
   const lanes = buildLanes();
@@ -128,21 +136,21 @@ export const CAMPS: { x: number; y: number }[] = (() => {
     lanes.every((l) => l.dist(x, y) > 260) &&
     RIVER.every((_, i) => i === 0 || segDist(x, y, RIVER[i - 1], RIVER[i]) > RIVER_W / 2 + 200) &&
     THRONE_POS.every((t) => Math.hypot(t.x - x, t.y - y) > 700) &&
-    PITS.every((p) => Math.hypot(p.x - x, p.y - y) > 450) &&
+    PITS.every((p) => Math.hypot(p.x - x, p.y - y) > 520) &&
     x > 200 && y > 200 && x < W - 200 && y < H - 200;
   const cand: { x: number; y: number }[] = [];
   for (let y = 150; y < H; y += 60) for (let x = 150; x < W; x += 60) if (ok(x, y)) cand.push({ x, y });
   // самые удалённые друг от друга точки
   const picked: { x: number; y: number }[] = [];
   if (cand.length) picked.push(cand[Math.floor(cand.length / 2)]);
-  while (picked.length < 8 && cand.length) {
+  while (picked.length < 10 && cand.length) {
     let best = cand[0];
     let bd = -1;
     for (const c of cand) {
       const d = Math.min(...picked.map((p) => Math.hypot(p.x - c.x, p.y - c.y)));
       if (d > bd) { bd = d; best = c; }
     }
-    if (bd < 380) break;
+    if (bd < 430) break;
     picked.push(best);
   }
   return [...picked, ...picked.map((p) => ({ x: W - p.x, y: H - p.y }))];

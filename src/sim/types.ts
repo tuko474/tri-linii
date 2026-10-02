@@ -33,7 +33,7 @@ export interface Trip {
   idx: number; // место в отряде
 }
 
-export type NeutralKind = 'lord' | 'turtle' | 'camp';
+export type NeutralKind = 'lord' | 'turtle' | 'camp' | 'guard';
 
 export interface Neutral {
   id: number;
@@ -48,6 +48,9 @@ export interface Neutral {
   atkCd: number;
   hits: number;
   flash: number;
+  owner: Side | null; // для стража: кто его захватил
+  pit?: number; // для стража: какое логово он охраняет
+  guard?: number; // для логова: id его стража
 }
 
 export interface Creep {

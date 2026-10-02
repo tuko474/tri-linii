@@ -3,7 +3,7 @@
 import { BAL, CreepKind, Difficulty } from '../data/config';
 import { heroById } from '../data/heroes';
 import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
-import { CAMPS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
+import { CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Side, Target, Ward } from './types';
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
@@ -37,7 +37,9 @@ export class Game {
   winner: Side | null = null;
   autoCast: [boolean, boolean] = [false, true];
   incomeMul: [number, number];
-  stats = { kills: [0, 0], pushes: [0, 0], goldEarned: [0, 0], lords: [0, 0], turtles: [0, 0], camps: [0, 0] };
+  stats = { kills: [0, 0], pushes: [0, 0], goldEarned: [0, 0], lords: [0, 0], turtles: [0, 0], camps: [0, 0], guards: [0, 0] };
+  /** pitSeen[side][i] — видит ли сторона логово i (Лорд, Черепаха). */
+  pitSeen: [boolean[], boolean[]] = [[false, false], [false, false]];
 
   private uid = 1;
   private throneAtkFx = [0, 0];
@@ -59,12 +61,19 @@ export class Game {
       const cfg = BAL.neutral[kind];
       this.neutrals.push({
         id: this.neutrals.length, kind, x, y, hp: 0, maxHp: cfg.hp, dmg: cfg.dmg,
-        alive: false, respawnT: cfg.first, atkCd: 0, hits: 0, flash: 0,
+        alive: false, respawnT: cfg.first, atkCd: 0, hits: 0, flash: 0, owner: null,
       });
+      return this.neutrals[this.neutrals.length - 1];
     };
     mk('lord', PITS[0].x, PITS[0].y);
     mk('turtle', PITS[1].x, PITS[1].y);
     for (const c of CAMPS) mk('camp', c.x, c.y);
+    // стражи логов — в конце списка, чтобы id Лорда (0) и Черепахи (1) не сдвигались
+    GUARD_POS.forEach((gp, i) => {
+      const gd = mk('guard', gp.x, gp.y);
+      gd.pit = i;
+      this.neutrals[i].guard = gd.id;
+    });
     this.refreshStats(0);
     this.refreshStats(1);
     this.updateVision();
@@ -194,27 +203,43 @@ export class Game {
   // ---------- туман войны ----------
 
   private updateVision() {
+    const V = BAL.vision;
     for (const side of [0, 1] as Side[]) {
       const v: [number, number, number][] = [];
       const t = THRONE_POS[side];
-      v.push([t.x, t.y, 1000]);
-      for (const h of this.heroes) if (h.side === side && !h.dead) { const p = this.heroPos(h); v.push([p.x, p.y, 650]); }
-      for (const c of this.creeps) if (c.side === side && !c.dead) { const p = this.creepPos(c); v.push([p.x, p.y, 380]); }
-      for (const w of this.wards) if (w.side === side) { const p = this.lanes[w.lane].pos(w.s, w.off); v.push([p.x, p.y, 320]); }
+      v.push([t.x, t.y, V.throne]);
+      for (const h of this.heroes) if (h.side === side && !h.dead) { const p = this.heroPos(h); v.push([p.x, p.y, V.hero]); }
+      for (const c of this.creeps) if (c.side === side && !c.dead) { const p = this.creepPos(c); v.push([p.x, p.y, V.creep]); }
+      for (const w of this.wards) if (w.side === side) { const p = this.lanes[w.lane].pos(w.s, w.off); v.push([p.x, p.y, V.ward]); }
       for (let l = 0; l < 3; l++) {
         const lane = this.lanes[l];
         BAL.slotT.forEach((tt, i) => {
           if (this.slotOwner(l, i) !== side) return;
           const p = lane.at(tt * lane.length);
-          v.push([p.x, p.y, 450]);
+          v.push([p.x, p.y, V.slot]);
         });
+      }
+      // логова: видно только со своим стражем или отрядом внутри
+      for (let i = 0; i < PITS.length; i++) {
+        const pit = this.neutrals[i];
+        const guard = this.neutrals[pit.guard!];
+        if (guard.owner === side) v.push([guard.x, guard.y, V.guard]);
+        const inside = this.heroes.some((h) => h.side === side && !h.dead && h.trip?.nid === i && h.trip.phase !== 'back'
+          && Math.hypot(h.trip.x - pit.x, h.trip.y - pit.y) < BAL.pitZone + 160);
+        this.pitSeen[side][i] = guard.owner === side || inside;
+        if (this.pitSeen[side][i]) v.push([pit.x, pit.y, BAL.pitZone + 40]);
       }
       this.vision[side] = v;
     }
   }
 
-  /** Видит ли сторона точку (не в тумане). */
+  /** Видит ли сторона точку (не в тумане). Внутрь логова видно только по pitSeen. */
   visible(side: Side, x: number, y: number, pad = 0): boolean {
+    for (let i = 0; i < PITS.length; i++) {
+      const dx = PITS[i].x - x;
+      const dy = PITS[i].y - y;
+      if (dx * dx + dy * dy < BAL.pitZone * BAL.pitZone) return this.pitSeen[side][i];
+    }
     for (const [vx, vy, r] of this.vision[side]) {
       const dx = vx - x;
       const dy = vy - y;
@@ -222,6 +247,13 @@ export class Game {
       if (dx * dx + dy * dy <= rr * rr) return true;
     }
     return false;
+  }
+
+  /** Сколько секунд ещё действует сфера (до возрождения Лорда). 0 — сферы нет. */
+  orbTimeLeft(side: Side): number {
+    const has = Object.values(this.orbs[side]).some((v) => (v ?? 0) > 0);
+    const lord = this.neutrals[0];
+    return has && !lord.alive ? lord.respawnT : 0;
   }
 
   /** Место героя на его позиции линии (куда он вернётся из похода). */
@@ -419,6 +451,7 @@ export class Game {
   // ---------- походы: Лорд, Черепаха, лес ----------
 
   neutralName(n: Neutral) {
+    if (n.kind === 'guard') return 'Страж ' + (n.pit === 0 ? 'Лорда' : 'Черепахи');
     return BAL.neutral[n.kind].name;
   }
 
@@ -431,6 +464,7 @@ export class Game {
   sendParty(side: Side, nid: number, list: Hero[]): number {
     const n = this.neutrals[nid];
     if (!n || !n.alive) return 0;
+    if (n.kind === 'guard' && n.owner === side) return 0; // свой страж — бить нечего
     let idx = this.party(nid, side).length;
     let sent = 0;
     for (const h of list) {
@@ -488,6 +522,7 @@ export class Game {
     const foes = this.party(nid, (1 - h.side) as Side, 'fight');
     if (foes.length) return { hero: foes.reduce((a, b) => (a.hp < b.hp ? a : b)) };
     const n = this.neutrals[nid];
+    if (n.kind === 'guard' && n.owner === h.side) return null; // захвачен — возвращаемся
     return n.alive ? { n } : null;
   }
 
@@ -498,7 +533,7 @@ export class Game {
       if (!n.alive) { t.phase = 'back'; return; }
       if (this.moveTrip(h, this.tripSpot(n, h), dt)) {
         t.phase = 'fight';
-        if (n.kind !== 'camp' && h.side === 0) this.sfx.push('roar');
+        if ((n.kind === 'lord' || n.kind === 'turtle') && h.side === 0) this.sfx.push('roar');
       }
       return;
     }
@@ -565,14 +600,16 @@ export class Game {
           n.hp = n.maxHp;
           n.dmg = cfg.dmg * (1 + 0.06 * min);
           n.hits = 0;
-          if (n.kind !== 'camp') {
+          if (n.kind === 'lord' || n.kind === 'turtle') {
             this.events.push({ text: `${cfg.name} появился в реке`, side: null });
             this.sfx.push('bossSpawn');
           }
+          if (n.kind === 'lord') this.expireOrbs();
         }
         continue;
       }
-      const fighters = this.heroes.filter((h) => !h.dead && h.trip?.nid === n.id && h.trip.phase === 'fight');
+      // страж бьёт только тех, кто пришёл его отбить, а не хозяев
+      const fighters = this.heroes.filter((h) => !h.dead && h.trip?.nid === n.id && h.trip.phase === 'fight' && h.side !== n.owner);
       if (!fighters.length) {
         n.hp = Math.min(n.maxHp, n.hp + n.maxHp * BAL.neutralRegen * dt);
         continue;
@@ -581,7 +618,7 @@ export class Game {
       if (n.atkCd > 0) continue;
       n.atkCd = cfg.rate;
       n.hits++;
-      if (n.kind !== 'camp' && n.hits % 4 === 0) {
+      if ((n.kind === 'lord' || n.kind === 'turtle') && n.hits % 4 === 0) {
         for (const f of fighters) this.hitHero(f, n.dmg * 0.7);
         this.fx.push({ kind: 'ring', x: n.x, y: n.y, r: cfg.r + 120, color: n.kind === 'lord' ? '#b48cff' : '#7fd68a', t: 0, life: 0.6 });
       } else {
@@ -592,10 +629,27 @@ export class Game {
   }
 
   private hitNeutral(n: Neutral, dmg: number, side: Side) {
-    if (!n.alive) return;
+    if (!n.alive || n.owner === side) return;
     n.hp -= dmg;
     n.flash = 0.1;
     if (n.hp > 0) return;
+    if (n.kind === 'guard') {
+      // страж не умирает, а переходит к победителю
+      const lost = n.owner;
+      n.owner = side;
+      n.hp = n.maxHp = BAL.neutral.guard.hp + BAL.neutral.guard.hpPerMin * (this.t / 60);
+      this.stats.guards[side]++;
+      const pit = n.pit === 0 ? 'Лорда' : 'Черепахи';
+      if (side === 0) {
+        this.events.push({ text: `Страж ${pit} твой — логово под обзором`, side: 0 });
+        this.sfx.push('coins');
+      } else if (lost === 0) {
+        this.events.push({ text: `Враг перехватил стража ${pit}`, side: 1 });
+        this.sfx.push('bad');
+      }
+      this.updateVision();
+      return;
+    }
     n.alive = false;
     n.hp = 0;
     const cfg = BAL.neutral[n.kind];
@@ -619,20 +673,29 @@ export class Game {
       const race = this.rollOrb(side);
       const rn = RACES[race].name;
       this.events.push({
-        text: side === 0 ? `Лорд на твоей стороне (${LANE_NAMES[lane]} линия) и сфера расы: ${rn} +1` : `Враг подчинил Лорда (${LANE_NAMES[lane]} линия) и получил сферу: ${rn}`,
+        text: side === 0 ? `Лорд на твоей стороне (${LANE_NAMES[lane]} линия). Сфера: ${rn} +1, пока Лорд мёртв` : `Враг подчинил Лорда (${LANE_NAMES[lane]} линия) и получил сферу: ${rn}`,
         side,
       });
       this.sfx.push(side === 0 ? 'bossDown' : 'bad');
     }
   }
 
-  /** Сфера случайной расы из тех, что есть в команде: +1 к счётчику расы. */
+  /** Сфера случайной расы из всех: +1 к счётчику расы, пока Лорд не возродится. Может выпасть и ненужная. */
   private rollOrb(side: Side): RaceId {
-    const mine = [...new Set(this.heroes.filter((h) => h.side === side).map((h) => h.def.race))];
-    const race = mine[Math.floor(Math.random() * mine.length)];
+    const race = RACE_IDS[Math.floor(Math.random() * RACE_IDS.length)];
     this.orbs[side][race] = (this.orbs[side][race] ?? 0) + 1;
     this.refreshStats(side);
     return race;
+  }
+
+  /** Лорд возродился — сферы рассеиваются. */
+  private expireOrbs() {
+    for (const side of [0, 1] as Side[]) {
+      if (!Object.values(this.orbs[side]).some((v) => (v ?? 0) > 0)) continue;
+      this.orbs[side] = {};
+      this.refreshStats(side);
+      if (side === 0) this.events.push({ text: 'Сфера рассеялась: Лорд возродился', side: null });
+    }
   }
 
   /** Линия, где сторона продвинулась дальше всего. При равенстве — центр. */

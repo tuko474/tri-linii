@@ -1,7 +1,7 @@
 // Отрисовка поля на Canvas 2D с камерой. Читает состояние Game, ничего в нём не меняет.
 import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
-import { CAMPS, PITS, RIVER, RIVER_W, THRONE_POS, segDist } from '../sim/map';
+import { CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
 import { drawHeroFigure } from './art';
 
@@ -41,7 +41,7 @@ const riverDist = (x: number, y: number) => {
 
 const BASE_HALF = 260; // половина стороны площадки базы
 /** Фон хранится в уменьшенном виде, чтобы широкая карта не съедала память телефона. */
-const BG_SCALE = 0.7;
+const BG_SCALE = 0.55;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -229,6 +229,14 @@ export class Renderer {
       x.fillText(p.name, p.x, p.y);
     }
 
+    // площадки стражей у входа в логова
+    for (const gp of GUARD_POS) {
+      x.fillStyle = C.stoneDark;
+      x.beginPath(); x.arc(gp.x, gp.y + 10, 78, 0, 7); x.fill();
+      x.fillStyle = C.stone;
+      x.beginPath(); x.arc(gp.x, gp.y + 6, 70, 0, 7); x.fill();
+    }
+
     // лесные поляны
     for (const c of CAMPS) {
       x.fillStyle = '#3d5b3b';
@@ -306,7 +314,8 @@ export class Renderer {
         riverDist(px, py) > RIVER_W / 2 + 22 + s &&
         THRONE_POS.every((t) => Math.max(Math.abs(t.x - px), Math.abs(t.y - py)) > BASE_HALF + 30 + s) &&
         CAMPS.every((c) => Math.hypot(c.x - px, c.y - py) > 100 + s) &&
-        PITS.every((p) => Math.hypot(p.x - px, p.y - py) > 195 + s);
+        PITS.every((p) => Math.hypot(p.x - px, p.y - py) > 195 + s) &&
+        GUARD_POS.every((p) => Math.hypot(p.x - px, p.y - py) > 110 + s);
       if (!free) continue;
       x.fillStyle = 'rgba(0,0,0,.25)';
       x.beginPath();
@@ -455,6 +464,20 @@ export class Renderer {
       x.arc(vx / K, vy / K, r / K, 0, 7);
       x.fill();
     }
+    // логово без стража и без своего отряда внутри остаётся в тумане, даже если рядом пробегают герои
+    x.globalCompositeOperation = 'source-over';
+    PITS.forEach((p, i) => {
+      if (g.pitSeen[0][i]) return;
+      // возвращаем логову обычный уровень тумана (не темнее остального)
+      x.save();
+      x.beginPath();
+      x.arc(p.x / K, p.y / K, BAL.pitZone / K, 0, 7);
+      x.clip();
+      x.clearRect(p.x / K - BAL.pitZone / K - 1, p.y / K - BAL.pitZone / K - 1, (2 * BAL.pitZone) / K + 2, (2 * BAL.pitZone) / K + 2);
+      x.fillStyle = 'rgba(6,8,18,.66)';
+      x.fillRect(p.x / K - BAL.pitZone / K - 1, p.y / K - BAL.pitZone / K - 1, (2 * BAL.pitZone) / K + 2, (2 * BAL.pitZone) / K + 2);
+      x.restore();
+    });
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(f, 0, 0, WORLD.W, WORLD.H);
   }
@@ -471,6 +494,7 @@ export class Renderer {
       ctx.fillText(clock(n.respawnT), n.x, n.y + 44);
       return;
     }
+    if (n.kind === 'guard') { this.drawGuard(n); return; }
     ctx.save();
     ctx.translate(n.x, n.y);
     const white = n.flash > 0;
@@ -565,6 +589,48 @@ export class Renderer {
     }
   }
 
+  /** Страж логова: каменный обелиск с кристаллом цвета владельца. В тумане — без подробностей. */
+  private drawGuard(n: Neutral) {
+    const { ctx, g } = this;
+    const seen = g.visible(0, n.x, n.y, 40);
+    const col = !seen ? '#7a7f8c' : n.owner === null ? '#c9cdd6' : C.side[n.owner];
+    ctx.save();
+    ctx.translate(n.x, n.y);
+    ctx.fillStyle = 'rgba(0,0,0,.35)';
+    ctx.beginPath(); ctx.ellipse(4, 26, 46, 18, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = C.stoneDark;
+    ctx.beginPath(); ctx.ellipse(0, 22, 44, 16, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = n.flash > 0 ? '#ffffff' : '#6e6a62';
+    ctx.beginPath(); ctx.moveTo(-22, 22); ctx.lineTo(-14, -40); ctx.lineTo(0, -54); ctx.lineTo(14, -40); ctx.lineTo(22, 22); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 3; ctx.stroke();
+    // кристалл
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(0, -36); ctx.lineTo(10, -18); ctx.lineTo(0, 0); ctx.lineTo(-10, -18); ctx.closePath(); ctx.fill();
+    if (seen && n.owner !== null) {
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(0, -18, 26, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    if (!seen) {
+      ctx.fillStyle = '#f3ead6';
+      ctx.font = '800 24px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', 0, -16);
+    }
+    ctx.restore();
+    if (seen && n.hp < n.maxHp) bar(ctx, n.x - 40, n.y - 72, 80, 7, n.hp / n.maxHp, col);
+    if (seen) for (const side of [0, 1] as Side[]) {
+      if (g.party(n.id, side, 'fight').length) {
+        ctx.strokeStyle = C.side[side];
+        ctx.lineWidth = 4;
+        ctx.setLineDash([10, 8]);
+        ctx.beginPath(); ctx.arc(n.x, n.y, 115, 0, 7); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
   private drawTripPaths() {
     const { ctx, g } = this;
     ctx.lineWidth = 4;
@@ -647,6 +713,12 @@ export class Renderer {
     });
     for (const n of g.neutrals) {
       if (!n.alive) continue;
+      if (n.kind === 'guard') {
+        const seen = g.visible(0, n.x, n.y, 40);
+        m.fillStyle = !seen ? '#7a7f8c' : n.owner === null ? '#e8e8f0' : C.side[n.owner];
+        m.fillRect(n.x * k - 3, n.y * k - 3, 6, 6);
+        continue;
+      }
       m.fillStyle = n.kind === 'lord' ? '#a982f0' : n.kind === 'turtle' ? '#7fd68a' : '#c9a35a';
       const r = n.kind === 'camp' ? 2.5 : 5.5;
       m.beginPath();

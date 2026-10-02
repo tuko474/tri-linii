@@ -358,12 +358,21 @@ function syncPanel() {
     else if (foes) status = 'там враг!';
     else status = 'бросить вызов';
     const icon = n.kind === 'lord' ? '♛' : '◈';
-    const html = `<i>${icon}</i>${g.neutralName(n)}<small>${status}</small>`;
+    const gd = g.neutrals[n.guard!];
+    const gs = gd.owner === 0 ? 'страж твой' : !g.visible(0, gd.x, gd.y, 40) ? 'страж: ?' : gd.owner === 1 ? 'страж врага' : 'страж ничей';
+    const html = `<i>${icon}</i>${g.neutralName(n)}<small>${status}</small><small class="${gd.owner === 0 ? 'own' : ''}">${gs}</small>`;
     if (b.dataset.h !== html) { b.innerHTML = html; b.dataset.h = html; }
     b.classList.toggle('alive', n.alive && !mine);
     b.classList.toggle('fight', n.alive && foes > 0);
   });
 
+  const orbT = g.orbTimeLeft(0);
+  const orbEl = $('orbChip');
+  orbEl.hidden = orbT <= 0;
+  if (orbT > 0) {
+    const r = (Object.keys(g.orbs[0]) as RaceId[]).find((k) => (g.orbs[0][k] ?? 0) > 0)!;
+    orbEl.innerHTML = `<img src="${raceURL(r)}" alt="">Сфера: ${RACES[r].name} · ${clock(orbT)}`;
+  }
   $('recallAll').hidden = !g.heroes.some((h) => h.side === 0 && h.trip && h.trip.phase !== 'back');
   const counts = g.raceCounts(0);
   const key = JSON.stringify(counts);
@@ -405,15 +414,27 @@ function openTrip(nid: number) {
   const free = g.heroes.filter((h) => h.side === 0 && !h.dead && !h.trip);
   const name = g.neutralName(n);
   $('tripTitle').textContent = n.kind === 'camp' ? 'Лесной лагерь' : name;
+  if (n.kind === 'guard' && n.owner === 0) {
+    $('tripText').textContent = `${name} уже твой и даёт обзор на логово. Враг может его перехватить — следи за ним на миникарте.`;
+    tripPick = new Set();
+    renderTripHeroes();
+    $<HTMLButtonElement>('tripGo').disabled = true;
+    $('tripRecall').hidden = mineOut.length === 0;
+    $('tripModal').hidden = false;
+    modalPause = true;
+    return;
+  }
   const reward = n.kind === 'lord'
-    ? 'Победивший Лорда получает его в союзники (он идёт по линии, где ты продвинулся дальше всего) и сферу расы: +1 к одной из рас твоей команды.'
+    ? 'Победивший Лорда получает его в союзники (он идёт по линии, где ты продвинулся дальше всего) и сферу случайной расы: +1 к расе, пока Лорд не возродится. Может выпасть и ненужная. Чтобы видеть логово, захвати стража у входа.'
     : n.kind === 'turtle'
       ? `Черепаха даёт команде ${BAL.neutral.turtle.gold} золота.`
-      : `Лесные монстры дают ${BAL.neutral.camp.gold} золота. Хватит одного героя.`;
+      : n.kind === 'guard'
+        ? `Захвати стража — и логово ${n.pit === 0 ? 'Лорда' : 'Черепахи'} будет под обзором: увидишь, если враг пошёл туда. Враг может перехватить стража обратно. Хватит 1–2 героев.`
+        : `Лесные монстры дают ${BAL.neutral.camp.gold} золота. Хватит одного героя.`;
   const foe = g.party(nid, 1).length && g.visible(0, n.x, n.y, 60) ? ' Там уже вражеские герои — сначала придётся победить их.' : '';
   $('tripText').textContent = n.alive ? reward + foe : `${name} появится через ${clock(n.respawnT)}. ${reward}`;
   tripPick = new Set();
-  if (n.kind === 'camp' && free.length) {
+  if ((n.kind === 'camp' || n.kind === 'guard') && free.length) {
     // предложим героя ближе всего к лагерю
     const best = [...free].sort((a, b) => dist(g.heroPos(a), n) - dist(g.heroPos(b), n))[0];
     tripPick.add(best);
