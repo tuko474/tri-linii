@@ -60,6 +60,20 @@ jobs:
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$G"
           sed -i "s/versionName \"[^\"]*\"/versionName \"0.1.${{ github.run_number }}\"/" "$G"
 
+      - name: Постоянный ключ подписи
+        # Один и тот же ключ у всех сборок — тогда новая версия ставится поверх старой и прогресс сохраняется.
+        # Ключ лежит в репозитории зашифрованным; пароль — в секрете KEYSTORE_PASS (Settings → Secrets → Actions).
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$KS_PASS" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in tools/android/arena.keystore.enc -out ~/.android/debug.keystore -pass env:KS_PASS
+            echo "Подпись: постоянный ключ Arena of Defense"
+          else
+            echo "::warning::Нет секрета KEYSTORE_PASS — сборка подписана случайным ключом и не встанет поверх прошлой версии"
+          fi
+
       - name: Собрать APK
         working-directory: android
         run: |
