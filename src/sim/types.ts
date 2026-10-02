@@ -9,6 +9,7 @@ export interface Hero {
   side: Side;
   lane: number;
   lvl: number;
+  xp: number; // опыт к следующему уровню
   hp: number;
   maxHp: number;
   mana: number;

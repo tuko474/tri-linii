@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.trilinii.game', // поменяй на свой домен до первой публикации — потом сменить нельзя
-  appName: 'Три Линии',
+  appName: 'Arena of Defense',
   webDir: 'dist',
   backgroundColor: '#17142a',
   android: { allowMixedContent: false },

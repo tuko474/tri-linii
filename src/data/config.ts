@@ -65,7 +65,18 @@ export const BAL = {
   tripReach: 230, // с какого расстояния герои в походе бьют цель
 
   heroMaxLvl: 15,
-  heroUpCost: (lvl: number) => 80 + 45 * lvl,
+  // Опыт: уровни героев растут сами — за убийства на своей линии, лес, стражей и боссов.
+  // Опыт с линии делится между её героями: одиночка качается быстрее пары.
+  xpToNext: (lvl: number) => 120 + 90 * (lvl - 1),
+  xp: {
+    passive: 0.6, // в секунду каждому живому герою, чтобы никто не отставал совсем
+    creep: { melee: 12, ranged: 15, siege: 35, lord: 120 } as Record<CreepKind, number>,
+    camp: 70,
+    guard: 80,
+    turtle: 300,
+    lord: 450,
+    heroKill: 120, // за убитого вражеского героя (делится между отрядом/героями линии)
+  },
   heroHpPerLvl: 0.1,
   heroDmgPerLvl: 0.09,
   heroManaPerLvl: 0.05,

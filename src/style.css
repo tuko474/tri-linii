@@ -410,3 +410,9 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
   .lobby-card { padding: 10px; gap: 6px; }
   .room-code { font-size: 36px; }
 }
+
+/* уровень героя и опыт под кнопкой */
+.hb-xp { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; background: rgba(23,20,42,.85); border-radius: 8px; padding: 2px 4px 4px; }
+.hb-xp b { font-size: 11px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.hb-xp i { display: block; width: 100%; height: 4px; border-radius: 2px; background: #0d0b18; overflow: hidden; }
+.hb-xp span { display: block; height: 100%; width: 0; background: #b48cff; transition: width .25s; }

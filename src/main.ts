@@ -447,7 +447,7 @@ let paused = false;
 let modalPause = false;
 let speed = 1;
 let selected: Hero | null = null;
-let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLButtonElement; cdv: HTMLElement; mana: HTMLElement; badge: HTMLElement; back: HTMLButtonElement }[] = [];
+let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLElement; cdv: HTMLElement; mana: HTMLElement; badge: HTMLElement; back: HTMLButtonElement }[] = [];
 let synKey = '';
 let creepBtns: HTMLButtonElement[] = [];
 let bossBtns: HTMLButtonElement[] = [];
@@ -500,7 +500,6 @@ function applyCmd(side: Side, cmd: any): boolean {
   const hero = (uid: number) => g.heroes.find((h) => h.uid === uid && h.side === side);
   switch (cmd.c) {
     case 'cast': { const h = hero(cmd.uid); return !!h && g.cast(h); }
-    case 'lvl': { const h = hero(cmd.uid); return !!h && g.levelHero(h); }
     case 'creep': return g.upgradeCreeps(cmd.lane, side);
     case 'send': return g.sendParty(side, cmd.nid, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recall': g.recall(side, cmd.nid ?? undefined); return true;
@@ -534,10 +533,10 @@ function buildPanel() {
       renderer?.focus(hp.x, hp.y);
       if (!g.canCast(h) || !act({ c: 'cast', uid: h.uid })) { pulse(cast); sound.play('deny'); }
     };
-    const up = document.createElement('button');
-    up.type = 'button';
-    up.className = 'btn hb-up';
-    up.onclick = () => { selected = h; if (!act({ c: 'lvl', uid: h.uid })) sound.play('deny'); };
+    // уровень и полоска опыта (уровни растут сами)
+    const up = document.createElement('div');
+    up.className = 'hb-xp';
+    up.innerHTML = '<b></b><i><span></span></i>';
     const back = document.createElement('button');
     back.type = 'button';
     back.className = 'hb-back';
@@ -620,9 +619,8 @@ function syncPanel() {
     b.badge.hidden = !trip;
     b.badge.textContent = trip;
     const maxed = h.lvl >= BAL.heroMaxLvl;
-    const cost = g.heroUpCost(h);
-    b.up.textContent = maxed ? `${h.lvl} макс` : `${h.lvl} ▲${cost}`;
-    b.up.disabled = maxed || g.gold[me] < cost;
+    (b.up.firstElementChild as HTMLElement).textContent = maxed ? `${h.lvl} ★` : `ур. ${h.lvl}`;
+    (b.up.querySelector('span') as HTMLElement).style.width = maxed ? '100%' : `${Math.min(100, (100 * h.xp) / g.xpNeed(h))}%`;
   }
   creepBtns.forEach((b, l) => {
     const lvl = g.creepLvl[l][me];

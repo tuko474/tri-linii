@@ -2,7 +2,7 @@
   "name": "tri-linii",
   "private": true,
   "version": "0.1.0",
-  "description": "Три Линии — мобильная лейн-стратегия: герои-вышки, волны крипов, снеси вражеский трон",
+  "description": "Arena of Defense — мобильная лейн-стратегия: герои-вышки, волны крипов, снеси вражеский трон",
   "type": "module",
   "scripts": {
     "dev": "vite --host",

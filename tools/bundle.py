@@ -31,12 +31,12 @@ fonts = re.search(r'<link rel="stylesheet" href="https://fonts[^>]*>', html).gro
 page = f'''<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>Три Линии</title>{fonts}<style>{css}</style></head>
+<title>Arena of Defense</title>{fonts}<style>{css}</style></head>
 <body>{body}<script>{js}</script></body></html>'''
 (ROOT / 'dist-single').mkdir(exist_ok=True)
 (ROOT / 'dist-single/index.html').write_text(page, encoding='utf-8')
 
 # Вариант для публикации тестовой ссылкой (обёртка doctype/head добавляется при публикации)
-art = f'<title>Три Линии</title>\n{fonts}\n<style>{css}</style>\n{body}\n<script>{js}</script>\n'
+art = f'<title>Arena of Defense</title>\n{fonts}\n<style>{css}</style>\n{body}\n<script>{js}</script>\n'
 (ROOT / 'dist-single/artifact.html').write_text(art, encoding='utf-8')
 print('ok', len(page) // 1024, 'KB')

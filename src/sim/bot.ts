@@ -40,26 +40,17 @@ export class Bot {
     }
     if (worst >= 0 && worstGap >= (this.style === 'rush' ? 3 : 1)) {
       if (g.upgradeCreeps(worst, me)) return;
-      const weak = g.heroesOn(worst, me).sort((a, b) => a.lvl - b.lvl)[0];
-      if (weak && g.gold[me] >= g.heroUpCost(weak) && g.levelHero(weak)) return;
-      return; // копим на оборону
+      // уровень обороны упёрся в лимит времени — усиливаем другие линии
     }
 
     // Нападение: давим одну выбранную линию, иногда меняем фокус.
     if (this.style === 'rush') {
-      if (!g.upgradeCreeps(this.focus, me)) {
-        const lane = g.heroesOn(this.focus, me).sort((a, b) => a.lvl - b.lvl)[0];
-        if (lane && g.gold[me] > g.creepUpCost(this.focus, me) * 2) g.levelHero(lane);
-      }
+      if (!g.upgradeCreeps(this.focus, me)) for (const l of [0, 1, 2]) if (g.upgradeCreeps(l, me)) break;
       return;
     }
     if (Math.random() < 0.04) this.focus = Math.floor(Math.random() * 3);
-    if (Math.random() < 0.55) {
-      g.upgradeCreeps(this.focus, me);
-    } else {
-      const mine = g.heroes.filter((h) => h.side === me).sort((a, b) => a.lvl - b.lvl);
-      if (mine[0]) g.levelHero(mine[0]);
-    }
+    // золото тратится только на крипов: сначала на линию фокуса, потом на остальные
+    if (!g.upgradeCreeps(this.focus, me)) for (const l of [0, 1, 2].sort(() => Math.random() - 0.5)) if (g.upgradeCreeps(l, me)) break;
   }
 
   /** Кого можно снять с линии: на линии останется хотя бы один живой герой. */

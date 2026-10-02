@@ -54,7 +54,7 @@ export class Game {
       for (const p of picks[side]) {
         const def = heroById(p.heroId);
         this.heroes.push({
-          uid: this.uid++, def, side, lane: p.lane, lvl: 1,
+          uid: this.uid++, def, side, lane: p.lane, lvl: 1, xp: 0,
           hp: def.hp, maxHp: def.hp, mana: def.mana * 0.5, maxMana: def.mana, dmg: def.dmg,
           cd: 0, atkCd: 0, dead: false, respawn: 0, off: 0, s: 0, flash: 0, casts: 0, trip: null,
         });
@@ -303,25 +303,45 @@ export class Game {
 
   // ---------- действия игрока / бота ----------
 
-  heroUpCost(h: Hero) {
-    return BAL.heroUpCost(h.lvl);
+  /** Сколько опыта нужно до следующего уровня. */
+  xpNeed(h: Hero) {
+    return BAL.xpToNext(h.lvl);
   }
 
   creepUpCost(lane: number, side: Side) {
     return BAL.creepUpCost(this.creepLvl[lane][side]);
   }
 
-  levelHero(h: Hero): boolean {
-    const cost = this.heroUpCost(h);
-    if (h.lvl >= BAL.heroMaxLvl || this.gold[h.side] < cost) return false;
-    this.gold[h.side] -= cost;
+  /** Начислить опыт; при наборе — новый уровень. */
+  gainXp(h: Hero, amount: number) {
+    if (h.dead || h.lvl >= BAL.heroMaxLvl || amount <= 0) return;
+    h.xp += amount;
+    while (h.lvl < BAL.heroMaxLvl && h.xp >= this.xpNeed(h)) {
+      h.xp -= this.xpNeed(h);
+      this.levelUp(h);
+    }
+    if (h.lvl >= BAL.heroMaxLvl) h.xp = 0;
+  }
+
+  /** Поделить опыт между героями. */
+  private shareXp(list: Hero[], amount: number) {
+    const alive = list.filter((h) => !h.dead);
+    if (!alive.length) return;
+    for (const h of alive) this.gainXp(h, amount / alive.length);
+  }
+
+  /** Герои стороны, стоящие на линии (не в походе) — получают опыт с этой линии. */
+  private laneHeroes(lane: number, side: Side) {
+    return this.heroes.filter((h) => h.lane === lane && h.side === side && !h.dead && !h.trip);
+  }
+
+  private levelUp(h: Hero) {
     const before = h.maxHp;
     h.lvl++;
     this.refreshStats(h.side);
     if (!h.dead) h.hp = Math.min(h.maxHp, h.hp + Math.max(0, h.maxHp - before));
     if (!h.dead) this.fxRingAtHero(h, '#f3d27a', 40);
     this.say(h.side, 'levelUp');
-    return true;
   }
 
   /** Сколько уровней крипов можно иметь сейчас (растёт со временем матча). */
@@ -672,6 +692,7 @@ export class Game {
       n.owner = side;
       n.hp = n.maxHp = BAL.neutral.guard.hp + BAL.neutral.guard.hpPerMin * (this.t / 60);
       this.stats.guards[side]++;
+      this.shareXp(this.party(n.id, side, 'fight'), BAL.xp.guard);
       const pit = n.pit === 0 ? 'Лорда' : 'Черепахи';
       this.tell(side, `Страж ${pit} твой — логово под обзором`, 'good');
       this.say(side, 'coins');
@@ -686,6 +707,7 @@ export class Game {
     n.hp = 0;
     const cfg = BAL.neutral[n.kind];
     n.respawnT = cfg.respawn;
+    this.shareXp(this.party(n.id, side, 'fight'), n.kind === 'camp' ? BAL.xp.camp : n.kind === 'turtle' ? BAL.xp.turtle : BAL.xp.lord);
     if (n.kind === 'camp') {
       this.addGold(side, BAL.neutral.camp.gold);
       this.stats.camps[side]++;
@@ -846,6 +868,7 @@ export class Game {
       h.cd = Math.max(0, h.cd - dt);
       h.mana = Math.min(h.maxMana, h.mana + (3 + 0.35 * h.lvl) * dt);
       h.hp = Math.min(h.maxHp, h.hp + h.maxHp * BAL.heroRegen * dt);
+      this.gainXp(h, BAL.xp.passive * dt);
 
       if (h.trip) { this.updateTrip(h, dt); continue; }
       if (this.autoCast[h.side] && this.canCast(h)) this.cast(h, true);
@@ -1003,6 +1026,7 @@ export class Game {
     if (c.hp <= 0) {
       c.dead = true;
       const killer = (1 - c.side) as Side;
+      this.shareXp(this.laneHeroes(c.lane, killer), BAL.xp.creep[c.kind]);
       const gold = Math.round(c.gold * this.sideMods(killer).goldMul);
       this.addGold(killer, gold);
       this.stats.kills[killer]++;
@@ -1031,11 +1055,14 @@ export class Game {
     h.flash = 0.12;
     if (h.hp <= 0) {
       h.hp = 0;
+      const trip = h.trip;
       h.dead = true;
       h.trip = null;
       h.respawn = BAL.heroRespawn * this.heroMods(h).respawnMul;
       this.say(h.side, 'heroDie:mine');
       this.say((1 - h.side) as Side, 'heroDie:foe');
+      const foe = (1 - h.side) as Side;
+      this.shareXp(trip ? this.party(trip.nid, foe, 'fight') : this.laneHeroes(h.lane, foe), BAL.xp.heroKill);
       this.onHeroDown(h);
     }
   }
@@ -1101,7 +1128,7 @@ export class Game {
       t: r(this.t), gold: this.gold.map(r), throne: this.throne.map(r), front: this.front, creepLvl: this.creepLvl,
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
       autoCast: this.autoCast, tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
-      heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
+      heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
         h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
         r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r]),
@@ -1121,9 +1148,9 @@ export class Game {
     for (const a of S.heroes) {
       const h = byUid.get(a[0] as number);
       if (!h) continue;
-      [, h.lvl, h.hp, h.maxHp, h.mana, h.maxMana, h.dmg, h.cd, h.atkCd] = a as number[];
-      h.dead = a[9] === 1; h.respawn = a[10] as number; h.off = a[11] as number; h.s = a[12] as number;
-      const tr = a[13] as 0 | [number, 'go' | 'fight' | 'back', number, number, number];
+      [, h.lvl, h.xp, h.hp, h.maxHp, h.mana, h.maxMana, h.dmg, h.cd, h.atkCd] = a as number[];
+      h.dead = a[10] === 1; h.respawn = a[11] as number; h.off = a[12] as number; h.s = a[13] as number;
+      const tr = a[14] as 0 | [number, 'go' | 'fight' | 'back', number, number, number];
       h.trip = tr ? { nid: tr[0], phase: tr[1], x: tr[2], y: tr[3], idx: tr[4] } : null;
     }
     this.creeps = S.creeps.map((a) => ({
