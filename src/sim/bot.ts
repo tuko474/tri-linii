@@ -15,12 +15,13 @@ export class Bot {
   private tripThink = 8;
   private focus = Math.floor(Math.random() * 3);
 
-  constructor(private side: Side) {}
+  /** rush — агрессивный стиль, похожий на сильного игрока: всё в одну линию и постоянный лес. Нужен для проверки баланса. */
+  constructor(private side: Side, private style: 'normal' | 'rush' = 'normal') {}
 
   update(g: Game, dt: number) {
     this.tripThink -= dt;
     if (this.tripThink <= 0) {
-      this.tripThink = 3 + Math.random() * 3;
+      this.tripThink = this.style === 'rush' ? 1.5 + Math.random() : 3 + Math.random() * 3;
       this.trips(g);
     }
 
@@ -37,7 +38,7 @@ export class Bot {
       const gap = g.creepLvl[l][foe] - g.creepLvl[l][me] + (g.atThrone(l, me) ? 2 : 0);
       if (gap > worstGap) { worstGap = gap; worst = l; }
     }
-    if (worst >= 0 && worstGap >= 1) {
+    if (worst >= 0 && worstGap >= (this.style === 'rush' ? 3 : 1)) {
       if (g.upgradeCreeps(worst, me)) return;
       const weak = g.heroesOn(worst, me).sort((a, b) => a.lvl - b.lvl)[0];
       if (weak && g.gold[me] >= g.heroUpCost(weak) && g.levelHero(weak)) return;
@@ -45,6 +46,13 @@ export class Bot {
     }
 
     // Нападение: давим одну выбранную линию, иногда меняем фокус.
+    if (this.style === 'rush') {
+      if (!g.upgradeCreeps(this.focus, me)) {
+        const lane = g.heroesOn(this.focus, me).sort((a, b) => a.lvl - b.lvl)[0];
+        if (lane && g.gold[me] > g.creepUpCost(this.focus, me) * 2) g.levelHero(lane);
+      }
+      return;
+    }
     if (Math.random() < 0.04) this.focus = Math.floor(Math.random() * 3);
     if (Math.random() < 0.55) {
       g.upgradeCreeps(this.focus, me);
@@ -104,7 +112,7 @@ export class Bot {
     }
 
     // Лес: изредка один герой идёт на ближайший живой лагерь своей половины.
-    if (Math.random() < 0.35) {
+    if (Math.random() < (this.style === 'rush' ? 0.9 : 0.35)) {
       const h = this.spare(g, 1)[0];
       if (!h) return;
       const from = g.heroPos(h);

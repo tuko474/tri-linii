@@ -497,7 +497,7 @@ export class Renderer {
     if (n.kind === 'guard') { this.drawGuard(n); return; }
     ctx.save();
     ctx.translate(n.x, n.y);
-    const white = n.flash > 0;
+    const white = false; // не мигаем: иначе вспышка выдаёт бой у босса даже сквозь туман
     if (n.kind === 'lord') {
       ctx.fillStyle = 'rgba(0,0,0,.35)';
       ctx.beginPath();
@@ -600,7 +600,7 @@ export class Renderer {
     ctx.beginPath(); ctx.ellipse(4, 26, 46, 18, 0, 0, 7); ctx.fill();
     ctx.fillStyle = C.stoneDark;
     ctx.beginPath(); ctx.ellipse(0, 22, 44, 16, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = n.flash > 0 ? '#ffffff' : '#6e6a62';
+    ctx.fillStyle = '#6e6a62';
     ctx.beginPath(); ctx.moveTo(-22, 22); ctx.lineTo(-14, -40); ctx.lineTo(0, -54); ctx.lineTo(14, -40); ctx.lineTo(22, 22); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 3; ctx.stroke();
     // кристалл

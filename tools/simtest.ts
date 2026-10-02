@@ -4,11 +4,12 @@ import { Game } from '../src/sim/game';
 import { Bot, botPicks } from '../src/sim/bot';
 
 const N = Number(process.argv[2] ?? 20);
+const RUSH = process.argv[3] === 'rush';
 const res: { winner: number | null; t: number; pushes: number[]; lvl: number; lords: number[]; turtles: number[]; camps: number[] }[] = [];
 for (let i = 0; i < N; i++) {
   const g = new Game([botPicks(), botPicks()], 'normal');
   g.autoCast = [true, true];
-  const bots = [new Bot(0), new Bot(1)];
+  const bots = [new Bot(0, RUSH ? 'rush' : 'normal'), new Bot(1)];
   const dt = 1 / 30;
   while (g.winner === null && g.t < 3600) {
     bots[0].update(g, dt);

@@ -330,3 +330,14 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
   background: rgba(23,20,42,.88); border: 1px solid #a982f0; color: #d9c7ff; font: 700 12px var(--body); font-variant-numeric: tabular-nums;
 }
 .orb-chip img { width: 22px; height: 22px; }
+
+/* экран итогов: кнопки всегда в одной строке и видны */
+#result { justify-content: center; }
+.res-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; padding-bottom: 8px; }
+.res-actions .btn.big { min-width: 170px; }
+@media (max-height: 520px) {
+  #result { justify-content: flex-start; gap: 6px; }
+  #result .logo { font-size: 34px; }
+  #result .tagline { margin: 0; }
+  #result .stats { grid-template-columns: auto auto auto auto; gap: 2px 16px; font-size: 13px; }
+}

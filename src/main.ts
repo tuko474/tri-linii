@@ -341,9 +341,12 @@ function syncPanel() {
   }
   creepBtns.forEach((b, l) => {
     const lvl = g.creepLvl[l][0];
-    const maxed = lvl >= BAL.creepMaxLvl;
+    const cap = g.creepCap();
+    const maxed = lvl >= cap;
     const cost = g.creepUpCost(l, 0);
-    const html = `<span>Крипы ${LANE_SHORT[l]}</span><small>${lvl} · враг ${g.creepLvl[l][1]}</small><span class="cost">${maxed ? 'макс' : '▲ ' + cost}</span>`;
+    const wait = BAL.creepLvlEvery * cap - g.t;
+    const tail = lvl >= BAL.creepMaxLvl ? 'макс' : maxed ? `через ${Math.ceil(wait)} с` : '▲ ' + cost;
+    const html = `<span>Крипы ${LANE_SHORT[l]}</span><small>${lvl} · враг ${g.creepLvl[l][1]}</small><span class="cost">${tail}</span>`;
     if (b.dataset.h !== html) { b.innerHTML = html; b.dataset.h = html; }
     b.disabled = maxed || g.gold[0] < cost;
   });

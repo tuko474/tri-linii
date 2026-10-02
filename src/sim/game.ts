@@ -43,6 +43,7 @@ export class Game {
 
   private uid = 1;
   private throneAtkFx = [0, 0];
+  private throneCd = [0, 0];
 
   constructor(picks: [Pick[], Pick[]], difficulty: Difficulty) {
     this.incomeMul = [1, BAL.difficulty[difficulty].botIncome];
@@ -294,9 +295,14 @@ export class Game {
     return true;
   }
 
+  /** Сколько уровней крипов можно иметь сейчас (растёт со временем матча). */
+  creepCap(): number {
+    return Math.min(BAL.creepMaxLvl, 1 + Math.floor(this.t / BAL.creepLvlEvery));
+  }
+
   upgradeCreeps(lane: number, side: Side): boolean {
     const cost = this.creepUpCost(lane, side);
-    if (this.creepLvl[lane][side] >= BAL.creepMaxLvl || this.gold[side] < cost) return false;
+    if (this.creepLvl[lane][side] >= this.creepCap() || this.gold[side] < cost) return false;
     this.gold[side] -= cost;
     this.creepLvl[lane][side]++;
     if (side === 0) this.sfx.push('creepUp');
@@ -738,6 +744,7 @@ export class Game {
     this.updateHeroes(dt);
     this.updateNeutrals(dt);
     this.updateWards(dt);
+    this.updateThroneGuns(dt);
     this.updateCreeps(dt);
     this.updateProjs(dt);
     this.cleanup();
@@ -842,6 +849,27 @@ export class Game {
       this.projs.push({ x: p.x, y: p.y, target: { kind: 'creep', c: tgt }, dmg: w.dmg, speed: 600, color: '#5fc9a8', size: 3 });
     }
     this.wards = this.wards.filter((w) => w.ttl > 0);
+  }
+
+  /** Трон отстреливает вражеских крипов в радиусе. */
+  private updateThroneGuns(dt: number) {
+    const cfg = BAL.throneGun;
+    for (const side of [0, 1] as Side[]) {
+      this.throneCd[side] -= dt;
+      if (this.throneCd[side] > 0) continue;
+      const t = THRONE_POS[side];
+      let best: Creep | null = null;
+      let bd = cfg.range;
+      for (const c of this.creeps) {
+        if (c.dead || c.side === side) continue;
+        const p = this.creepPos(c);
+        const d = Math.hypot(p.x - t.x, p.y - t.y);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (!best) continue;
+      this.throneCd[side] = cfg.rate;
+      this.projs.push({ x: t.x, y: t.y - 40, target: { kind: 'creep', c: best }, dmg: cfg.dmg + cfg.dmgPerMin * (this.t / 60), speed: 900, color: side === 0 ? '#9ff5e8' : '#ffb0bb', size: 7 });
+    }
   }
 
   private nearestEnemyCreep(lane: number, side: Side, s: number, range: number): Creep | null {

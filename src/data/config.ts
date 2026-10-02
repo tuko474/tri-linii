@@ -17,7 +17,9 @@ export interface CreepStats {
 export const BAL = {
   startGold: 250,
   passiveGold: 3, // золота в секунду
-  throneHp: 3600,
+  throneHp: 3800,
+  // Трон сам отстреливает вражеских крипов рядом — последняя линия обороны
+  throneGun: { range: 520, dmg: 55, dmgPerMin: 5, rate: 1.0 },
   heroRespawn: 12, // сек, если на линии жив хотя бы один союзный герой
   pushRespawn: 3, // сек после отката линии
   heroRegen: 0.006, // доля HP в секунду
@@ -30,7 +32,7 @@ export const BAL = {
   slotT: [0.2, 0.32, 0.44, 0.56, 0.68, 0.8],
   // Чем глубже позиция в своей половине, тем меньше урона получают её герои (как вышки у базы).
   // Индекс: 0 — передняя, 1 — средняя, 2 — у базы, 3 — у трона.
-  depthArmor: [0, 0.2, 0.35, 0.5],
+  depthArmor: [0, 0.2, 0.4, 0.55],
 
   creep: {
     melee: { hp: 300, dmg: 19, range: 40, rate: 1.0, speed: 92, gold: 12, r: 12 },
@@ -40,10 +42,11 @@ export const BAL = {
     lord: { hp: 2600, dmg: 85, range: 70, rate: 1.3, speed: 74, gold: 150, r: 34 },
   } as Record<CreepKind, CreepStats>,
 
-  lateGameFrom: 1200, // с 20-й минуты крипы усиливаются сами, чтобы бой не тянулся вечно
+  lateGameFrom: 900, // с 15-й минуты крипы усиливаются сами, чтобы бой не тянулся вечно
   lateGamePerMin: 0.2, // +20% HP и урона за каждую минуту после этого
   creepLvlMul: 0.2, // +20% HP и урона за уровень волны
   creepMaxLvl: 12,
+  creepLvlEvery: 45, // уровень крипов ограничен временем: +1 к максимуму каждые 45 секунд (нельзя «закупиться» в начале)
   creepUpCost: (lvl: number) => 110 + 65 * lvl,
 
   // Нейтралы. first — когда появляется впервые (сек), respawn — через сколько после смерти.
