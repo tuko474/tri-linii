@@ -97,7 +97,7 @@ const TOPIC = (code: string) => `trilinii/v2/${code}`;
  *  - соединение с соперником считается потерянным, только если 45 секунд не работает ни один брокер.
  * Сообщения нумеруются, повторы (пришедшие через разные брокеры) отбрасываются.
  */
-const ROTATE_BYTES = 9000;
+const ROTATE_BYTES = 20000;
 
 function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: string): Link {
   type C = { url: string; m: Mqtt | null; lastIn: number; lastOut: number; connecting: boolean; retryAt: number; bytes: number; rotating: boolean };

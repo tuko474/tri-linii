@@ -244,8 +244,14 @@ function onNet(m: any) {
     case 'start': // хост → гость (может прийти повторно — пока гость не ответил ходом)
       if (mode === 'guest' && !game && !$('place').hidden) startBattle(m.picks, m.seed);
       break;
-    case 'lk':
-      lsReceive(m);
+    case 'lk': // хост → гость: журнал ходов
+      lsOnLog(m);
+      break;
+    case 'gk': // гость → хост: подтверждение и команды
+      lsOnGuest(m);
+      break;
+    case 'needsync':
+      if (mode === 'host' && ls) ls.resync = true;
       break;
     case 'sync': // хост → гость: расхождение, берём состояние хоста
       if (mode === 'guest' && game && ls) lsApplySync(m);
@@ -477,7 +483,7 @@ function startBattle(picks: [Pick[], Pick[]], seed?: number) {
   myAuto = store.get('tl-auto') === '1';
   ls = null;
   if (mode === 'bot') { game.autoCast[me] = myAuto; game.autoCast[foe()] = true; }
-  else { lsInit(); if (myAuto) ls!.pending.push({ c: 'auto', on: true }); }
+  else { lsInit(); if (myAuto) lsCmd({ c: 'auto', on: true }); }
   bot = mode === 'bot' ? new Bot(foe(), 'normal', difficulty) : null;
   renderer = new Renderer(cv, game, me);
   paused = false;
@@ -500,7 +506,7 @@ function startBattle(picks: [Pick[], Pick[]], seed?: number) {
 /** Действие игрока: против бота и у хоста — сразу в игру, у гостя — хосту по сети. */
 function act(cmd: any): boolean {
   if (!game) return false;
-  if (ls) { ls.pending.push(cmd); return true; } // сетевой бой: команда уйдёт в ближайший ход
+  if (ls) { lsCmd(cmd); return true; } // сетевой бой: команда уйдёт в ближайший ход
   return applyCmd(me, cmd);
 }
 
@@ -622,7 +628,8 @@ function syncPanel() {
   $('myHp').style.width = (100 * g.throne[me]) / BAL.throneHp + '%';
   $('foeHp').style.width = (100 * g.throne[foe()]) / BAL.throneHp + '%';
   $('clock').textContent = clock(g.t);
-  $('waveInfo').textContent = lsWaiting ? 'ждём соперника…' : `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с`;
+  const ping = ls && ls.rtt ? ` · ${Math.round(ls.rtt)} мс` : '';
+  $('waveInfo').textContent = lsWaiting ? (mode === 'guest' ? 'ждём хоста…' : 'ждём соперника…') + ping : `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с${ping}`;
   for (const b of heroBtns) {
     const { h } = b;
     b.cast.classList.toggle('ready', g.canCast(h));
@@ -1090,136 +1097,193 @@ $('toMenu').onclick = () => { link?.close(); link = null; syncCrystals(); show('
 const STEP = 1 / 30;
 let acc = 0;
 let last = performance.now();
-// ---------- сетевой бой: оба телефона считают один и тот же бой ----------
-// Обмениваемся только нажатиями: каждые 0,2 с («ход») телефон отправляет свои команды,
-// они выполняются у обоих через DELAY ходов. Следующий ход считается, только когда
-// пришли команды соперника на него, — поэтому бой у обоих идёт одинаково.
-// Раз в несколько секунд сверяем отпечаток состояния; если разошлись — хост присылает своё.
+// ---------- сетевой бой ----------
+// Оба телефона считают один и тот же бой (одинаковое зерно случайности), а по сети идут только
+// нажатия. Хост ведёт бой без ожиданий: каждые 0,2 с («ход») он записывает, какие команды
+// выполнились, и шлёт этот журнал гостю. Гость идёт по журналу с небольшим запасом, который
+// подстраивается под качество связи: так короткие заминки сети не останавливают игру.
+// Команды гостя уходят хосту с номерами и повторяются, пока хост не подтвердит.
+// Раз в 5 секунд гость сверяет отпечаток боя; если разошлись — хост присылает своё состояние.
 const TPT = 6; // тиков симуляции в ходе: 6 × 1/30 с = 0,2 с
-const DELAY = 3; // команда выполнится через 3 хода (~0,6 с)
 const HASH_EVERY = 25; // сверка каждые 5 секунд
-interface Lockstep {
+const SEND_EVERY = 250; // мс между сообщениями
+interface NetBattle {
   tick: number;
-  pending: any[];
-  mine: Map<number, any[]>; // свои закрытые ходы
-  peer: Map<number, any[]>; // ходы соперника
-  have: number; // до какого хода у нас есть все ходы соперника подряд
-  peerHas: number; // до какого хода соперник получил наши
-  myHash: Map<number, number>;
-  peerHash: Map<number, number>;
+  log: Map<number, [Side, any][]>; // журнал ходов: какие команды выполнены в начале хода
+  have: number; // гость: до какого хода журнал есть подряд; хост: последний записанный ход
+  // хост
+  hostPending: any[];
+  guestQueue: any[];
+  guestCmdMax: number; // последний принятый номер команды гостя
+  guestHave: number; // до какого хода гость подтвердил журнал
+  hashes: Map<number, number>; // хост: отпечатки для сверки; гость: присланные хостом
   resync: boolean;
+  // гость
+  myCmds: { i: number; c: any }[];
+  cmdId: number;
+  buffer: number; // запас в ходах, который гость держит позади хоста
+  gaps: number[]; // паузы между сообщениями хоста за последние секунды
+  lastRecv: number;
+  // общее
   lastSend: number;
   waitSince: number;
+  rtt: number;
+  echo: number; // метка времени соперника, которую вернём ему для замера пинга
+  echoAt: number; // когда мы её получили (сколько продержали — вычтем из пинга)
+  syncAsked: number;
 }
-let ls: Lockstep | null = null;
+let ls: NetBattle | null = null;
 let lsWaiting = false;
 
 function lsInit() {
-  ls = { tick: 0, pending: [], mine: new Map(), peer: new Map(), have: DELAY - 1, peerHas: DELAY - 1, myHash: new Map(), peerHash: new Map(), resync: false, lastSend: 0, waitSince: 0 };
-  for (let n = 0; n < DELAY; n++) { ls.mine.set(n, []); ls.peer.set(n, []); }
+  ls = {
+    tick: 0, log: new Map(), have: -1, hostPending: [], guestQueue: [], guestCmdMax: 0, guestHave: -1,
+    hashes: new Map(), resync: false, myCmds: [], cmdId: 0, buffer: 2, gaps: [], lastRecv: 0,
+    lastSend: 0, waitSince: 0, rtt: 0, echo: 0, echoAt: 0, syncAsked: 0,
+  };
   acc = 0;
 }
 
+/** Команда игрока в сетевом бою. */
+function lsCmd(cmd: any) {
+  const L = ls!;
+  if (mode === 'host') { L.hostPending.push(cmd); return; }
+  L.myCmds.push({ i: ++L.cmdId, c: cmd });
+  lsSend(); // сразу, не дожидаясь таймера
+}
+
 function lsSend() {
-  if (!ls || !link) return;
-  const from = ls.peerHas + 1;
-  let to = from;
-  while (ls.mine.has(to)) to++;
-  const c: any[][] = [];
-  for (let n = from; n < to; n++) c.push(ls.mine.get(n)!);
-  const lastH = [...ls.myHash.keys()].pop();
-  link.send({ t: 'lk', a: ls.have, f: from, c, h: lastH !== undefined ? [lastH, ls.myHash.get(lastH)] : 0 });
-  ls.lastSend = performance.now();
+  const L = ls;
+  if (!L || !link) return;
+  const now = performance.now();
+  if (mode === 'host') {
+    const f = L.guestHave + 1;
+    const c: Record<number, [Side, any][]> = {};
+    for (let n = f; n <= L.have; n++) { const e = L.log.get(n); if (e && e.length) c[n - f] = e; }
+    const lastH = [...L.hashes.keys()].pop();
+    link.send({ t: 'lk', f, n: L.have - f + 1, c, g: L.guestCmdMax, h: lastH !== undefined ? [lastH, L.hashes.get(lastH)] : 0, ts: Math.round(now), e: L.echo, d: Math.round(now - L.echoAt) });
+  } else {
+    link.send({ t: 'gk', a: L.have, cmds: L.myCmds, ts: Math.round(now), e: L.echo, d: Math.round(now - L.echoAt) });
+  }
+  L.lastSend = now;
 }
 
-function lsReceive(m: { a: number; f: number; c: any[][]; h: [number, number] | 0 }) {
-  if (!ls || !game) return;
-  m.c.forEach((cmds, i) => { if (!ls!.peer.has(m.f + i)) ls!.peer.set(m.f + i, cmds); });
-  while (ls.peer.has(ls.have + 1)) ls.have++;
-  if (m.a > ls.peerHas) ls.peerHas = m.a;
-  if (m.h) { ls.peerHash.set(m.h[0], m.h[1]); lsCheckHash(m.h[0]); }
+function lsRtt(e: number, d: number) {
+  if (!ls || !e) return;
+  const r = performance.now() - e - (d || 0);
+  if (r > 0 && r < 30000) ls.rtt = ls.rtt ? ls.rtt * 0.7 + r * 0.3 : r;
 }
 
-function lsCheckHash(n: number) {
-  if (!ls) return;
-  const a = ls.myHash.get(n);
-  const b = ls.peerHash.get(n);
-  if (a === undefined || b === undefined) return;
-  if (a !== b && mode === 'host') ls.resync = true;
+/** Гость получил журнал от хоста. */
+function lsOnLog(m: { f: number; n: number; c: Record<number, [Side, any][]>; g: number; h: [number, number] | 0; ts: number; e: number; d: number }) {
+  const L = ls;
+  if (!L || !game || mode !== 'guest') return;
+  const now = performance.now();
+  if (L.lastRecv) { L.gaps.push(now - L.lastRecv); if (L.gaps.length > 40) L.gaps.shift(); }
+  L.lastRecv = now;
+  for (let i = 0; i < m.n; i++) if (!L.log.has(m.f + i)) L.log.set(m.f + i, m.c[i] ?? []);
+  while (L.log.has(L.have + 1)) L.have++;
+  L.myCmds = L.myCmds.filter((x) => x.i > m.g); // хост их уже принял
+  if (m.h) { L.hashes.set(m.h[0], m.h[1]); if (L.hashes.size > 10) L.hashes.delete(L.hashes.keys().next().value!); }
+  L.echo = m.ts;
+  L.echoAt = performance.now();
+  lsRtt(m.e, m.d);
+  // запас: чтобы обычные паузы между сообщениями не останавливали бой
+  const worst = Math.max(SEND_EVERY, ...L.gaps.slice(-20));
+  L.buffer = Math.min(10, Math.max(2, Math.ceil(worst / 200) + 1));
 }
 
-/** Гость: принять состояние хоста и досчитать от него. */
+/** Хост получил подтверждение и команды гостя. */
+function lsOnGuest(m: { a: number; cmds: { i: number; c: any }[]; ts: number; e: number; d: number }) {
+  const L = ls;
+  if (!L || mode !== 'host') return;
+  if (m.a > L.guestHave) L.guestHave = m.a;
+  for (const x of m.cmds) if (x.i > L.guestCmdMax) { L.guestCmdMax = x.i; L.guestQueue.push(x.c); }
+  L.echo = m.ts;
+  L.echoAt = performance.now();
+  lsRtt(m.e, m.d);
+  for (const n of L.log.keys()) { if (n >= L.guestHave - 450) break; L.log.delete(n); }
+}
+
+/** Гость: принять состояние хоста и идти дальше от него. */
 function lsApplySync(m: { k: number; s: any }) {
   const L = ls!;
   game!.applySnapshot(m.s);
-  const n0 = Math.floor(L.tick / TPT);
   L.tick = m.k;
-  // ходы, которые мы перепрыгнули, закрываем пустыми — иначе хост будет ждать их вечно
-  for (let n = n0 + DELAY; n < m.k / TPT + DELAY; n++) if (!L.mine.has(n)) L.mine.set(n, []);
-  L.myHash.clear();
-  L.peerHash.clear();
-  lsSend();
+  L.hashes.clear();
+  L.syncAsked = 0;
 }
 
-/** Один тик сетевого боя. false — ждём команды соперника. */
+/** Один тик. false — ждём журнал хоста (только у гостя). */
 function lsStep(): boolean {
   const L = ls!;
   const g = game!;
   if (L.tick % TPT === 0) {
     const n = L.tick / TPT;
-    if (!L.peer.has(n)) return false;
-    if (L.resync && mode === 'host') {
-      // хост: фиксируем своё состояние (округлённое так же, как у гостя) и отправляем
-      L.resync = false;
-      const snap = JSON.parse(JSON.stringify(g.snapshot()));
-      g.applySnapshot(JSON.parse(JSON.stringify(snap)));
-      link?.send({ t: 'sync', k: L.tick, s: snap });
-      L.myHash.clear();
-      L.peerHash.clear();
+    if (mode === 'host') {
+      if (L.resync) {
+        // фиксируем своё состояние (округлённое так же, как у гостя) и отправляем
+        L.resync = false;
+        const snap = JSON.parse(JSON.stringify(g.snapshot()));
+        g.applySnapshot(JSON.parse(JSON.stringify(snap)));
+        link?.send({ t: 'sync', k: L.tick, s: snap });
+        L.hashes.clear();
+      }
+      if (n % HASH_EVERY === 0) {
+        L.hashes.set(n, g.hash());
+        if (L.hashes.size > 6) L.hashes.delete(L.hashes.keys().next().value!);
+      }
+      const cmds: [Side, any][] = [...L.hostPending.map((c): [Side, any] => [0, c]), ...L.guestQueue.map((c): [Side, any] => [1, c])];
+      L.hostPending = [];
+      L.guestQueue = [];
+      L.log.set(n, cmds);
+      L.have = n;
+      for (const [side, c] of cmds) applyCmd(side, c);
+    } else {
+      const cmds = L.log.get(n);
+      if (!cmds) return false;
+      if (n % HASH_EVERY === 0) {
+        const want = L.hashes.get(n);
+        // разошлись с хостом — просим его состояние (не чаще раза в 3 с)
+        if (want !== undefined && want !== g.hash() && performance.now() - L.syncAsked > 3000) {
+          L.syncAsked = performance.now();
+          link?.send({ t: 'needsync' });
+        }
+      }
+      for (const [side, c] of cmds) applyCmd(side, c);
+      for (const k of L.log.keys()) { if (k >= n - 20) break; L.log.delete(k); }
     }
-    if (n % HASH_EVERY === 0) {
-      L.myHash.set(n, g.hash());
-      if (L.myHash.size > 8) L.myHash.delete(L.myHash.keys().next().value!);
-      lsCheckHash(n);
-    }
-    if (!L.mine.has(n + DELAY)) { L.mine.set(n + DELAY, L.pending); L.pending = []; }
-    const mineCmds = L.mine.get(n)!;
-    const peerCmds = L.peer.get(n)!;
-    const order: [Side, any[]][] = me === 0 ? [[0, mineCmds], [1, peerCmds]] : [[0, peerCmds], [1, mineCmds]];
-    for (const [side, cmds] of order) for (const c of cmds) applyCmd(side, c);
-    // старое больше не нужно (держим запас на случай пересчёта после сверки)
-    L.mine.delete(n - 400);
-    L.peer.delete(n - 400);
-    lsSend();
   }
   g.update(STEP);
   L.tick++;
   return true;
 }
 
-/** Кадр сетевого боя. Возвращает, идёт ли бой (не ждём ли соперника). */
+/** Кадр сетевого боя. Возвращает, идёт ли бой. */
 function lsFrame(dt: number): boolean {
   const L = ls!;
   const now = performance.now();
-  // отстаём от соперника — догоняем быстрее
-  const behind = L.have - Math.floor(L.tick / TPT);
-  acc += dt * (behind > DELAY + 2 ? 3 : 1);
-  let moved = false;
+  if (now - L.lastSend > SEND_EVERY) {
+    lsSend();
+    // гость ещё не ответил — повторяем приглашение в бой (вдруг потерялось)
+    if (mode === 'host' && startMsg && L.guestHave < 0 && now - L.syncAsked > 1500) { L.syncAsked = now; link?.send(startMsg); }
+  }
+  let rate = 1;
+  if (mode === 'guest') {
+    // держимся позади хоста на запас buffer ходов: сильно отстали — догоняем, мало запаса — чуть медленнее
+    const lag = L.have - Math.floor(L.tick / TPT);
+    rate = lag > L.buffer + 12 ? 4 : lag > L.buffer + 2 ? 1.4 : lag < L.buffer - 1 ? 0.85 : 1;
+  } else if (netLost) rate = 0; // гость пропал — хост ждёт, чтобы бой был честным
+  acc += dt * rate;
+  let moved = rate > 0;
   while (acc >= STEP && game && game.winner === null) {
-    if (!lsStep()) { acc = Math.min(acc, STEP); break; }
+    if (!lsStep()) { acc = Math.min(acc, STEP); moved = false; break; }
     acc -= STEP;
-    moved = true;
   }
   if (moved) L.waitSince = 0;
   else if (!L.waitSince) L.waitSince = now;
-  // ждём: повторяем свои ходы (вдруг сообщение потерялось), хост — ещё и приглашение в бой
-  if (L.waitSince && now - L.lastSend > 500) {
-    lsSend();
-    if (mode === 'host' && startMsg && L.have < DELAY) link?.send(startMsg);
-  }
-  const waiting = !!L.waitSince && now - L.waitSince > 1500;
-  lsWaiting = waiting;
-  return !waiting;
+  lsWaiting = !!L.waitSince && now - L.waitSince > 1000;
+  return !lsWaiting;
 }
 
 function frame(now: number) {
