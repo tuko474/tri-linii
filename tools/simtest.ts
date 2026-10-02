@@ -9,7 +9,9 @@ const res: { winner: number | null; t: number; pushes: number[]; lvl: number; lo
 for (let i = 0; i < N; i++) {
   const g = new Game([botPicks(), botPicks()], 'normal');
   g.autoCast = [true, true];
-  const bots = [new Bot(0, RUSH ? 'rush' : 'normal'), new Bot(1)];
+  const HARD = process.argv[4] === 'hard';
+  const bots = [new Bot(0, RUSH ? 'rush' : 'normal'), new Bot(1, 'normal', HARD ? 'hard' : 'normal')];
+  if (HARD) g.incomeMul = [1, 1.2];
   const dt = 1 / 30;
   while (g.winner === null && g.t < 3600) {
     bots[0].update(g, dt);

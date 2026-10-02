@@ -467,7 +467,7 @@ function startBattle(picks: [Pick[], Pick[]]) {
   game.autoCast = [false, false];
   game.autoCast[me] = store.get('tl-auto') === '1';
   if (mode === 'bot') game.autoCast[foe()] = true;
-  bot = mode === 'bot' ? new Bot(foe()) : null;
+  bot = mode === 'bot' ? new Bot(foe(), 'normal', difficulty) : null;
   renderer = new Renderer(cv, game, me);
   paused = false;
   modalPause = false;

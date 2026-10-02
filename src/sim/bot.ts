@@ -16,12 +16,13 @@ export class Bot {
   private focus = Math.floor(Math.random() * 3);
 
   /** rush — агрессивный стиль, похожий на сильного игрока: всё в одну линию и постоянный лес. Нужен для проверки баланса. */
-  constructor(private side: Side, private style: 'normal' | 'rush' = 'normal') {}
+  /** level — сложность: на сложном бот чаще ходит в лес и к боссам и раньше встаёт в оборону. */
+  constructor(private side: Side, private style: 'normal' | 'rush' = 'normal', private level: 'easy' | 'normal' | 'hard' = 'normal') {}
 
   update(g: Game, dt: number) {
     this.tripThink -= dt;
     if (this.tripThink <= 0) {
-      this.tripThink = this.style === 'rush' ? 1.5 + Math.random() : 3 + Math.random() * 3;
+      this.tripThink = this.style === 'rush' || this.level === 'hard' ? 1.5 + Math.random() : this.level === 'easy' ? 5 + Math.random() * 4 : 3 + Math.random() * 3;
       this.trips(g);
     }
 
@@ -35,11 +36,15 @@ export class Bot {
     let worst = -1;
     let worstGap = 0;
     for (let l = 0; l < 3; l++) {
-      const gap = g.creepLvl[l][foe] - g.creepLvl[l][me] + (g.atThrone(l, me) ? 2 : 0);
+      // чем глубже нас продавили, тем срочнее оборона (на лёгком бот этого не замечает)
+      const deep = this.level === 'easy' ? 0 : g.depth(l, me);
+      const gap = g.creepLvl[l][foe] - g.creepLvl[l][me] + deep + (g.atThrone(l, me) ? 2 : 0);
       if (gap > worstGap) { worstGap = gap; worst = l; }
     }
     if (worst >= 0 && worstGap >= (this.style === 'rush' ? 3 : 1)) {
       if (g.upgradeCreeps(worst, me)) return;
+      // на сложном копим золото на оборону, пока лимит не позволит усилить эту линию
+      if (this.level === 'hard' && worstGap >= 2 && g.creepLvl[worst][me] < g.creepCap()) return;
       // уровень обороны упёрся в лимит времени — усиливаем другие линии
     }
 
@@ -93,7 +98,8 @@ export class Bot {
       if (!n.alive) continue;
       // видит ли бот врага у логова — сквозь туман войны он не подглядывает
       const contest = g.party(n.id, foe).length > 0 && g.visible(me, n.x, n.y);
-      const chance = contest ? 0.6 : n.kind === 'lord' ? 0.35 : 0.25;
+      const boost = this.level === 'hard' ? 1.6 : this.level === 'easy' ? 0.6 : 1;
+      const chance = (contest ? 0.6 : n.kind === 'lord' ? 0.35 : 0.25) * boost;
       if (Math.random() > chance) continue;
       const team = this.spare(g, n.kind === 'lord' ? 3 : 2);
       if (team.length >= 2) {
@@ -103,7 +109,7 @@ export class Bot {
     }
 
     // Лес: изредка один герой идёт на ближайший живой лагерь своей половины.
-    if (Math.random() < (this.style === 'rush' ? 0.9 : 0.35)) {
+    if (Math.random() < (this.style === 'rush' ? 0.9 : this.level === 'hard' ? 0.75 : this.level === 'easy' ? 0.2 : 0.35)) {
       const h = this.spare(g, 1)[0];
       if (!h) return;
       const from = g.heroPos(h);

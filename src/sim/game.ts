@@ -204,12 +204,13 @@ export class Game {
   /** Урон автоатаки героя с учётом крита (бонус Теней). */
   private atkDmg(h: Hero): number {
     const m = this.heroMods(h);
+    const base = h.trip ? h.dmg : h.dmg * (1 + BAL.depthAtk[Math.max(0, Math.min(3, this.depth(h.lane, h.side)))]);
     if (m.critChance > 0 && Math.random() < m.critChance) {
       const p = this.heroPos(h);
       this.fx.push({ kind: 'text', x: p.x, y: p.y - 20, text: 'крит!', color: '#c9b4ff', t: 0, life: 0.6 });
-      return h.dmg * m.critMul;
+      return base * m.critMul;
     }
-    return h.dmg;
+    return base;
   }
 
   /** Герой нанёс урон — вампиризм от рас. */
