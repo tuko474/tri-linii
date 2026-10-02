@@ -851,38 +851,60 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Готовые картинки крипов: вид × сторона (своя/чужая), смотрят вправо. */
+  private creepSprites = new Map<string, HTMLCanvasElement>();
+
+  private creepSprite(kind: string, rel: 0 | 1): HTMLCanvasElement {
+    const key = kind + rel;
+    let cv = this.creepSprites.get(key);
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.width = cv.height = 128; // рисуем крупно, на поле уменьшаем — так чётче
+      const x = cv.getContext('2d')!;
+      x.translate(64, 64);
+      x.scale(2, 2);
+      drawCreepFigure(x, kind, C.side[rel], C.sideDeep[rel]);
+      this.creepSprites.set(key, cv);
+    }
+    return cv;
+  }
+
   private drawCreep(c: Game['creeps'][number]) {
     const { ctx, g } = this;
     const p = g.creepPos(c);
-    const col = C.side[this.rel(c.side)];
-    ctx.fillStyle = C.dark;
-    ctx.fillStyle = col;
-    ctx.strokeStyle = C.dark;
-    ctx.lineWidth = 3;
+    const rel = this.rel(c.side);
+    const col = C.side[rel];
     const r = c.r * 1.25;
-    ctx.beginPath();
-    if (c.kind === 'melee') ctx.arc(p.x, p.y, r, 0, 7);
-    else if (c.kind === 'ranged') {
-      const d = c.side === 0 ? -1 : 1;
-      ctx.moveTo(p.x, p.y + d * r * 1.2);
-      ctx.lineTo(p.x - r, p.y - d * r * 0.8);
-      ctx.lineTo(p.x + r, p.y - d * r * 0.8);
-      ctx.closePath();
-    } else ctx.rect(p.x - r, p.y - r * 0.8, r * 2, r * 1.6);
-    ctx.stroke();
-    ctx.fill();
+    // смотрит туда, куда идёт по линии
+    const lane = g.lanes[c.lane];
+    const ahead = lane.pos(c.s + (c.side === 0 ? 20 : -20), c.off);
+    const left = ahead.x < p.x - 0.5;
+    // шаг: лёгкое покачивание, у каждого крипа своя фаза
+    const step = c.stunT > 0 ? 0 : Math.sin(performance.now() / 110 + c.uid * 1.7);
+    const size = c.kind === 'lord' ? r * 2.4 : c.kind === 'siege' ? r * 2.3 : r * 2.6;
+    ctx.save();
+    ctx.translate(p.x, p.y - Math.abs(step) * r * 0.12);
+    if (left) ctx.scale(-1, 1);
+    ctx.rotate(step * 0.06);
+    ctx.drawImage(this.creepSprite(c.kind, rel), -size, -size, size * 2, size * 2);
+    ctx.restore();
     if (c.stunT > 0) {
       ctx.fillStyle = '#ffe680';
-      ctx.fillRect(p.x - 6, p.y - r - 14, 12, 4);
+      for (let i = 0; i < 3; i++) {
+        const a = performance.now() / 200 + (i * Math.PI * 2) / 3;
+        ctx.beginPath();
+        ctx.arc(p.x + Math.cos(a) * r * 0.8, p.y - r * 1.3 + Math.sin(a) * r * 0.25, 2.5, 0, 7);
+        ctx.fill();
+      }
     }
     if (c.slowT > 0) {
       ctx.strokeStyle = '#a9e4ff';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r + 4, 0, 7);
+      ctx.ellipse(p.x, p.y + r * 0.7, r * 1.1, r * 0.4, 0, 0, 7);
       ctx.stroke();
     }
-    if (c.hp < c.maxHp) bar(ctx, p.x - 16, p.y - r - 8, 32, 4, c.hp / c.maxHp, col);
+    if (c.hp < c.maxHp) bar(ctx, p.x - 16, p.y - r * 1.25 - 8, 32, 4, c.hp / c.maxHp, col);
   }
 
   private drawHero(h: Hero) {
@@ -1046,4 +1068,82 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 export function clock(sec: number) {
   const t = Math.max(0, Math.ceil(sec));
   return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+}
+
+/** Фигурка крипа в единичном масштабе (примерно 26×26), смотрит вправо. */
+function drawCreepFigure(x: CanvasRenderingContext2D, kind: string, col: string, deep: string) {
+  const ink = C.dark;
+  const skin = '#e9c9a0';
+  const steel = '#cfd6dd';
+  const wood = '#7a5530';
+  x.lineJoin = 'round';
+  x.lineCap = 'round';
+  x.lineWidth = 2;
+  x.strokeStyle = ink;
+  const rr = (a: number, b: number, w: number, h: number, r: number) => {
+    x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r);
+    x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath();
+  };
+  const shape = (fill: string, path: () => void) => {
+    x.beginPath();
+    path();
+    x.fillStyle = fill;
+    x.fill();
+    x.stroke();
+  };
+  // тень
+  x.fillStyle = 'rgba(0,0,0,.3)';
+  x.beginPath();
+  x.ellipse(0, 12, kind === 'siege' || kind === 'lord' ? 16 : 10, 3.5, 0, 0, 7);
+  x.fill();
+
+  if (kind === 'melee') {
+    // мечник: шлем, щит, меч
+    shape(deep, () => { x.rect(-5, 6, 4, 6); x.rect(1, 6, 4, 6); }); // ноги
+    shape(col, () => rr(-7, -4, 14, 12, 4)); // туловище
+    x.lineWidth = 4.6; x.beginPath(); x.moveTo(8, 2); x.lineTo(17, -9); x.stroke(); // меч: контур
+    x.strokeStyle = steel; x.lineWidth = 2.4; x.beginPath(); x.moveTo(8, 2); x.lineTo(17, -9); x.stroke();
+    x.strokeStyle = ink; x.lineWidth = 2;
+    shape(wood, () => { x.moveTo(5, 4); x.lineTo(10, -1); }); // рукоять-гарда
+    shape(skin, () => x.arc(0, -9, 6, 0, 7)); // голова
+    shape(steel, () => { x.arc(0, -10, 6.5, Math.PI, 0); x.lineTo(6.5, -9); x.lineTo(-6.5, -9); x.closePath(); }); // шлем
+    shape(col, () => { x.moveTo(-1, -16.5); x.lineTo(1, -20); x.lineTo(3, -16); x.closePath(); }); // гребень
+    shape(col, () => x.arc(-6, 2, 6, 0, 7)); // щит
+    shape(steel, () => x.arc(-6, 2, 2, 0, 7));
+    x.fillStyle = ink; x.beginPath(); x.arc(3, -8, 1.1, 0, 7); x.fill(); // глаз
+  } else if (kind === 'ranged') {
+    // лучник в капюшоне с луком
+    shape(deep, () => { x.moveTo(-7, 11); x.lineTo(-5, -3); x.lineTo(5, -3); x.lineTo(7, 11); x.closePath(); }); // плащ
+    shape(col, () => rr(-5, -4, 10, 10, 3)); // туловище
+    shape(skin, () => x.arc(1, -9, 5, 0, 7)); // лицо
+    shape(col, () => { x.moveTo(-6, -6); x.quadraticCurveTo(-6, -17, 2, -17); x.quadraticCurveTo(7, -16, 6, -11); x.lineTo(2, -12); x.quadraticCurveTo(-2, -12, -1, -5); x.closePath(); }); // капюшон
+    x.fillStyle = ink; x.beginPath(); x.arc(4, -9, 1, 0, 7); x.fill();
+    // лук
+    x.strokeStyle = wood; x.lineWidth = 2.6;
+    x.beginPath(); x.arc(5, 0, 10, -1.1, 1.1); x.stroke();
+    x.strokeStyle = '#efe6d0'; x.lineWidth = 0.9;
+    x.beginPath(); x.moveTo(5 + 10 * Math.cos(-1.1), 10 * Math.sin(-1.1)); x.lineTo(5 + 10 * Math.cos(1.1), 10 * Math.sin(1.1)); x.stroke();
+    x.strokeStyle = ink; x.lineWidth = 2;
+  } else if (kind === 'siege') {
+    // катапульта
+    shape(wood, () => rr(-14, 2, 28, 6, 2)); // основание
+    shape(wood, () => { x.moveTo(-4, 2); x.lineTo(0, -6); x.lineTo(4, 2); x.closePath(); }); // стойка
+    x.strokeStyle = wood; x.lineWidth = 3.2;
+    x.beginPath(); x.moveTo(-12, 0); x.lineTo(11, -12); x.stroke(); // рычаг
+    x.strokeStyle = ink; x.lineWidth = 2;
+    shape('#5b5346', () => x.arc(12, -13, 4, 0, 7)); // камень в ковше
+    shape(col, () => { x.moveTo(-12, 2); x.lineTo(-12, -14); x.lineTo(-4, -11); x.lineTo(-12, -8); }); // флажок
+    shape('#4a3a26', () => x.arc(-9, 9, 4.5, 0, 7)); // колёса
+    shape('#4a3a26', () => x.arc(9, 9, 4.5, 0, 7));
+    x.fillStyle = steel; x.beginPath(); x.arc(-9, 9, 1.3, 0, 7); x.arc(9, 9, 1.3, 0, 7); x.fill();
+  } else {
+    // Лорд на линии: рогатый великан
+    shape(deep, () => { x.rect(-9, 6, 6, 7); x.rect(3, 6, 6, 7); }); // ноги
+    shape(col, () => x.ellipse(0, -1, 14, 11, 0, 0, 7)); // туловище
+    shape(deep, () => x.ellipse(13, 0, 4.5, 6, 0, 0, 7)); // кулак
+    shape(col, () => x.arc(4, -12, 7, 0, 7)); // голова
+    shape('#efe6d0', () => { x.moveTo(-1, -16); x.quadraticCurveTo(-8, -20, -6, -26); x.quadraticCurveTo(-3, -20, 2, -18); x.closePath(); }); // рог
+    shape('#efe6d0', () => { x.moveTo(7, -17); x.quadraticCurveTo(12, -22, 9, -27); x.quadraticCurveTo(14, -21, 10, -15); x.closePath(); });
+    x.fillStyle = '#ffd34d'; x.beginPath(); x.arc(7, -12, 1.6, 0, 7); x.fill(); // горящий глаз
+  }
 }

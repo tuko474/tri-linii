@@ -742,7 +742,7 @@ export class Game {
           n.dmg = cfg.dmg * (1 + 0.06 * min);
           n.hits = 0;
           if (n.kind === 'lord' || n.kind === 'turtle') {
-            this.tell(null, `${cfg.name} появился в реке`, 'info');
+            this.tell(null, `${cfg.name} ${n.kind === 'turtle' ? 'появилась' : 'появился'} в реке`, 'info');
             this.say(null, 'bossSpawn');
           }
           if (n.kind === 'lord') this.expireOrbs();

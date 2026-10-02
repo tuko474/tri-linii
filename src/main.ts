@@ -1322,4 +1322,4 @@ requestAnimationFrame(frame);
 show('menu');
 
 // для автотестов: доступ к бою из консоли при адресе с #debug
-if (location.hash.includes('debug')) (window as unknown as { __game: () => Game | null }).__game = () => game;
+if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer });

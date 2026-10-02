@@ -76,7 +76,7 @@ export const THRONE_R = 120;
 /** Куда отходят герои, когда все вышки линии потеряны. */
 export const GUARD_R = 300;
 
-export const LANE_NAMES = ['Верхняя', 'Центр', 'Нижняя'];
+export const LANE_NAMES = ['Верхняя', 'Центральная', 'Нижняя'];
 export const LANE_SHORT = ['Верх', 'Центр', 'Низ'];
 
 const E = 320; // линия вдоль края — на таком расстоянии от него
