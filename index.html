@@ -21,12 +21,14 @@
     <h1 class="logo">Arena of Defense</h1>
     <p class="tagline">Пять героев. Три линии. Один трон, который надо снести.</p>
     <p class="crystals" id="crystalsMenu"></p>
+    <button type="button" class="btn chip profile-chip" id="profileBtn" hidden>Войти</button>
     <div class="menu-row">
       <div class="menu-col">
         <div class="seg" id="diff" role="radiogroup" aria-label="Сложность бота"></div>
         <button type="button" class="btn primary big" id="toPick">Против бота</button>
       </div>
       <div class="menu-col">
+        <button type="button" class="btn primary big ranked" id="rankedBtn" hidden>Рейтинговый бой</button>
         <button type="button" class="btn primary big friend" id="toLobby">Игра с другом</button>
       </div>
     </div>
@@ -196,11 +198,60 @@
     </div>
   </section>
 
+  <section class="screen scroll" id="account" hidden>
+    <header class="bar">
+      <button type="button" class="btn icon" id="accBack" aria-label="Назад">‹</button>
+      <h2>Аккаунт</h2>
+    </header>
+    <p class="hint lobby-status" id="accStatus"></p>
+    <div class="lobby" id="accGuest">
+      <div class="lobby-card">
+        <h3>Новый игрок</h3>
+        <p class="hint">Придумай имя — под ним тебя увидят соперники. Твои кристаллы и герои перейдут в аккаунт.</p>
+        <input id="regName" class="text-input" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Имя" aria-label="Имя игрока">
+        <button type="button" class="btn primary big" id="regBtn">Создать аккаунт</button>
+      </div>
+      <div class="lobby-card">
+        <h3>Уже есть аккаунт</h3>
+        <p class="hint">Вход на другом телефоне: имя и пароль, заданный в профиле.</p>
+        <input id="loginName" class="text-input" maxlength="16" autocomplete="username" spellcheck="false" placeholder="Имя" aria-label="Имя">
+        <input id="loginPass" class="text-input" type="password" maxlength="64" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль">
+        <button type="button" class="btn primary big" id="loginBtn">Войти</button>
+      </div>
+    </div>
+    <div class="lobby" id="accUser" hidden>
+      <div class="lobby-card">
+        <h3 id="accName"></h3>
+        <p class="rating-big" id="accRating"></p>
+        <p class="hint" id="accStats"></p>
+        <input id="newName" class="text-input" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Новое имя" aria-label="Новое имя">
+        <button type="button" class="btn ghost" id="nameBtn">Сменить имя</button>
+        <input id="newPass" class="text-input" type="password" maxlength="64" autocomplete="new-password" placeholder="Пароль для входа" aria-label="Пароль">
+        <button type="button" class="btn ghost" id="passBtn">Задать пароль</button>
+        <button type="button" class="btn ghost" id="logoutBtn">Выйти из аккаунта</button>
+      </div>
+      <div class="lobby-card">
+        <h3>Лучшие игроки</h3>
+        <ol class="top-list" id="topList"></ol>
+        <p class="hint" id="topInfo"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="queue" hidden>
+    <h2>Рейтинговый бой</h2>
+    <p class="rating-big" id="qRating"></p>
+    <p class="hint lobby-status" id="qStatus">Ищем соперника примерно твоей силы…</p>
+    <p class="room-code" id="qTimer">0:00</p>
+    <button type="button" class="btn ghost big" id="qCancel">Отмена</button>
+  </section>
+
   <section class="screen scroll" id="result" hidden>
     <h1 class="logo" id="resTitle">Победа</h1>
     <p class="tagline" id="resText"></p>
     <dl class="stats" id="resStats"></dl>
     <p class="crystals reward" id="resReward"></p>
+    <p class="rating-line" id="resRating" hidden></p>
     <div class="res-actions">
       <button type="button" class="btn ghost big" id="toMenu">В меню</button>
       <button type="button" class="btn primary big" id="again">Ещё бой</button>

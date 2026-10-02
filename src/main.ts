@@ -11,9 +11,10 @@ import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
 import type { Hero, Pick, Side } from './sim/types';
 import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
+import { Ended, Online } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const SCREENS = ['menu', 'how', 'pick', 'lobby', 'draft', 'place', 'battle', 'result'];
+const SCREENS = ['menu', 'how', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
 function show(id: string) {
   for (const s of SCREENS) $(s).hidden = s !== id;
 }
@@ -31,8 +32,12 @@ const meta = {
   save() {
     store.set('tl-crystals', String(this.crystals));
     store.set('tl-owned', [...this.owned].join(','));
+    // на сервер; если связи нет — отправим при следующем входе
+    if (online.me && online.ready) online.send({ t: 'save', crystals: this.crystals, owned: [...this.owned] });
+    else store.set('tl-dirty', '1');
   },
 };
+const online = new Online();
 const crystalsText = () => `✦ ${meta.crystals}`;
 function syncCrystals() {
   $('crystalsMenu').textContent = `${crystalsText()} кристаллов · открыто героев: ${meta.owned.size} из ${HEROES.length}`;
@@ -70,7 +75,12 @@ $('toPick').onclick = () => {
   startDraft(Math.random() < 0.5 ? 0 : 1);
 };
 $('toHeroes').onclick = () => { renderCards(); show('pick'); };
-$('toLobby').onclick = () => { resetLobby(); show('lobby'); };
+$('toLobby').onclick = () => {
+  // есть сервер, но нет аккаунта — сначала аккаунт
+  if (online.configured && online.ready && !online.me) { openAccount('Создай аккаунт, чтобы играть онлайн.'); return; }
+  resetLobby();
+  show('lobby');
+};
 $('howBtn').onclick = () => show('how');
 $('howBack').onclick = () => show('menu');
 
@@ -146,8 +156,15 @@ function resetLobby() {
     ? 'Оба телефона должны быть в интернете. Лучше всего — в одной Wi-Fi сети.'
     : 'Проверочный режим: сеть работает в установленном приложении. Здесь можно открыть игру в двух вкладках.');
 }
-$('lobbyBack').onclick = () => { link?.close(); link = null; show('menu'); };
+$('lobbyBack').onclick = () => { link?.close(); link = null; if (useServer()) online.send({ t: 'leaveRoom' }); show('menu'); };
 $('hostBtn').onclick = async () => {
+  if (useServer()) {
+    $<HTMLButtonElement>('hostBtn').disabled = true;
+    $<HTMLButtonElement>('joinBtn').disabled = true;
+    lobbyStatus('Создаём комнату…');
+    online.send({ t: 'host' });
+    return;
+  }
   const code = newRoomCode();
   $<HTMLButtonElement>('hostBtn').disabled = true;
   $<HTMLButtonElement>('joinBtn').disabled = true;
@@ -170,6 +187,13 @@ $('joinCode').addEventListener('input', () => {
 $('joinBtn').onclick = async () => {
   const code = $<HTMLInputElement>('joinCode').value.trim().toUpperCase();
   if (code.length !== 4) { lobbyStatus('Введи код из 4 символов', true); return; }
+  if (useServer()) {
+    $<HTMLButtonElement>('hostBtn').disabled = true;
+    $<HTMLButtonElement>('joinBtn').disabled = true;
+    lobbyStatus('Ищем комнату…');
+    online.send({ t: 'join', code });
+    return;
+  }
   $<HTMLButtonElement>('hostBtn').disabled = true;
   $<HTMLButtonElement>('joinBtn').disabled = true;
   try {
@@ -204,7 +228,11 @@ function onConnected(l: Link, role: 'host' | 'guest') {
     link = null;
     if (game && game.winner === null && (mode === 'host' || mode === 'guest')) {
       netLost = false;
-      finish(true);
+      if (lastEnded && lastEnded.winner === me) {
+        game.winner = me;
+        toast('Соперник покинул бой — победа за тобой', 'good');
+        finish();
+      } else finish(true);
     } else if (!$('draft').hidden || !$('place').hidden) {
       toast('Соперник отключился', 'bad');
       show('menu');
@@ -271,7 +299,7 @@ function startDraft(first: Side) {
   draftSel = null;
   pickDeadline = performance.now() + PICK_SECONDS * 1000;
   botPickAt = performance.now() + 900 + Math.random() * 900;
-  $('foeName').textContent = mode === 'bot' ? 'Бот' : 'Соперник';
+  $('foeName').textContent = mode === 'bot' ? 'Бот' : online.match && link?.via === 'server' ? online.match.foe.name : 'Соперник';
   renderDraft();
   show('draft');
 }
@@ -1153,6 +1181,12 @@ $('toPick').addEventListener('click', goFullscreen);
 
 function finish(aborted = false) {
   const g = game!;
+  // хост ещё несколько секунд досылает журнал — чтобы гость досмотрел последние ходы до конца
+  if (ls && mode === 'host' && !aborted) {
+    const tail = ls;
+    let n = 0;
+    const t = window.setInterval(() => { if (++n > 24 || !link) { clearInterval(t); return; } lsSend(tail); }, SEND_EVERY);
+  }
   ls = null;
   lsWaiting = false;
   if (aborted) {
@@ -1166,6 +1200,8 @@ function finish(aborted = false) {
     return;
   }
   const win = g.winner === me;
+  if (mode !== 'bot' && link?.via === 'server') online.send({ t: 'result', winner: g.winner });
+  renderRatingLine();
   sound.play(win ? 'win' : 'lose');
   $('resTitle').textContent = win ? 'Победа' : 'Поражение';
   $('resText').textContent = win ? 'Вражеский трон разрушен.' : 'Твой трон пал. Попробуй другую расстановку.';
@@ -1188,6 +1224,7 @@ function finish(aborted = false) {
 }
 $('again').onclick = () => {
   if (mode === 'bot') { startDraft(Math.random() < 0.5 ? 0 : 1); return; }
+  if (lastRanked) { link = null; startQueue(); return; }
   link?.close();
   link = null;
   resetLobby();
@@ -1199,6 +1236,159 @@ $('toMenu').onclick = () => { link?.close(); link = null; syncCrystals(); show('
 const STEP = 1 / 30;
 let acc = 0;
 let last = performance.now();
+// ---------- свой сервер: аккаунт, рейтинг, подбор ----------
+let lastEnded: Ended | null = null;
+let lastRanked = false;
+let queueSince = 0;
+
+/** Играть через свой сервер: он настроен, на связи и есть аккаунт. */
+const useServer = () => online.configured && online.ready && !!online.me;
+
+function renderProfileChip() {
+  const b = $<HTMLButtonElement>('profileBtn');
+  b.hidden = !online.configured;
+  b.textContent = online.me ? `${online.me.name} · ★ ${online.me.rating}` : online.ready ? 'Войти' : 'Сервер недоступен';
+  $('rankedBtn').hidden = !online.configured;
+}
+
+function applyServerProgress() {
+  const p = online.me!;
+  if (store.get('tl-dirty') === '1' && store.get('tl-acc-synced') === p.id) {
+    // играли без связи — отправляем своё
+    store.set('tl-dirty', '0');
+    online.send({ t: 'save', crystals: meta.crystals, owned: [...meta.owned] });
+    return;
+  }
+  store.set('tl-acc-synced', p.id);
+  store.set('tl-dirty', '0');
+  meta.crystals = p.crystals;
+  meta.owned = new Set([...STARTER_IDS, ...p.owned.filter((id) => HEROES.some((h) => h.id === id))]);
+  store.set('tl-crystals', String(meta.crystals));
+  store.set('tl-owned', [...meta.owned].join(','));
+  syncCrystals();
+}
+
+function openAccount(msg = '') {
+  $('accStatus').textContent = msg;
+  renderAccount();
+  show('account');
+  if (online.me) online.send({ t: 'top' });
+}
+
+function renderAccount() {
+  const p = online.me;
+  $('accGuest').hidden = !!p;
+  $('accUser').hidden = !p;
+  if (!online.ready) $('accStatus').textContent = 'Нет связи с сервером. Проверь интернет — подключимся сами.';
+  if (!p) return;
+  $('accName').textContent = p.name;
+  $('accRating').textContent = `★ ${p.rating}`;
+  const games = p.wins + p.losses;
+  $('accStats').textContent = games ? `Побед: ${p.wins} · поражений: ${p.losses} · ${Math.round((100 * p.wins) / games)}%` : 'Рейтинговых боёв пока не было';
+  $('passBtn').textContent = p.hasPass ? 'Сменить пароль' : 'Задать пароль';
+}
+
+function renderRatingLine() {
+  const el = $('resRating');
+  if (!lastEnded || !lastEnded.ranked || !online.me) { el.hidden = true; return; }
+  const d = lastEnded.delta;
+  el.hidden = false;
+  el.textContent = `Рейтинг: ★ ${online.me.rating} (${d >= 0 ? '+' : ''}${d})`;
+}
+
+function startQueue() {
+  if (!useServer()) {
+    if (!online.ready) { toast('Нет связи с сервером', 'bad'); return; }
+    openAccount('Создай аккаунт, чтобы играть рейтинговые бои.');
+    return;
+  }
+  lastEnded = null;
+  queueSince = performance.now();
+  $('qRating').textContent = `★ ${online.me!.rating}`;
+  $('qStatus').textContent = 'Ищем соперника примерно твоей силы…';
+  show('queue');
+  online.send({ t: 'queue' });
+}
+
+online.on('status', (ok: boolean) => {
+  renderProfileChip();
+  if (!$('account').hidden) renderAccount();
+  if (!ok && !$('queue').hidden) $('qStatus').textContent = 'Связь с сервером пропала, переподключаемся…';
+});
+online.on('me', () => {
+  applyServerProgress();
+  renderProfileChip();
+  if (!$('account').hidden) { renderAccount(); $('accStatus').textContent = ''; }
+  if (!$('result').hidden) renderRatingLine();
+});
+online.on('error', (m: { where: string; text: string }) => {
+  if (!$('account').hidden) $('accStatus').textContent = m.text;
+  else if (!$('lobby').hidden) {
+    lobbyStatus(m.text, true);
+    $<HTMLButtonElement>('hostBtn').disabled = false;
+    $<HTMLButtonElement>('joinBtn').disabled = false;
+  } else toast(m.text, 'bad');
+});
+online.on('kicked', () => toast('В этот аккаунт вошли с другого телефона', 'bad'));
+online.on('room', (m: { code: string }) => {
+  $('roomCode').hidden = false;
+  $('roomCode').textContent = m.code;
+  lobbyStatus('Комната создана. Скажи код другу и жди его здесь.');
+});
+online.on('queued', () => { $('qStatus').textContent = 'Ищем соперника примерно твоей силы…'; });
+online.on('match', (m: { ranked: boolean; role: 'host' | 'guest'; foe: { name: string; rating: number } }) => {
+  lastRanked = m.ranked;
+  lastEnded = null;
+  const l = online.matchLink();
+  if (!l) return;
+  toast(`Соперник: ${m.foe.name} (★ ${m.foe.rating})`, 'info');
+  onConnected(l, m.role);
+});
+online.on('ended', (m: Ended) => {
+  lastEnded = m;
+  if (!$('result').hidden) renderRatingLine();
+});
+online.on('top', (m: { list: { name: string; rating: number; wins: number; losses: number }[]; players: number; online: number }) => {
+  $('topList').innerHTML = m.list.length
+    ? m.list.map((x) => `<li class="${x.name === online.me?.name ? 'me' : ''}">${escapeHtml(x.name)}<span>★ ${x.rating}</span></li>`).join('')
+    : '<li>Пока никого — сыграй первый рейтинговый бой!</li>';
+  $('topInfo').textContent = `Игроков: ${m.players} · сейчас в сети: ${m.online}`;
+});
+
+const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+$('profileBtn').onclick = () => openAccount();
+$('rankedBtn').onclick = startQueue;
+$('accBack').onclick = () => { renderProfileChip(); show('menu'); };
+$('qCancel').onclick = () => { online.send({ t: 'unqueue' }); show('menu'); };
+$('regBtn').onclick = () => {
+  const name = $<HTMLInputElement>('regName').value.trim();
+  if (name.length < 2) { $('accStatus').textContent = 'Имя — хотя бы 2 символа'; return; }
+  store.set('tl-dirty', '0');
+  online.send({ t: 'register', name, crystals: meta.crystals, owned: [...meta.owned] });
+  $('accStatus').textContent = 'Создаём…';
+};
+$('loginBtn').onclick = () => {
+  store.set('tl-dirty', '0');
+  online.send({ t: 'login', name: $<HTMLInputElement>('loginName').value.trim(), password: $<HTMLInputElement>('loginPass').value });
+  $('accStatus').textContent = 'Входим…';
+};
+$('nameBtn').onclick = () => online.send({ t: 'setName', name: $<HTMLInputElement>('newName').value.trim() });
+$('passBtn').onclick = () => {
+  online.send({ t: 'setPassword', password: $<HTMLInputElement>('newPass').value });
+  $<HTMLInputElement>('newPass').value = '';
+  $('accStatus').textContent = 'Пароль сохранён — теперь можно войти с другого телефона.';
+};
+$('logoutBtn').onclick = () => { online.logout(); renderAccount(); renderProfileChip(); online.start(); };
+setInterval(() => {
+  if (!$('queue').hidden) {
+    const t = Math.floor((performance.now() - queueSince) / 1000);
+    $('qTimer').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  }
+}, 500);
+renderProfileChip();
+online.start();
+
 // ---------- сетевой бой ----------
 // Оба телефона считают один и тот же бой (одинаковое зерно случайности), а по сети идут только
 // нажатия. Хост ведёт бой без ожиданий: каждые 0,2 с («ход») он записывает, какие команды
@@ -1254,8 +1444,7 @@ function lsCmd(cmd: any) {
   lsSend(); // сразу, не дожидаясь таймера
 }
 
-function lsSend() {
-  const L = ls;
+function lsSend(L: NetBattle | null = ls) {
   if (!L || !link) return;
   const now = performance.now();
   if (mode === 'host') {
@@ -1424,4 +1613,4 @@ requestAnimationFrame(frame);
 show('menu');
 
 // для автотестов: доступ к бою из консоли при адресе с #debug
-if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer });
+if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online });

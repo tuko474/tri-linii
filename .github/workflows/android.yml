@@ -68,7 +68,11 @@ jobs:
         run: |
           mkdir -p ~/.android
           if [ -n "$KS_PASS" ]; then
-            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in tools/android/arena.keystore.enc -out ~/.android/debug.keystore -pass env:KS_PASS
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in tools/android/arena.keystore.enc -out android/app/arena.keystore -pass env:KS_PASS
+            # явно задаём ключ для сборки (стандартный debug-ключ Gradle берёт не всегда)
+            G=android/app/build.gradle
+            sed -i '0,/^android {/s//android {\n    signingConfigs {\n        debug {\n            storeFile file("arena.keystore")\n            storePassword "android"\n            keyAlias "androiddebugkey"\n            keyPassword "android"\n        }\n    }/' "$G"
+            grep -n -A7 "signingConfigs" "$G"
             echo "Подпись: постоянный ключ Arena of Defense"
           else
             echo "::warning::Нет секрета KEYSTORE_PASS — сборка подписана случайным ключом и не встанет поверх прошлой версии"

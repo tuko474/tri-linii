@@ -370,6 +370,17 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .owned-tag { margin-top: auto; font-size: 12px; font-weight: 700; color: var(--light); }
 
 /* ---------- лобби ---------- */
+.profile-chip { position: absolute; top: calc(10px + var(--sat)); right: calc(12px + var(--sar)); font-size: 13px; }
+.ranked { background: linear-gradient(180deg, #f3d27a, #d9a74a); }
+.text-input { width: 100%; max-width: 260px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: #0d0b18; color: var(--parch); font: 600 16px var(--body); }
+.text-input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.rating-big { margin: 0; font: 700 26px var(--display); color: var(--gold); }
+.rating-line { margin: 0; font: 700 18px var(--display); color: var(--gold); }
+.top-list { margin: 0; padding-left: 26px; text-align: left; width: 100%; max-height: 200px; overflow-y: auto; font-variant-numeric: tabular-nums; }
+.top-list li { padding: 2px 0; }
+.top-list li span { float: right; color: var(--gold); }
+.top-list li.me { color: var(--gold); }
+#queue { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
 .lobby { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 680px; }
 .lobby-card { flex: 1 1 260px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; }
 .lobby-card h3 { margin: 0; font: 700 18px var(--display); }
