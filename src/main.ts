@@ -9,7 +9,7 @@ import { Bot } from './sim/bot';
 import { Draft, PICK_SECONDS, botDraftPick, botPlacement, randomPick } from './sim/draft';
 import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
-import type { GameEvent, Hero, Pick, Sfx, Side } from './sim/types';
+import type { Hero, Pick, Side } from './sim/types';
 import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -203,9 +203,8 @@ function onConnected(l: Link, role: 'host' | 'guest') {
   l.onClose = () => {
     link = null;
     if (game && game.winner === null && (mode === 'host' || mode === 'guest')) {
-      game.winner = me;
       netLost = false;
-      toast('Соперник отключился — победа за тобой', 'info');
+      finish(true);
     } else if (!$('draft').hidden || !$('place').hidden) {
       toast('Соперник отключился', 'bad');
       show('menu');
@@ -242,18 +241,14 @@ function onNet(m: any) {
     case 'place': // гость → хост
       if (mode === 'host') { foePlacement = m.placement; tryStartNet(); }
       break;
-    case 'start': // хост → гость
-      if (mode === 'guest') startBattle(m.picks);
+    case 'start': // хост → гость (может прийти повторно — пока гость не ответил ходом)
+      if (mode === 'guest' && !game && !$('place').hidden) startBattle(m.picks, m.seed);
       break;
-    case 'snap':
-      if (mode === 'guest' && game) {
-        game.applySnapshot(m.s);
-        netEvents.push(...m.ev);
-        netSfx.push(...m.sfx);
-      }
+    case 'lk':
+      lsReceive(m);
       break;
-    case 'cmd':
-      if (mode === 'host' && game) applyCmd(1, m);
+    case 'sync': // хост → гость: расхождение, берём состояние хоста
+      if (mode === 'guest' && game && ls) lsApplySync(m);
       break;
   }
 }
@@ -450,8 +445,10 @@ $('startBattle').onclick = () => {
 function tryStartNet() {
   if (mode !== 'host' || !myPlacementSent || !foePlacement) return;
   const picks: [Pick[], Pick[]] = [placement, foePlacement];
-  link?.send({ t: 'start', picks });
-  startBattle(picks);
+  const seed = Math.floor(Math.random() * 2 ** 31);
+  startMsg = { t: 'start', picks, seed };
+  link?.send(startMsg);
+  startBattle(picks, seed);
 }
 
 // ---------- бой ----------
@@ -469,32 +466,28 @@ let synKey = '';
 let creepBtns: HTMLButtonElement[] = [];
 let bossBtns: HTMLButtonElement[] = [];
 let campHintShown = false;
-let snapTimer = 0;
-const netEvents: GameEvent[] = [];
-const netSfx: Sfx[] = [];
-const outEv: GameEvent[] = [];
-const outSfx: Sfx[] = [];
+let myAuto = false;
+let startMsg: unknown = null;
 const cv = $<HTMLCanvasElement>('cv');
 
-function startBattle(picks: [Pick[], Pick[]]) {
-  game = new Game([picks[0].map((p) => ({ ...p })), picks[1].map((p) => ({ ...p }))], mode === 'bot' ? difficulty : 'normal');
+function startBattle(picks: [Pick[], Pick[]], seed?: number) {
+  game = new Game([picks[0].map((p) => ({ ...p })), picks[1].map((p) => ({ ...p }))], mode === 'bot' ? difficulty : 'normal', seed);
   if (mode !== 'bot') game.incomeMul = [1, 1];
   game.autoCast = [false, false];
-  game.autoCast[me] = store.get('tl-auto') === '1';
-  if (mode === 'bot') game.autoCast[foe()] = true;
+  myAuto = store.get('tl-auto') === '1';
+  ls = null;
+  if (mode === 'bot') { game.autoCast[me] = myAuto; game.autoCast[foe()] = true; }
+  else { lsInit(); if (myAuto) ls!.pending.push({ c: 'auto', on: true }); }
   bot = mode === 'bot' ? new Bot(foe(), 'normal', difficulty) : null;
   renderer = new Renderer(cv, game, me);
   paused = false;
   modalPause = false;
   speed = 1;
   selected = null;
-  snapTimer = 0;
-  netEvents.length = 0;
-  netSfx.length = 0;
   campHintShown = store.get('tl-camphint') === '1';
   $('speedBtn').textContent = '×1';
   $('speedBtn').hidden = mode !== 'bot';
-  $('autoBtn').setAttribute('aria-pressed', String(game.autoCast[me]));
+  $('autoBtn').setAttribute('aria-pressed', String(myAuto));
   $('pauseModal').hidden = true;
   $('tripModal').hidden = true;
   $('toasts').innerHTML = '';
@@ -507,7 +500,7 @@ function startBattle(picks: [Pick[], Pick[]]) {
 /** Действие игрока: против бота и у хоста — сразу в игру, у гостя — хосту по сети. */
 function act(cmd: any): boolean {
   if (!game) return false;
-  if (mode === 'guest') { link?.send({ t: 'cmd', ...cmd }); return true; }
+  if (ls) { ls.pending.push(cmd); return true; } // сетевой бой: команда уйдёт в ближайший ход
   return applyCmd(me, cmd);
 }
 
@@ -629,7 +622,7 @@ function syncPanel() {
   $('myHp').style.width = (100 * g.throne[me]) / BAL.throneHp + '%';
   $('foeHp').style.width = (100 * g.throne[foe()]) / BAL.throneHp + '%';
   $('clock').textContent = clock(g.t);
-  $('waveInfo').textContent = `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с`;
+  $('waveInfo').textContent = lsWaiting ? 'ждём соперника…' : `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с`;
   for (const b of heroBtns) {
     const { h } = b;
     b.cast.classList.toggle('ready', g.canCast(h));
@@ -701,16 +694,16 @@ function syncPanel() {
     $('synergy').innerHTML = synergyHTML(counts, true);
   }
   // события: у гостя — пришедшие от хоста, у остальных — свои из симуляции
-  const evs = mode === 'guest' ? netEvents.splice(0) : g.events.filter((e) => e.to === null || e.to === me);
-  if (mode !== 'guest') g.events.length = 0;
+  const evs = g.events.filter((e) => e.to === null || e.to === me);
+  g.events.length = 0;
   for (const e of evs) toast(e.text, e.tone);
   if (!campHintShown && g.neutrals.some((n) => n.kind === 'camp' && n.alive)) {
     campHintShown = true;
     store.set('tl-camphint', '1');
     toast('В лесу появились монстры: нажми на лагерь и отправь героя за золотом', 'info');
   }
-  const sfx = mode === 'guest' ? netSfx.splice(0) : g.sfx.filter((x) => x.to === null || x.to === me);
-  if (mode !== 'guest') g.sfx.length = 0;
+  const sfx = g.sfx.filter((x) => x.to === null || x.to === me);
+  g.sfx.length = 0;
   for (const x of sfx) sound.play(x.name);
 }
 
@@ -1005,8 +998,8 @@ mini.addEventListener('pointercancel', () => { miniDrag = false; });
 $('overviewBtn').onclick = () => renderer?.toggleOverview();
 $('autoBtn').onclick = () => {
   if (!game) return;
-  const on = !game.autoCast[me];
-  game.autoCast[me] = on;
+  const on = !myAuto;
+  myAuto = on;
   act({ c: 'auto', on });
   store.set('tl-auto', on ? '1' : '0');
   $('autoBtn').setAttribute('aria-pressed', String(on));
@@ -1049,8 +1042,20 @@ function goFullscreen() {
 }
 $('toPick').addEventListener('click', goFullscreen);
 
-function finish() {
+function finish(aborted = false) {
   const g = game!;
+  ls = null;
+  lsWaiting = false;
+  if (aborted) {
+    sound.play('lose');
+    $('resTitle').textContent = 'Связь потеряна';
+    $('resText').textContent = 'Соединение с соперником пропало больше чем на 45 секунд. Матч не засчитан.';
+    $('resStats').innerHTML = `<dt>Длительность</dt><dd>${clock(g.t)}</dd>`;
+    $('resReward').textContent = '';
+    game = null;
+    show('result');
+    return;
+  }
   const win = g.winner === me;
   sound.play(win ? 'win' : 'lose');
   $('resTitle').textContent = win ? 'Победа' : 'Поражение';
@@ -1085,33 +1090,156 @@ $('toMenu').onclick = () => { link?.close(); link = null; syncCrystals(); show('
 const STEP = 1 / 30;
 let acc = 0;
 let last = performance.now();
+// ---------- сетевой бой: оба телефона считают один и тот же бой ----------
+// Обмениваемся только нажатиями: каждые 0,2 с («ход») телефон отправляет свои команды,
+// они выполняются у обоих через DELAY ходов. Следующий ход считается, только когда
+// пришли команды соперника на него, — поэтому бой у обоих идёт одинаково.
+// Раз в несколько секунд сверяем отпечаток состояния; если разошлись — хост присылает своё.
+const TPT = 6; // тиков симуляции в ходе: 6 × 1/30 с = 0,2 с
+const DELAY = 3; // команда выполнится через 3 хода (~0,6 с)
+const HASH_EVERY = 25; // сверка каждые 5 секунд
+interface Lockstep {
+  tick: number;
+  pending: any[];
+  mine: Map<number, any[]>; // свои закрытые ходы
+  peer: Map<number, any[]>; // ходы соперника
+  have: number; // до какого хода у нас есть все ходы соперника подряд
+  peerHas: number; // до какого хода соперник получил наши
+  myHash: Map<number, number>;
+  peerHash: Map<number, number>;
+  resync: boolean;
+  lastSend: number;
+  waitSince: number;
+}
+let ls: Lockstep | null = null;
+let lsWaiting = false;
+
+function lsInit() {
+  ls = { tick: 0, pending: [], mine: new Map(), peer: new Map(), have: DELAY - 1, peerHas: DELAY - 1, myHash: new Map(), peerHash: new Map(), resync: false, lastSend: 0, waitSince: 0 };
+  for (let n = 0; n < DELAY; n++) { ls.mine.set(n, []); ls.peer.set(n, []); }
+  acc = 0;
+}
+
+function lsSend() {
+  if (!ls || !link) return;
+  const from = ls.peerHas + 1;
+  let to = from;
+  while (ls.mine.has(to)) to++;
+  const c: any[][] = [];
+  for (let n = from; n < to; n++) c.push(ls.mine.get(n)!);
+  const lastH = [...ls.myHash.keys()].pop();
+  link.send({ t: 'lk', a: ls.have, f: from, c, h: lastH !== undefined ? [lastH, ls.myHash.get(lastH)] : 0 });
+  ls.lastSend = performance.now();
+}
+
+function lsReceive(m: { a: number; f: number; c: any[][]; h: [number, number] | 0 }) {
+  if (!ls || !game) return;
+  m.c.forEach((cmds, i) => { if (!ls!.peer.has(m.f + i)) ls!.peer.set(m.f + i, cmds); });
+  while (ls.peer.has(ls.have + 1)) ls.have++;
+  if (m.a > ls.peerHas) ls.peerHas = m.a;
+  if (m.h) { ls.peerHash.set(m.h[0], m.h[1]); lsCheckHash(m.h[0]); }
+}
+
+function lsCheckHash(n: number) {
+  if (!ls) return;
+  const a = ls.myHash.get(n);
+  const b = ls.peerHash.get(n);
+  if (a === undefined || b === undefined) return;
+  if (a !== b && mode === 'host') ls.resync = true;
+}
+
+/** Гость: принять состояние хоста и досчитать от него. */
+function lsApplySync(m: { k: number; s: any }) {
+  const L = ls!;
+  game!.applySnapshot(m.s);
+  const n0 = Math.floor(L.tick / TPT);
+  L.tick = m.k;
+  // ходы, которые мы перепрыгнули, закрываем пустыми — иначе хост будет ждать их вечно
+  for (let n = n0 + DELAY; n < m.k / TPT + DELAY; n++) if (!L.mine.has(n)) L.mine.set(n, []);
+  L.myHash.clear();
+  L.peerHash.clear();
+  lsSend();
+}
+
+/** Один тик сетевого боя. false — ждём команды соперника. */
+function lsStep(): boolean {
+  const L = ls!;
+  const g = game!;
+  if (L.tick % TPT === 0) {
+    const n = L.tick / TPT;
+    if (!L.peer.has(n)) return false;
+    if (L.resync && mode === 'host') {
+      // хост: фиксируем своё состояние (округлённое так же, как у гостя) и отправляем
+      L.resync = false;
+      const snap = JSON.parse(JSON.stringify(g.snapshot()));
+      g.applySnapshot(JSON.parse(JSON.stringify(snap)));
+      link?.send({ t: 'sync', k: L.tick, s: snap });
+      L.myHash.clear();
+      L.peerHash.clear();
+    }
+    if (n % HASH_EVERY === 0) {
+      L.myHash.set(n, g.hash());
+      if (L.myHash.size > 8) L.myHash.delete(L.myHash.keys().next().value!);
+      lsCheckHash(n);
+    }
+    if (!L.mine.has(n + DELAY)) { L.mine.set(n + DELAY, L.pending); L.pending = []; }
+    const mineCmds = L.mine.get(n)!;
+    const peerCmds = L.peer.get(n)!;
+    const order: [Side, any[]][] = me === 0 ? [[0, mineCmds], [1, peerCmds]] : [[0, peerCmds], [1, mineCmds]];
+    for (const [side, cmds] of order) for (const c of cmds) applyCmd(side, c);
+    // старое больше не нужно (держим запас на случай пересчёта после сверки)
+    L.mine.delete(n - 400);
+    L.peer.delete(n - 400);
+    lsSend();
+  }
+  g.update(STEP);
+  L.tick++;
+  return true;
+}
+
+/** Кадр сетевого боя. Возвращает, идёт ли бой (не ждём ли соперника). */
+function lsFrame(dt: number): boolean {
+  const L = ls!;
+  const now = performance.now();
+  // отстаём от соперника — догоняем быстрее
+  const behind = L.have - Math.floor(L.tick / TPT);
+  acc += dt * (behind > DELAY + 2 ? 3 : 1);
+  let moved = false;
+  while (acc >= STEP && game && game.winner === null) {
+    if (!lsStep()) { acc = Math.min(acc, STEP); break; }
+    acc -= STEP;
+    moved = true;
+  }
+  if (moved) L.waitSince = 0;
+  else if (!L.waitSince) L.waitSince = now;
+  // ждём: повторяем свои ходы (вдруг сообщение потерялось), хост — ещё и приглашение в бой
+  if (L.waitSince && now - L.lastSend > 500) {
+    lsSend();
+    if (mode === 'host' && startMsg && L.have < DELAY) link?.send(startMsg);
+  }
+  const waiting = !!L.waitSince && now - L.waitSince > 1500;
+  lsWaiting = waiting;
+  return !waiting;
+}
+
 function frame(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   tickDraft(now);
   if (game && renderer) {
-    const net = mode !== 'bot';
-    // в сетевой игре пауза и окна не останавливают бой
-    const running = (net ? !netLost : !paused && !modalPause) && game.winner === null;
-    if (running) {
-      acc += dt * speed;
-      while (acc >= STEP) {
-        bot?.update(game, STEP);
-        game.update(STEP); // у гостя — предсказание между снимками хоста
-        acc -= STEP;
-      }
-      if (mode === 'guest') { game.events.length = 0; game.sfx.length = 0; }
-    }
-    if (mode === 'host' && link) {
-      // события для гостя копим, свои хост покажет в syncPanel
-      for (const e of game.events) if (e.to === null || e.to === 1) outEv.push(e);
-      for (const x of game.sfx) if (x.to === null || x.to === 1) outSfx.push(x);
-      game.events = game.events.filter((e) => e.to !== 1);
-      game.sfx = game.sfx.filter((x) => x.to !== 1);
-      snapTimer -= dt;
-      if (snapTimer <= 0 || game.winner !== null) {
-        snapTimer = link.snapEvery;
-        link.send({ t: 'snap', s: game.snapshot(), ev: outEv.splice(0), sfx: outSfx.splice(0) });
+    // в сетевой игре пауза и окна не останавливают бой; бой идёт ходами, пока есть команды соперника
+    let running: boolean;
+    if (ls) {
+      running = game.winner === null && lsFrame(dt);
+    } else {
+      running = !paused && !modalPause && game.winner === null;
+      if (running) {
+        acc += dt * speed;
+        while (acc >= STEP) {
+          bot?.update(game, STEP);
+          game.update(STEP);
+          acc -= STEP;
+        }
       }
     }
     renderer.selected = selected;
@@ -1128,3 +1256,6 @@ function frame(now: number) {
 }
 requestAnimationFrame(frame);
 show('menu');
+
+// для автотестов: доступ к бою из консоли при адресе с #debug
+if (location.hash.includes('debug')) (window as unknown as { __game: () => Game | null }).__game = () => game;

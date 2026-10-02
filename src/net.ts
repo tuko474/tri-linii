@@ -97,10 +97,12 @@ const TOPIC = (code: string) => `trilinii/v2/${code}`;
  *  - соединение с соперником считается потерянным, только если 45 секунд не работает ни один брокер.
  * Сообщения нумеруются, повторы (пришедшие через разные брокеры) отбрасываются.
  */
+const ROTATE_BYTES = 9000;
+
 function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: string): Link {
-  type C = { url: string; m: Mqtt | null; lastIn: number; lastOut: number; connecting: boolean; retryAt: number };
+  type C = { url: string; m: Mqtt | null; lastIn: number; lastOut: number; connecting: boolean; retryAt: number; bytes: number; rotating: boolean };
   const now = () => performance.now();
-  const conns: C[] = urls.map((url) => ({ url, m: null, lastIn: 0, lastOut: 0, connecting: false, retryAt: 0 }));
+  const conns: C[] = urls.map((url) => ({ url, m: null, lastIn: 0, lastOut: 0, connecting: false, retryAt: 0, bytes: 0, rotating: false }));
   let seq = 0;
   const seen = new Set<number>();
   let maxSeen = 0;
@@ -117,7 +119,7 @@ function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: 
       const bulk = s.startsWith('{"t":"snap"');
       const targets = bulk ? [live.reduce((a, b) => (b.lastIn > a.lastIn ? b : a))] : live;
       const raw = `{"q":${++seq},"d":${s}}`;
-      for (const c of targets) { c.lastOut = t; c.m!.publish(sendTopic, raw); }
+      for (const c of targets) { c.lastOut = t; c.bytes += raw.length; c.m!.publish(sendTopic, raw); }
     },
     () => { clearInterval(timer); for (const c of conns) c.m?.close(); },
     'mqtt',
@@ -126,10 +128,12 @@ function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: 
 
   const attach = (c: C, m: Mqtt) => {
     c.m = m;
+    c.bytes = 0;
     c.lastIn = now(); // даём новому соединению время показать себя
     m.subscribe(recvTopic, (raw) => {
       const t = now();
       c.lastIn = t;
+      if (c.m === m) c.bytes += raw.length + 40;
       lastAny = t;
       if (raw === '{"t":"hb"}') return;
       let q = 0;
@@ -146,6 +150,20 @@ function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: 
       link.feed(body);
     });
     m.onClose = () => { if (c.m === m) { c.m = null; c.retryAt = now() + 1000; } };
+  };
+
+  /** Заранее заменить соединение свежим, пока по нему не прошло слишком много данных:
+   * некоторые мобильные сети «замораживают» долгие соединения после нескольких десятков килобайт. */
+  const rotate = (c: C) => {
+    if (c.rotating || link.closed) return;
+    c.rotating = true;
+    Mqtt.connect(c.url, 6000).then((m) => {
+      c.rotating = false;
+      if (link.closed) { m.close(); return; }
+      const old = c.m;
+      attach(c, m);
+      if (old) { old.onClose = () => undefined; setTimeout(() => old.close(), 1500); }
+    }, () => { c.rotating = false; c.bytes = 0; });
   };
 
   const reconnect = (c: C) => {
@@ -173,7 +191,8 @@ function multiLink(urls: string[], first: Mqtt[], sendTopic: string, recvTopic: 
     const t = now();
     for (const c of conns) {
       if (c.m && !c.m.closed) {
-        if (t - c.lastOut > 2000) { c.lastOut = t; c.m.publish(sendTopic, '{"t":"hb"}'); }
+        if (t - c.lastOut > 2000) { c.lastOut = t; c.bytes += 60; c.m.publish(sendTopic, '{"t":"hb"}'); }
+        if (c.bytes > ROTATE_BYTES) rotate(c);
         // тишина: соединение, вероятно, «заморожено» — пересоздаём
         if (t - c.lastIn > 7000) { const m = c.m; c.m = null; m.onClose = () => undefined; m.close(); c.retryAt = t + 500; }
       } else if (!c.connecting && t >= c.retryAt) reconnect(c);

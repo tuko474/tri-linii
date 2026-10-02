@@ -45,12 +45,15 @@ export class Game {
   pitSeen: [boolean[], boolean[]] = [[false, false], [false, false]];
 
   private uid = 1;
+  /** Состояние генератора случайных чисел: в сетевой игре у обоих телефонов одинаковое зерно — и одинаковый бой. */
+  private rs = 1;
   private throneAtkFx = [0, 0];
   private throneCd = [0, 0];
   /** Перезарядка подмоги по сторонам. */
   helpCd: [number, number] = [0, 0];
 
-  constructor(picks: [Pick[], Pick[]], difficulty: Difficulty) {
+  constructor(picks: [Pick[], Pick[]], difficulty: Difficulty, seed = Math.floor(Math.random() * 2 ** 31)) {
+    this.rs = seed >>> 0 || 1;
     this.incomeMul = [1, BAL.difficulty[difficulty].botIncome];
     ([0, 1] as Side[]).forEach((side) => {
       for (const p of picks[side]) {
@@ -83,6 +86,26 @@ export class Game {
     this.refreshStats(0);
     this.refreshStats(1);
     this.updateVision();
+  }
+
+  /** Детерминированное случайное число [0, 1) (mulberry32). */
+  rand(): number {
+    let t = (this.rs = (this.rs + 0x6d2b79f5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  /** Короткий отпечаток состояния — чтобы телефоны сверяли, что считают один и тот же бой. */
+  hash(): number {
+    let h = 0;
+    const add = (v: number) => { h = (Math.imul(h, 31) + Math.round(v * 10)) | 0; };
+    add(this.t); add(this.gold[0]); add(this.gold[1]); add(this.throne[0]); add(this.throne[1]); add(this.rs);
+    for (const x of this.heroes) { add(x.hp); add(x.mana); add(x.lvl); add(x.lane); }
+    add(this.creeps.length);
+    for (const c of this.creeps) { add(c.hp); add(c.s); }
+    for (const n of this.neutrals) add(n.hp);
+    return h;
   }
 
   // ---------- геометрия ----------
@@ -208,7 +231,7 @@ export class Game {
   private atkDmg(h: Hero): number {
     const m = this.heroMods(h);
     const base = h.trip ? h.dmg : h.dmg * (1 + BAL.depthAtk[Math.max(0, Math.min(3, this.depth(h.lane, h.side)))]);
-    if (m.critChance > 0 && Math.random() < m.critChance) {
+    if (m.critChance > 0 && this.rand() < m.critChance) {
       const p = this.heroPos(h);
       this.fx.push({ kind: 'text', x: p.x, y: p.y - 20, text: 'крит!', color: '#c9b4ff', t: 0, life: 0.6 });
       return base * m.critMul;
@@ -806,7 +829,7 @@ export class Game {
    */
   private rollOrb(side: Side): RaceId {
     const team = this.heroes.filter((h) => h.side === side);
-    const race = team[Math.floor(Math.random() * team.length)].def.race;
+    const race = team[Math.floor(this.rand() * team.length)].def.race;
     this.orbs[side][race] = (this.orbs[side][race] ?? 0) + 1;
     this.refreshStats(side);
     return race;
@@ -914,7 +937,7 @@ export class Game {
             s: base - dir * i * 28,
             off: ((i % 3) - 1) * 16,
             hp: st.hp * mul, maxHp: st.hp * mul, dmg: st.dmg * mul,
-            range: st.range, rate: st.rate, speed: st.speed, atkCd: Math.random() * 0.3,
+            range: st.range, rate: st.rate, speed: st.speed, atkCd: this.rand() * 0.3,
             slowT: 0, slowMul: 1, stunT: 0, gold: st.gold, r: st.r, dead: false,
           });
         });
@@ -1200,7 +1223,7 @@ export class Game {
     return {
       t: r(this.t), gold: this.gold.map(r), throne: this.throne.map(r), front: this.front, creepLvl: this.creepLvl,
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
-      autoCast: this.autoCast, hcd: this.helpCd.map(r), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
+      autoCast: this.autoCast, rs: this.rs, uid: this.uid, vt: r(this.visionT), hcd: this.helpCd.map(r), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
         h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
@@ -1216,7 +1239,7 @@ export class Game {
     this.t = S.t; this.gold = S.gold as [number, number]; this.throne = S.throne as [number, number];
     this.front = S.front; this.creepLvl = S.creepLvl; this.waveTimer = S.waveTimer; this.waveNo = S.waveNo;
     this.winner = S.winner; this.orbs = S.orbs; this.stats = S.stats; this.autoCast = S.autoCast;
-    this.throneAtkFx = S.tac; this.helpCd = S.hcd as [number, number]; this.throneCd = S.tcd;
+    this.throneAtkFx = S.tac; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.helpCd = S.hcd as [number, number]; this.throneCd = S.tcd;
     const byUid = new Map(this.heroes.map((h) => [h.uid, h]));
     for (const a of S.heroes) {
       const h = byUid.get(a[0] as number);
