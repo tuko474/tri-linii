@@ -155,12 +155,13 @@ export class Game {
   heroMods(h: Hero) {
     const all = this.raceFx(h.side);
     const own = all[h.def.race] ?? {};
-    let allLs = 0, allSpell = 1, allAtk = 1, allArmor = 0;
+    let allLs = 0, allSpell = 1, allAtk = 1, allArmor = 0, allXp = 1;
     for (const fx of Object.values(all)) {
       allLs += fx?.allLifesteal ?? 0;
       allSpell *= fx?.allSpellMul ?? 1;
       allAtk *= fx?.allAtkMul ?? 1;
       allArmor += fx?.allArmor ?? 0;
+      allXp *= fx?.allXpMul ?? 1;
     }
     return {
       hpMul: own.hpMul ?? 1,
@@ -171,6 +172,9 @@ export class Game {
       lifesteal: (own.lifesteal ?? 0) + allLs,
       respawnMul: own.respawnMul ?? 1,
       armor: Math.min(0.6, (own.armor ?? 0) + allArmor),
+      critChance: own.critChance ?? 0,
+      critMul: own.critMul ?? 1,
+      xpMul: (own.xpMul ?? 1) * allXp,
     };
   }
 
@@ -195,6 +199,17 @@ export class Game {
       h.dmg = h.def.dmg * (1 + BAL.heroDmgPerLvl * k) * m.atkMul;
       h.maxMana = h.def.mana * (1 + BAL.heroManaPerLvl * k);
     }
+  }
+
+  /** Урон автоатаки героя с учётом крита (бонус Теней). */
+  private atkDmg(h: Hero): number {
+    const m = this.heroMods(h);
+    if (m.critChance > 0 && Math.random() < m.critChance) {
+      const p = this.heroPos(h);
+      this.fx.push({ kind: 'text', x: p.x, y: p.y - 20, text: 'крит!', color: '#c9b4ff', t: 0, life: 0.6 });
+      return h.dmg * m.critMul;
+    }
+    return h.dmg;
   }
 
   /** Герой нанёс урон — вампиризм от рас. */
@@ -315,7 +330,7 @@ export class Game {
   /** Начислить опыт; при наборе — новый уровень. */
   gainXp(h: Hero, amount: number) {
     if (h.dead || h.lvl >= BAL.heroMaxLvl || amount <= 0) return;
-    h.xp += amount;
+    h.xp += amount * this.heroMods(h).xpMul;
     while (h.lvl < BAL.heroMaxLvl && h.xp >= this.xpNeed(h)) {
       h.xp -= this.xpNeed(h);
       this.levelUp(h);
@@ -407,6 +422,7 @@ export class Game {
         for (const e of near) {
           hit(e, pow);
           if (sk.stun) e.stunT = Math.max(e.stunT, sk.stun);
+          if (sk.slow) this.slowCreep(e, sk.slow, sk.slowT ?? 2);
         }
         this.fxRingAtHero(h, h.def.color, R);
         ok = true;
@@ -602,10 +618,11 @@ export class Game {
     if (h.atkCd > 0) return;
     h.atkCd = h.def.rate * this.heroMods(h).rateMul;
     const to = tg.hero ? this.heroPos(tg.hero) : { x: n.x, y: n.y };
-    this.dealt(h, h.dmg);
+    const dmg = this.atkDmg(h);
+    this.dealt(h, dmg);
     if (h.def.range >= 150) this.fx.push({ kind: 'beam', x: t.x, y: t.y, x2: to.x, y2: to.y, color: h.def.color, t: 0, life: 0.15 });
-    if (tg.hero) this.hitHero(tg.hero, h.dmg);
-    else if (tg.n) this.hitNeutral(tg.n, h.dmg, h.side);
+    if (tg.hero) this.hitHero(tg.hero, dmg);
+    else if (tg.n) this.hitNeutral(tg.n, dmg, h.side);
   }
 
   /** Способность в походе: бьёт текущую цель, лекари лечат свой отряд. */
@@ -735,9 +752,13 @@ export class Game {
     }
   }
 
-  /** Сфера случайной расы из всех: +1 к счётчику расы, пока Лорд не возродится. Может выпасть и ненужная. */
+  /**
+   * Сфера расы: случайный герой твоей команды — и его раса. Шанс расы пропорционален числу её героев
+   * (5 магов — точно маг, 5 разных рас — одна из пяти). +1 к расе, пока Лорд не возродится.
+   */
   private rollOrb(side: Side): RaceId {
-    const race = RACE_IDS[Math.floor(Math.random() * RACE_IDS.length)];
+    const team = this.heroes.filter((h) => h.side === side);
+    const race = team[Math.floor(Math.random() * team.length)].def.race;
     this.orbs[side][race] = (this.orbs[side][race] ?? 0) + 1;
     this.refreshStats(side);
     return race;
@@ -878,12 +899,13 @@ export class Game {
       const tgt = this.nearestEnemyCreep(h.lane, h.side, h.s, h.def.range);
       if (!tgt) continue;
       h.atkCd = h.def.rate * this.heroMods(h).rateMul;
+      const dmg = this.atkDmg(h);
       if (h.def.range < 150) {
-        this.dealt(h, Math.min(h.dmg, tgt.hp));
-        this.hitCreep(tgt, h.dmg);
+        this.dealt(h, Math.min(dmg, tgt.hp));
+        this.hitCreep(tgt, dmg);
       } else {
         const p = this.heroPos(h);
-        this.projs.push({ x: p.x, y: p.y, src: h, target: { kind: 'creep', c: tgt }, dmg: h.dmg, speed: 700, color: h.def.color, size: 4 });
+        this.projs.push({ x: p.x, y: p.y, src: h, target: { kind: 'creep', c: tgt }, dmg, speed: 700, color: h.def.color, size: 4 });
       }
     }
   }

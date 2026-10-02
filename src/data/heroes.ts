@@ -15,7 +15,8 @@ export type SkillKind =
 /** Иконка навыка на кнопке. */
 export type SkillIcon =
   | 'snowflake' | 'lightning' | 'axes' | 'arrows' | 'flame' | 'quake' | 'skull' | 'crosshair'
-  | 'serpent' | 'potion' | 'firearrows' | 'claws' | 'storm' | 'paw' | 'cross' | 'horn' | 'boulder';
+  | 'serpent' | 'potion' | 'firearrows' | 'claws' | 'storm' | 'paw' | 'cross' | 'horn' | 'boulder'
+  | 'wave' | 'leaf' | 'fist' | 'dagger' | 'moon' | 'web' | 'eye' | 'howl';
 
 export interface SkillDef {
   name: string;
@@ -76,7 +77,7 @@ export const HEROES: HeroDef[] = [
     skill: { name: 'Цепная молния', kind: 'chain', icon: 'lightning', desc: 'Бьёт до 5 крипов по цепочке', mana: 80, cd: 6, power: 80, perLvl: 22, count: 5 },
   },
   {
-    id: 'fire', name: 'Пламена', role: 'Маг огня', race: 'elemental', proto: 'Lina', color: '#ff8a3d', glyph: 'П', price: 300,
+    id: 'fire', name: 'Пламена', role: 'Маг огня', race: 'elemental', proto: 'Lina', color: '#ff8a3d', glyph: 'П', price: 0,
     look: { body: 'robe', weapon: 'orb', head: 'flame', skin: '#f0c8a8', trim: '#ffd25a' },
     hp: 470, mana: 320, dmg: 26, range: 240, rate: 1.05,
     skill: { name: 'Огненный столп', kind: 'blast', icon: 'flame', desc: 'Огромный урон по группе', mana: 110, cd: 10, power: 150, perLvl: 40, radius: 120 },
@@ -95,13 +96,13 @@ export const HEROES: HeroDef[] = [
     skill: { name: 'Волна тлена', kind: 'drain', icon: 'skull', desc: 'Урон всем в радиусе, лечит героев линии', mana: 90, cd: 9, power: 60, perLvl: 17 },
   },
   {
-    id: 'healer', name: 'Знахарь', role: 'Целитель вуду', race: 'undead', proto: 'Witch Doctor', color: '#e58bd0', glyph: 'Ж', price: 300,
+    id: 'healer', name: 'Знахарь', role: 'Целитель вуду', race: 'undead', proto: 'Witch Doctor', color: '#e58bd0', glyph: 'Ж', price: 0,
     look: { body: 'robe', weapon: 'staff', head: 'mask', skin: '#8a6a52', trim: '#e58bd0' },
     hp: 560, mana: 320, dmg: 21, range: 230, rate: 1.1,
     skill: { name: 'Целебный отвар', kind: 'heal', icon: 'potion', desc: 'Лечит героев линии и жжёт крипов рядом', mana: 110, cd: 12, power: 170, perLvl: 40, radius: 140 },
   },
   {
-    id: 'bone', name: 'Костяной', role: 'Лучник-скелет', race: 'undead', proto: 'Clinkz', color: '#e8dcc0', glyph: 'К', price: 450,
+    id: 'bone', name: 'Костяной', role: 'Лучник-скелет', race: 'undead', proto: 'Clinkz', color: '#e8dcc0', glyph: 'К', price: 0,
     look: { body: 'bones', weapon: 'bow', head: 'skull', skin: '#e8dcc0', trim: '#ff7a3d' },
     hp: 440, mana: 240, dmg: 34, range: 290, rate: 0.95,
     skill: { name: 'Огненные стрелы', kind: 'volley', icon: 'firearrows', desc: 'Горящие стрелы в 5 целей', mana: 80, cd: 7, power: 85, perLvl: 24, count: 5 },
@@ -126,7 +127,7 @@ export const HEROES: HeroDef[] = [
     skill: { name: 'Змеиные стражи', kind: 'wards', icon: 'serpent', desc: '3 стража стреляют 10 секунд', mana: 140, cd: 18, power: 18, perLvl: 5, count: 3 },
   },
   {
-    id: 'bear', name: 'Медвежья Лапа', role: 'Берсерк', race: 'wild', proto: 'Ursa', color: '#a5703f', glyph: 'Л', price: 400,
+    id: 'bear', name: 'Медвежья Лапа', role: 'Берсерк', race: 'wild', proto: 'Ursa', color: '#a5703f', glyph: 'Л', price: 0,
     look: { body: 'beast', weapon: 'claws', head: 'mane', skin: '#7a5232', trim: '#e8dcc0' },
     hp: 880, mana: 200, dmg: 36, range: 110, rate: 1.0,
     skill: { name: 'Ярость зверя', kind: 'snipe', icon: 'paw', desc: 'Сокрушительный удар по самому крепкому', mana: 70, cd: 6, power: 240, perLvl: 60, range: 160 },
@@ -139,13 +140,13 @@ export const HEROES: HeroDef[] = [
     skill: { name: 'Выстрел в упор', kind: 'snipe', icon: 'crosshair', desc: 'Огромный урон по самому крепкому крипу', mana: 80, cd: 7, power: 280, perLvl: 70, range: 420 },
   },
   {
-    id: 'paladin', name: 'Паладин', role: 'Светлый рыцарь', race: 'kingdom', proto: 'Omniknight', color: '#f6f0d0', glyph: 'Н', price: 350,
+    id: 'paladin', name: 'Паладин', role: 'Светлый рыцарь', race: 'kingdom', proto: 'Omniknight', color: '#f6f0d0', glyph: 'Н', price: 0,
     look: { body: 'armor', weapon: 'hammer', head: 'helm', skin: '#e8c9a8', trim: '#f3d27a' },
     hp: 820, mana: 260, dmg: 28, range: 110, rate: 1.1,
     skill: { name: 'Свет исцеления', kind: 'heal', icon: 'cross', desc: 'Лечит героев линии, обжигает крипов', mana: 100, cd: 11, power: 190, perLvl: 45, radius: 160 },
   },
   {
-    id: 'banner', name: 'Знаменосец', role: 'Полководец', race: 'kingdom', proto: 'Legion Commander', color: '#e05a4a', glyph: 'З', price: 350,
+    id: 'banner', name: 'Знаменосец', role: 'Полководец', race: 'kingdom', proto: 'Legion Commander', color: '#e05a4a', glyph: 'З', price: 0,
     look: { body: 'armor', weapon: 'banner', head: 'helm', skin: '#e0b896', trim: '#e05a4a' },
     hp: 760, mana: 240, dmg: 30, range: 120, rate: 1.0,
     skill: { name: 'Боевой клич', kind: 'around', icon: 'horn', desc: 'Удар и оглушение всех рядом', mana: 90, cd: 10, power: 80, perLvl: 22, radius: 165, stun: 1.3 },
@@ -164,10 +165,91 @@ export const HEROES: HeroDef[] = [
     skill: { name: 'Раскол земли', kind: 'around', icon: 'quake', desc: 'Урон и оглушение всех рядом', mana: 100, cd: 11, power: 75, perLvl: 20, radius: 175, stun: 1.8 },
   },
   {
-    id: 'golem', name: 'Каменный Страж', role: 'Живая скала', race: 'mountain', proto: 'Tiny', color: '#8a8f99', glyph: 'Т', price: 400,
+    id: 'golem', name: 'Каменный Страж', role: 'Живая скала', race: 'mountain', proto: 'Tiny', color: '#8a8f99', glyph: 'Т', price: 0,
     look: { body: 'stone', weapon: 'fist', head: 'none', skin: '#8a8f99', trim: '#6fd0c0' },
     hp: 1000, mana: 220, dmg: 34, range: 115, rate: 1.15,
     skill: { name: 'Обвал', kind: 'blast', icon: 'boulder', desc: 'Глыба по группе и оглушение', mana: 90, cd: 10, power: 105, perLvl: 28, radius: 120, stun: 1.5, range: 260 },
+  },
+
+  // ---------- новые герои ----------
+  {
+    id: 'lich', name: 'Хладный Лич', role: 'Повелитель стужи', race: 'undead', proto: 'Lich', color: '#9fd8e8', glyph: 'Х', price: 400,
+    look: { body: 'robe', weapon: 'staff', head: 'skull', skin: '#cfe6ee', trim: '#7fd0ff' },
+    hp: 480, mana: 320, dmg: 22, range: 240, rate: 1.1,
+    skill: { name: 'Цепь стужи', kind: 'chain', icon: 'snowflake', desc: 'Ледяной шар скачет по 6 крипам', mana: 90, cd: 8, power: 70, perLvl: 20, count: 6 },
+  },
+  {
+    id: 'tide', name: 'Волнолом', role: 'Морской исполин', race: 'elemental', proto: 'Tidehunter', color: '#4fb3d9', glyph: 'В', price: 450,
+    look: { body: 'beast', weapon: 'fist', head: 'none', skin: '#4f9fc9', trim: '#bff0ff' },
+    hp: 780, mana: 260, dmg: 30, range: 120, rate: 1.1,
+    skill: { name: 'Приливная волна', kind: 'around', icon: 'wave', desc: 'Волна бьёт и замедляет всех рядом', mana: 90, cd: 9, power: 90, perLvl: 24, radius: 170, slow: 0.5, slowT: 2.5 },
+  },
+  {
+    id: 'wolf', name: 'Вожак Стаи', role: 'Оборотень', race: 'wild', proto: 'Lycan', color: '#8a8f9e', glyph: 'О', price: 400,
+    look: { body: 'beast', weapon: 'claws', head: 'mane', skin: '#6b6f7e', trim: '#e8e8f0' },
+    hp: 820, mana: 220, dmg: 34, range: 110, rate: 0.95,
+    skill: { name: 'Волчья стая', kind: 'wards', icon: 'howl', desc: '3 волка грызут крипов 10 секунд', mana: 120, cd: 16, power: 24, perLvl: 7, count: 3 },
+  },
+  {
+    id: 'treant', name: 'Древень', role: 'Хранитель леса', race: 'wild', proto: 'Treant Protector', color: '#6fae4f', glyph: 'Д', price: 450,
+    look: { body: 'stone', weapon: 'club', head: 'none', skin: '#6b4a2a', trim: '#8fd36b' },
+    hp: 940, mana: 260, dmg: 28, range: 115, rate: 1.2,
+    skill: { name: 'Живая роща', kind: 'heal', icon: 'leaf', desc: 'Лечит героев линии, корни ранят крипов рядом', mana: 100, cd: 11, power: 180, perLvl: 42, radius: 150 },
+  },
+  {
+    id: 'dragon', name: 'Драконий Рыцарь', role: 'Рыцарь-дракон', race: 'kingdom', proto: 'Dragon Knight', color: '#d9733e', glyph: 'Р', price: 450,
+    look: { body: 'armor', weapon: 'axe', head: 'helm', skin: '#e0b896', trim: '#ff8a3d' },
+    hp: 860, mana: 220, dmg: 32, range: 115, rate: 1.05,
+    skill: { name: 'Дыхание дракона', kind: 'blast', icon: 'flame', desc: 'Пламя по группе крипов перед собой', mana: 90, cd: 9, power: 110, perLvl: 30, radius: 130, range: 280 },
+  },
+  {
+    id: 'alch', name: 'Алхимик', role: 'Варщик зелий', race: 'kingdom', proto: 'Alchemist', color: '#b7d44a', glyph: 'А', price: 400,
+    look: { body: 'armor', weapon: 'orb', head: 'cap', skin: '#c48a5a', trim: '#b7d44a' },
+    hp: 700, mana: 260, dmg: 28, range: 170, rate: 1.05,
+    skill: { name: 'Кислотный туман', kind: 'drain', icon: 'potion', desc: 'Кислота жжёт всех рядом, герои линии лечатся', mana: 90, cd: 9, power: 55, perLvl: 16 },
+  },
+  {
+    id: 'centaur', name: 'Кентавр', role: 'Воитель степей', race: 'mountain', proto: 'Centaur Warrunner', color: '#a0522d', glyph: 'К', price: 450,
+    look: { body: 'beast', weapon: 'axe', head: 'horns', skin: '#8a5a3a', trim: '#d9c08a' },
+    hp: 1000, mana: 220, dmg: 33, range: 110, rate: 1.1,
+    skill: { name: 'Топот копыт', kind: 'around', icon: 'quake', desc: 'Удар и оглушение всех рядом', mana: 90, cd: 10, power: 85, perLvl: 22, radius: 160, stun: 1.5 },
+  },
+  {
+    id: 'tusk', name: 'Ледяной Клык', role: 'Северный кулачник', race: 'mountain', proto: 'Tusk', color: '#9ec9e8', glyph: 'Л', price: 400,
+    look: { body: 'beast', weapon: 'fist', head: 'mane', skin: '#c9d8e8', trim: '#ffffff' },
+    hp: 820, mana: 240, dmg: 34, range: 110, rate: 1.0,
+    skill: { name: 'Моржовый удар', kind: 'snipe', icon: 'fist', desc: 'Сокрушительный удар по самому крепкому', mana: 75, cd: 7, power: 250, perLvl: 62, range: 170 },
+  },
+  // ---------- Тени ----------
+  {
+    id: 'phantom', name: 'Фантомная', role: 'Убийца', race: 'shadow', proto: 'Phantom Assassin', color: '#7d6ad9', glyph: 'Ф', price: 0,
+    look: { body: 'hood', weapon: 'claws', head: 'mask', skin: '#c9c2e8', trim: '#7d6ad9' },
+    hp: 540, mana: 220, dmg: 38, range: 110, rate: 0.85,
+    skill: { name: 'Смертельный удар', kind: 'snipe', icon: 'dagger', desc: 'Клинок в самую крепкую цель', mana: 70, cd: 6, power: 220, perLvl: 60, range: 220 },
+  },
+  {
+    id: 'stalker', name: 'Ночной Охотник', role: 'Тварь ночи', race: 'shadow', proto: 'Night Stalker', color: '#3a3f6b', glyph: 'Н', price: 0,
+    look: { body: 'beast', weapon: 'claws', head: 'horns', skin: '#4a4f7a', trim: '#c9c2e8' },
+    hp: 880, mana: 220, dmg: 34, range: 110, rate: 1.0,
+    skill: { name: 'Полночь', kind: 'around', icon: 'moon', desc: 'Удар тьмой и замедление всех рядом', mana: 90, cd: 9, power: 100, perLvl: 28, radius: 160, slow: 0.6, slowT: 2 },
+  },
+  {
+    id: 'weaver', name: 'Ткачиха', role: 'Паучья мать', race: 'shadow', proto: 'Broodmother', color: '#a64f8f', glyph: 'Т', price: 0,
+    look: { body: 'beast', weapon: 'claws', head: 'none', skin: '#5a2f4f', trim: '#e58bd0' },
+    hp: 580, mana: 300, dmg: 24, range: 220, rate: 1.05,
+    skill: { name: 'Паучий выводок', kind: 'wards', icon: 'web', desc: '3 паука атакуют 10 секунд', mana: 130, cd: 17, power: 20, perLvl: 6, count: 3 },
+  },
+  {
+    id: 'whisper', name: 'Шёпот', role: 'Метатель клинков', race: 'shadow', proto: 'Riki', color: '#5f6ab0', glyph: 'Ш', price: 450,
+    look: { body: 'hood', weapon: 'claws', head: 'hood', skin: '#9aa0d0', trim: '#c9c2e8' },
+    hp: 480, mana: 240, dmg: 32, range: 260, rate: 0.95,
+    skill: { name: 'Веер клинков', kind: 'volley', icon: 'dagger', desc: 'Клинки в 5 целей', mana: 75, cd: 7, power: 75, perLvl: 21, count: 5 },
+  },
+  {
+    id: 'soul', name: 'Пожиратель Душ', role: 'Демон теней', race: 'shadow', proto: 'Shadow Fiend', color: '#c4344a', glyph: 'П', price: 500,
+    look: { body: 'robe', weapon: 'orb', head: 'horns', skin: '#3a1a22', trim: '#ff6a6a' },
+    hp: 480, mana: 300, dmg: 30, range: 250, rate: 1.0,
+    skill: { name: 'Реквием душ', kind: 'blast', icon: 'eye', desc: 'Огромный урон тьмой по группе', mana: 110, cd: 10, power: 160, perLvl: 42, radius: 125 },
   },
 ];
 

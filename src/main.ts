@@ -106,7 +106,7 @@ function renderCards() {
   syncCrystals();
   const el = $('cards');
   el.innerHTML = '';
-  const order = [...HEROES].sort((a, b) => Number(meta.owned.has(b.id)) - Number(meta.owned.has(a.id)) || a.race.localeCompare(b.race));
+  const order = [...HEROES].sort((a, b) => RACE_IDS.indexOf(a.race) - RACE_IDS.indexOf(b.race) || Number(meta.owned.has(b.id)) - Number(meta.owned.has(a.id)));
   for (const h of order) {
     const owned = meta.owned.has(h.id);
     const b = document.createElement('div');
@@ -299,7 +299,9 @@ function renderDraft() {
   $('draftTurn').className = 'turn ' + (turn === me ? 'mine' : 'theirs');
   const pool = $('draftPool');
   pool.innerHTML = '';
-  for (const h of HEROES) {
+  // по расам: так проще собирать пары и четвёрки
+  const byRace = [...HEROES].sort((a, b) => RACE_IDS.indexOf(a.race) - RACE_IDS.indexOf(b.race));
+  for (const h of byRace) {
     const taken = d.picks.find((p) => p.id === h.id);
     const owned = meta.owned.has(h.id);
     const b = document.createElement('button');

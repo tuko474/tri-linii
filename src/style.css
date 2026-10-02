@@ -386,7 +386,7 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .syn-preview.mini .syn { display: flex; flex: none; padding: 2px 6px 2px 2px; gap: 3px; border-radius: 999px; }
 .syn-preview.mini .syn img { width: 20px; height: 20px; }
 .syn-preview.mini .syn b { font-size: 12px; }
-.draft-pool { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; align-content: start; }
+.draft-pool { flex: 1; min-height: 0; width: 100%; overflow-y: auto; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; align-content: start; }
 .pool-hero {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 2px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; color: var(--parch); font: 700 11px var(--body); cursor: pointer; min-width: 0;

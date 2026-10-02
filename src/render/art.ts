@@ -403,6 +403,64 @@ export function drawSkillIcon(c: Ctx, icon: SkillIcon, color: string, size: numb
       c.lineWidth = 0.05;
       for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(0.5, -0.38, 0.25 + i * 0.12, -1.3, 0.2); c.stroke(); }
       break;
+    case 'wave':
+      c.lineWidth = 0.12;
+      for (let i = 0; i < 2; i++) {
+        const y = -0.15 + i * 0.35;
+        c.beginPath(); c.moveTo(-0.65, y);
+        for (let x = -0.65; x <= 0.65; x += 0.05) c.lineTo(x, y + Math.sin((x + 0.65) * 7.5) * 0.12);
+        c.stroke();
+      }
+      c.beginPath(); c.arc(0.25, -0.42, 0.18, Math.PI, Math.PI * 1.9); c.stroke();
+      break;
+    case 'leaf':
+      c.beginPath(); c.moveTo(-0.45, 0.5); c.quadraticCurveTo(-0.55, -0.4, 0.5, -0.55); c.quadraticCurveTo(0.45, 0.45, -0.45, 0.5);
+      c.fillStyle = '#c9f0a8'; c.fill();
+      c.strokeStyle = shade(color, -0.5); c.lineWidth = 0.06;
+      c.beginPath(); c.moveTo(-0.45, 0.5); c.lineTo(0.35, -0.38); c.stroke();
+      break;
+    case 'fist':
+      c.beginPath(); c.moveTo(-0.4, -0.25); c.lineTo(0.35, -0.3); c.quadraticCurveTo(0.55, -0.28, 0.5, -0.05);
+      c.lineTo(0.48, 0.35); c.quadraticCurveTo(0.45, 0.55, 0.2, 0.55); c.lineTo(-0.35, 0.55); c.quadraticCurveTo(-0.55, 0.5, -0.5, 0.2); c.closePath();
+      c.fill();
+      c.strokeStyle = shade(color, -0.5); c.lineWidth = 0.05;
+      for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(-0.2 + i * 0.22, -0.28); c.lineTo(-0.2 + i * 0.22, 0.05); c.stroke(); }
+      break;
+    case 'dagger':
+      c.save(); c.rotate(-0.75);
+      poly(c, [0, -0.72, 0.12, -0.1, 0, 0.0, -0.12, -0.1]); c.fillStyle = '#e8e8f0'; c.fill();
+      c.fillStyle = '#c9b4ff'; c.fillRect(-0.24, -0.02, 0.48, 0.08);
+      c.fillStyle = shade(color, -0.4); c.fillRect(-0.05, 0.06, 0.1, 0.36);
+      disc(c, 0, 0.48, 0.07, '#c9b4ff');
+      c.restore();
+      break;
+    case 'moon':
+      c.beginPath(); c.arc(0, 0, 0.55, 0, Math.PI * 2); c.fillStyle = '#e8e0ff'; c.fill();
+      c.beginPath(); c.arc(0.22, -0.12, 0.48, 0, Math.PI * 2); c.fillStyle = shade(color, -0.6); c.fill();
+      disc(c, -0.5, 0.45, 0.04, W); disc(c, 0.5, 0.5, 0.03, W);
+      break;
+    case 'web':
+      c.lineWidth = 0.04;
+      for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(a) * 0.68, Math.sin(a) * 0.68); c.stroke(); }
+      for (const r of [0.22, 0.42, 0.62]) {
+        c.beginPath();
+        for (let i = 0; i <= 8; i++) { const a = (i * Math.PI) / 4; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+        c.stroke();
+      }
+      disc(c, 0.15, 0.2, 0.11, '#1a1622');
+      break;
+    case 'eye':
+      c.beginPath(); c.moveTo(-0.65, 0); c.quadraticCurveTo(0, -0.55, 0.65, 0); c.quadraticCurveTo(0, 0.55, -0.65, 0);
+      c.fillStyle = '#ffe0e0'; c.fill();
+      disc(c, 0, 0, 0.24, '#ff3a4a'); disc(c, 0, 0, 0.1, '#1a1622');
+      break;
+    case 'howl':
+      // голова волка и звуковые дуги
+      poly(c, [-0.45, 0.45, -0.35, -0.25, -0.2, -0.05, 0.25, -0.2, 0.05, 0.1, 0.15, 0.45]); c.fill();
+      poly(c, [-0.35, -0.25, -0.3, -0.55, -0.15, -0.15]); c.fill();
+      c.lineWidth = 0.06;
+      for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(0.25, -0.2, 0.18 + i * 0.13, -0.9, 0.4); c.stroke(); }
+      break;
     case 'boulder':
       poly(c, [-0.4, 0.2, -0.3, -0.25, 0.1, -0.4, 0.42, -0.15, 0.4, 0.3, 0.0, 0.45]);
       c.fillStyle = '#c8ccd4'; c.fill();
@@ -442,6 +500,10 @@ export function drawRaceIcon(c: Ctx, race: RaceId, size: number) {
       break;
     case 'kingdom':
       poly(c, [-0.42, 0.3, -0.42, -0.2, -0.21, 0.02, 0, -0.38, 0.21, 0.02, 0.42, -0.2, 0.42, 0.3]); c.fill();
+      break;
+    case 'shadow':
+      c.beginPath(); c.arc(0, 0, 0.42, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(0.18, -0.1, 0.36, 0, Math.PI * 2); c.fillStyle = '#1a1628'; c.fill();
       break;
     case 'mountain':
       poly(c, [-0.55, 0.38, -0.15, -0.35, 0.05, -0.05, 0.2, -0.22, 0.55, 0.38]); c.fill();
