@@ -53,7 +53,6 @@ export class Renderer {
   cam = { x: 1000, y: 1450, z: 0.4 };
   minZ = 0.15;
   maxZ = 0.9;
-  private target: { x: number; y: number } | null = null;
   private started = false;
   selected: Hero | null = null;
 
@@ -65,6 +64,13 @@ export class Renderer {
 
   // ---------- камера ----------
 
+  /**
+   * Сколько экрана по краям закрыто интерфейсом (CSS px): слева миникарта и кнопки крипов,
+   * справа боссы, снизу герои. Камера может заезжать за край карты на эти отступы,
+   * чтобы любой угол поля можно было вытащить из-под панелей.
+   */
+  pad = { l: 170, r: 100, t: 70, b: 140 };
+
   resize(cssW: number, cssH: number) {
     this.dpr = Math.min(2.5, window.devicePixelRatio || 1);
     this.vw = cssW;
@@ -73,8 +79,10 @@ export class Renderer {
     this.cv.style.height = cssH + 'px';
     this.cv.width = Math.floor(cssW * this.dpr);
     this.cv.height = Math.floor(cssH * this.dpr);
-    this.minZ = Math.min(cssW / WORLD.W, cssH / WORLD.H);
-    this.maxZ = Math.max(this.minZ, Math.min(1.2, cssW / 380));
+    const P = this.pad;
+    // самое дальнее отдаление — вся карта целиком в свободной от панелей части экрана
+    this.minZ = Math.min((cssW - P.l - P.r) / WORLD.W, (cssH - P.t - P.b) / WORLD.H);
+    this.maxZ = Math.max(this.minZ * 1.2, Math.min(1.1, cssW / 700));
     if (!this.started) {
       // по умолчанию в кадре ~2300 единиц мира по длинной стороне: своя база и ближние вышки
       this.cam.z = Math.max(cssW, cssH) / 2300;
@@ -87,13 +95,29 @@ export class Renderer {
     this.clamp();
   }
 
+  /** Допустимый центр камеры при масштабе z: карта может уходить под панели, но не дальше. */
+  private bounds(z: number) {
+    const P = this.pad;
+    const hw = this.vw / 2 / z;
+    const hh = this.vh / 2 / z;
+    let x0 = hw - P.l / z, x1 = WORLD.W - hw + P.r / z;
+    let y0 = hh - P.t / z, y1 = WORLD.H - hh + P.b / z;
+    if (x0 > x1) x0 = x1 = (x0 + x1) / 2;
+    if (y0 > y1) y0 = y1 = (y0 + y1) / 2;
+    return { x0, x1, y0, y1 };
+  }
+
+  private clampPoint(x: number, y: number, z: number) {
+    const b = this.bounds(z);
+    return { x: Math.max(b.x0, Math.min(b.x1, x)), y: Math.max(b.y0, Math.min(b.y1, y)) };
+  }
+
   private clamp() {
     const c = this.cam;
     c.z = Math.max(this.minZ, Math.min(this.maxZ, c.z));
-    const hw = this.vw / 2 / c.z;
-    const hh = this.vh / 2 / c.z;
-    c.x = hw * 2 >= WORLD.W ? WORLD.W / 2 : Math.max(hw, Math.min(WORLD.W - hw, c.x));
-    c.y = hh * 2 >= WORLD.H ? WORLD.H / 2 : Math.max(hh, Math.min(WORLD.H - hh, c.y));
+    const p = this.clampPoint(c.x, c.y, c.z);
+    c.x = p.x;
+    c.y = p.y;
   }
 
   /** 0 — свои, 1 — враги (для цвета). */
@@ -110,7 +134,7 @@ export class Renderer {
   pan(dx: number, dy: number) {
     this.cam.x -= dx / this.cam.z;
     this.cam.y -= dy / this.cam.z;
-    this.target = null;
+    this.tween = null;
     this.clamp();
   }
 
@@ -121,32 +145,56 @@ export class Renderer {
     this.clamp();
     this.cam.x = w.x - (px - this.vw / 2) / this.cam.z;
     this.cam.y = w.y - (py - this.vh / 2) / this.cam.z;
-    this.target = null;
+    this.tween = null;
     this.clamp();
   }
 
   /** Мгновенно перевести камеру (миникарта). */
   jump(x: number, y: number) {
+    this.tween = null;
     this.cam.x = x;
     this.cam.y = y;
-    this.target = null;
     this.clamp();
   }
 
-  /** Плавно перевести камеру к точке мира. */
+  /** Плавно (0,35 с) перевести камеру к точке мира — так, чтобы точка была в свободной части экрана. */
   focus(x: number, y: number) {
-    this.target = { x, y };
+    const P = this.pad;
+    const z = this.cam.z;
+    // центр свободной области смещён относительно центра экрана
+    const ox = (P.l - P.r) / 2 / z;
+    const oy = (P.t - P.b) / 2 / z;
+    const to = this.clampPoint(x - ox, y - oy, z);
+    this.tween = { fx: this.cam.x, fy: this.cam.y, tx: to.x, ty: to.y, t: 0 };
   }
+
+  private tween: { fx: number; fy: number; tx: number; ty: number; t: number } | null = null;
 
   private stepCamera(dt: number) {
-    if (!this.target) return;
-    const k = 1 - Math.exp(-dt * 9);
-    this.cam.x += (this.target.x - this.cam.x) * k;
-    this.cam.y += (this.target.y - this.cam.y) * k;
-    const before = { x: this.cam.x, y: this.cam.y };
+    const w = this.tween;
+    if (!w) return;
+    w.t = Math.min(1, w.t + dt / 0.35);
+    const e = 1 - Math.pow(1 - w.t, 3);
+    this.cam.x = w.fx + (w.tx - w.fx) * e;
+    this.cam.y = w.fy + (w.ty - w.fy) * e;
+    if (w.t >= 1) this.tween = null;
+  }
+
+  /** Отдалить так, чтобы была видна вся карта, или вернуть обычный масштаб. */
+  toggleOverview() {
+    const far = this.cam.z <= this.minZ * 1.05;
+    this.tween = null;
+    if (far) {
+      this.cam.z = Math.max(this.vw, this.vh) / 2300;
+      const t = THRONE_POS[this.me];
+      this.cam.x = t.x + (this.me === 0 ? 950 : -950);
+      this.cam.y = t.y + (this.me === 0 ? -520 : 520);
+    } else {
+      this.cam.z = this.minZ;
+      this.cam.x = WORLD.W / 2;
+      this.cam.y = WORLD.H / 2;
+    }
     this.clamp();
-    const stuck = Math.abs(before.x - this.cam.x) + Math.abs(before.y - this.cam.y) > 0.5;
-    if (stuck || Math.hypot(this.target.x - this.cam.x, this.target.y - this.cam.y) < 2) this.target = null;
   }
 
   // ---------- статичный фон ----------
@@ -446,6 +494,7 @@ export class Renderer {
   }
 
   private fog: HTMLCanvasElement = document.createElement('canvas');
+  private fogFor: unknown = null;
 
   /** Туман войны: тёмная пелена с «дырами» вокруг всего, что видит игрок. */
   private drawFog() {
@@ -456,6 +505,12 @@ export class Renderer {
       f.width = Math.ceil(WORLD.W / K);
       f.height = Math.ceil(WORLD.H / K);
     }
+    // пересчитываем туман только когда обновился обзор (5 раз в секунду), а не каждый кадр
+    if (this.fogFor === g.vision[this.me]) {
+      ctx.drawImage(f, 0, 0, WORLD.W, WORLD.H);
+      return;
+    }
+    this.fogFor = g.vision[this.me];
     const x = f.getContext('2d')!;
     x.globalCompositeOperation = 'source-over';
     x.clearRect(0, 0, f.width, f.height);

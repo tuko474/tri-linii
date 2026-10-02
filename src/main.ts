@@ -877,6 +877,7 @@ mini.addEventListener('pointermove', (e) => { if (miniDrag) miniJump(e); });
 mini.addEventListener('pointerup', () => { miniDrag = false; });
 mini.addEventListener('pointercancel', () => { miniDrag = false; });
 
+$('overviewBtn').onclick = () => renderer?.toggleOverview();
 $('autoBtn').onclick = () => {
   if (!game) return;
   const on = !game.autoCast[me];
@@ -989,7 +990,7 @@ function frame(now: number) {
       }
     }
     renderer.selected = selected;
-    renderer.draw(running ? dt : 0);
+    renderer.draw(dt);
     renderer.drawMinimap(miniCtx, mini.clientWidth || 150, Math.min(2.5, window.devicePixelRatio || 1));
     syncPanel();
     if (running) {

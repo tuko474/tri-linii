@@ -164,7 +164,7 @@ canvas { display: block; }
   box-shadow: 0 4px 14px rgba(0,0,0,.45); touch-action: none; cursor: pointer;
 }
 
-.hud-top { top: calc(6px + var(--sat)); left: calc(var(--mini) + 18px + var(--sal)); right: calc(196px + var(--sar)); display: flex; justify-content: center; pointer-events: none; }
+.hud-top { top: calc(6px + var(--sat)); left: calc(var(--mini) + 18px + var(--sal)); right: calc(250px + var(--sar)); display: flex; justify-content: center; pointer-events: none; }
 .thrones { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 520px; padding: 6px 10px; background: rgba(23,20,42,.82); border: 1px solid rgba(61,53,96,.9); border-radius: 12px; }
 .throne-bar { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
 .throne-bar.foe { text-align: right; }

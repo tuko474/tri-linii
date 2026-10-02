@@ -1,6 +1,6 @@
 // Симуляция боя. Не знает ничего про экран — только состояние и правила.
 // Это пригодится для онлайна: тот же код сможет крутиться на сервере.
-import { BAL, CreepKind, Difficulty } from '../data/config';
+import { BAL, CreepKind, Difficulty, WORLD } from '../data/config';
 import { heroById } from '../data/heroes';
 import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
 import { CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
@@ -25,6 +25,9 @@ export class Game {
   orbs: [Partial<Record<RaceId, number>>, Partial<Record<RaceId, number>>] = [{}, {}];
   /** Источники обзора для тумана войны: [x, y, радиус], пересчитываются несколько раз в секунду. */
   vision: [[number, number, number][], [number, number, number][]] = [[], []];
+  /** Сетка видимости (клетка 50 единиц) — быстрые проверки «видно ли точку». */
+  private visGrid: [Uint8Array, Uint8Array] = [new Uint8Array(0), new Uint8Array(0)];
+  private static CELL = 50;
   private visionT = 0;
 
   gold: [number, number] = [BAL.startGold, BAL.startGold];
@@ -231,7 +234,28 @@ export class Game {
         if (this.pitSeen[side][i]) v.push([pit.x, pit.y, BAL.pitZone + 40]);
       }
       this.vision[side] = v;
+      this.visGrid[side] = this.buildGrid(v);
     }
+  }
+
+  private buildGrid(v: [number, number, number][]) {
+    const C = Game.CELL;
+    const gw = Math.ceil(WORLD.W / C);
+    const gh = Math.ceil(WORLD.H / C);
+    const grid = new Uint8Array(gw * gh);
+    for (const [vx, vy, r] of v) {
+      const r2 = r * r;
+      const cx0 = Math.max(0, Math.floor((vx - r) / C)), cx1 = Math.min(gw - 1, Math.floor((vx + r) / C));
+      const cy0 = Math.max(0, Math.floor((vy - r) / C)), cy1 = Math.min(gh - 1, Math.floor((vy + r) / C));
+      for (let cy = cy0; cy <= cy1; cy++) {
+        const dy = (cy + 0.5) * C - vy;
+        for (let cx = cx0; cx <= cx1; cx++) {
+          const dx = (cx + 0.5) * C - vx;
+          if (dx * dx + dy * dy <= r2) grid[cy * gw + cx] = 1;
+        }
+      }
+    }
+    return grid;
   }
 
   /** Видит ли сторона точку (не в тумане). Внутрь логова видно только по pitSeen. */
@@ -241,12 +265,17 @@ export class Game {
       const dy = PITS[i].y - y;
       if (dx * dx + dy * dy < BAL.pitZone * BAL.pitZone) return this.pitSeen[side][i];
     }
-    for (const [vx, vy, r] of this.vision[side]) {
-      const dx = vx - x;
-      const dy = vy - y;
-      const rr = r + pad;
-      if (dx * dx + dy * dy <= rr * rr) return true;
-    }
+    const grid = this.visGrid[side];
+    if (!grid.length) return false;
+    const C = Game.CELL;
+    const gw = Math.ceil(WORLD.W / C);
+    const gh = Math.ceil(WORLD.H / C);
+    const at = (px: number, py: number) => {
+      const cx = Math.floor(px / C), cy = Math.floor(py / C);
+      return cx >= 0 && cy >= 0 && cx < gw && cy < gh && grid[cy * gw + cx] === 1;
+    };
+    if (at(x, y)) return true;
+    if (pad > 0) return at(x - pad, y) || at(x + pad, y) || at(x, y - pad) || at(x, y + pad);
     return false;
   }
 
