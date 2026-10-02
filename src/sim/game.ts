@@ -4,7 +4,7 @@ import { BAL, CreepKind, Difficulty } from '../data/config';
 import { heroById } from '../data/heroes';
 import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
 import { CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
-import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Side, Target, Ward } from './types';
+import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx, Side, Target, Ward } from './types';
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
 
@@ -17,8 +17,8 @@ export class Game {
   projs: Proj[] = [];
   fx: Fx[] = [];
   events: GameEvent[] = [];
-  /** Звуковые события для клиента: 'cast:blast', 'kill', 'levelUp' и т.д. */
-  sfx: string[] = [];
+  /** Звуковые события: 'cast:blast', 'kill', 'levelUp' и т.д., с адресатом. */
+  sfx: Sfx[] = [];
   /** 0 — Лорд, 1 — Черепаха, дальше лесные лагеря. */
   neutrals: Neutral[] = [];
   /** Сферы рас, полученные с Лорда: orbs[side][race]. */
@@ -291,7 +291,7 @@ export class Game {
     this.refreshStats(h.side);
     if (!h.dead) h.hp = Math.min(h.maxHp, h.hp + Math.max(0, h.maxHp - before));
     if (!h.dead) this.fxRingAtHero(h, '#f3d27a', 40);
-    if (h.side === 0) this.sfx.push('levelUp');
+    this.say(h.side, 'levelUp');
     return true;
   }
 
@@ -305,7 +305,7 @@ export class Game {
     if (this.creepLvl[lane][side] >= this.creepCap() || this.gold[side] < cost) return false;
     this.gold[side] -= cost;
     this.creepLvl[lane][side]++;
-    if (side === 0) this.sfx.push('creepUp');
+    this.say(side, 'creepUp');
     return true;
   }
 
@@ -449,7 +449,7 @@ export class Game {
       h.mana -= sk.mana;
       h.cd = sk.cd * mods.cdMul;
       h.casts++;
-      if (h.side === 0) this.sfx.push('cast:' + sk.kind);
+      this.say(h.side, 'cast:' + sk.kind);
     }
     return ok;
   }
@@ -479,9 +479,7 @@ export class Game {
       h.trip = { nid, phase: 'go', x: p.x, y: p.y, idx: idx++ };
       sent++;
     }
-    if (sent && n.kind !== 'camp' && side === 0) {
-      this.events.push({ text: `Твои герои идут на: ${this.neutralName(n)}`, side: null });
-    }
+    if (sent && n.kind !== 'camp') this.tell(side, `Твои герои идут на: ${this.neutralName(n)}`, 'info');
     return sent;
   }
 
@@ -539,7 +537,7 @@ export class Game {
       if (!n.alive) { t.phase = 'back'; return; }
       if (this.moveTrip(h, this.tripSpot(n, h), dt)) {
         t.phase = 'fight';
-        if ((n.kind === 'lord' || n.kind === 'turtle') && h.side === 0) this.sfx.push('roar');
+        if (n.kind === 'lord' || n.kind === 'turtle') this.say(h.side, 'roar');
       }
       return;
     }
@@ -589,7 +587,7 @@ export class Game {
     h.mana -= sk.mana;
     h.cd = sk.cd * mods.cdMul;
     h.casts++;
-    if (h.side === 0) this.sfx.push('cast:' + sk.kind);
+    this.say(h.side, 'cast:' + sk.kind);
     return true;
   }
 
@@ -607,8 +605,8 @@ export class Game {
           n.dmg = cfg.dmg * (1 + 0.06 * min);
           n.hits = 0;
           if (n.kind === 'lord' || n.kind === 'turtle') {
-            this.events.push({ text: `${cfg.name} появился в реке`, side: null });
-            this.sfx.push('bossSpawn');
+            this.tell(null, `${cfg.name} появился в реке`, 'info');
+            this.say(null, 'bossSpawn');
           }
           if (n.kind === 'lord') this.expireOrbs();
         }
@@ -646,12 +644,11 @@ export class Game {
       n.hp = n.maxHp = BAL.neutral.guard.hp + BAL.neutral.guard.hpPerMin * (this.t / 60);
       this.stats.guards[side]++;
       const pit = n.pit === 0 ? 'Лорда' : 'Черепахи';
-      if (side === 0) {
-        this.events.push({ text: `Страж ${pit} твой — логово под обзором`, side: 0 });
-        this.sfx.push('coins');
-      } else if (lost === 0) {
-        this.events.push({ text: `Враг перехватил стража ${pit}`, side: 1 });
-        this.sfx.push('bad');
+      this.tell(side, `Страж ${pit} твой — логово под обзором`, 'good');
+      this.say(side, 'coins');
+      if (lost !== null) {
+        this.tell(lost, `Враг перехватил стража ${pit}`, 'bad');
+        this.say(lost, 'bad');
       }
       this.updateVision();
       return;
@@ -663,26 +660,27 @@ export class Game {
     if (n.kind === 'camp') {
       this.addGold(side, BAL.neutral.camp.gold);
       this.stats.camps[side]++;
-      if (side === 0) {
-        this.fx.push({ kind: 'text', x: n.x, y: n.y, text: '+' + BAL.neutral.camp.gold, color: '#f3d27a', t: 0, life: 1.2 });
-        this.sfx.push('coins');
-      }
+      this.fx.push({ kind: 'text', x: n.x, y: n.y, text: '+' + BAL.neutral.camp.gold, color: '#f3d27a', t: 0, life: 1.2, to: side });
+      this.say(side, 'coins');
     } else if (n.kind === 'turtle') {
       this.addGold(side, BAL.neutral.turtle.gold);
       this.stats.turtles[side]++;
-      this.events.push({ text: side === 0 ? `Черепаха повержена: +${BAL.neutral.turtle.gold} золота` : 'Враг забрал Черепаху', side });
-      this.sfx.push(side === 0 ? 'bossDown' : 'bad');
+      const other = (1 - side) as Side;
+      this.tell(side, `Черепаха повержена: +${BAL.neutral.turtle.gold} золота`, 'good');
+      this.tell(other, 'Враг забрал Черепаху', 'bad');
+      this.say(side, 'bossDown');
+      this.say(other, 'bad');
     } else {
       this.stats.lords[side]++;
       const lane = this.bestLane(side);
       this.spawnLordCreep(side, lane);
       const race = this.rollOrb(side);
       const rn = RACES[race].name;
-      this.events.push({
-        text: side === 0 ? `Лорд на твоей стороне (${LANE_NAMES[lane]} линия). Сфера: ${rn} +1, пока Лорд мёртв` : `Враг подчинил Лорда (${LANE_NAMES[lane]} линия) и получил сферу: ${rn}`,
-        side,
-      });
-      this.sfx.push(side === 0 ? 'bossDown' : 'bad');
+      const other = (1 - side) as Side;
+      this.tell(side, `Лорд на твоей стороне (${LANE_NAMES[lane]} линия). Сфера: ${rn} +1, пока Лорд мёртв`, 'good');
+      this.tell(other, `Враг подчинил Лорда (${LANE_NAMES[lane]} линия) и получил сферу: ${rn}`, 'bad');
+      this.say(side, 'bossDown');
+      this.say(other, 'bad');
     }
   }
 
@@ -700,7 +698,7 @@ export class Game {
       if (!Object.values(this.orbs[side]).some((v) => (v ?? 0) > 0)) continue;
       this.orbs[side] = {};
       this.refreshStats(side);
-      if (side === 0) this.events.push({ text: 'Сфера рассеялась: Лорд возродился', side: null });
+      this.tell(side, 'Сфера рассеялась: Лорд возродился', 'info');
     }
   }
 
@@ -750,6 +748,7 @@ export class Game {
     this.cleanup();
 
     if (this.sfx.length > 100) this.sfx.splice(0, this.sfx.length - 100);
+    if (this.events.length > 30) this.events.splice(0, this.events.length - 30);
     for (const f of this.fx) f.t += dt;
     this.fx = this.fx.filter((f) => f.t < f.life);
     this.throneAtkFx[0] = Math.max(0, this.throneAtkFx[0] - dt);
@@ -965,7 +964,7 @@ export class Game {
       if (this.winner !== null) return;
       this.throne[t.side] -= dmg;
       this.throneAtkFx[t.side] = 1.2;
-      this.sfx.push('throne:' + t.side);
+      this.say(t.side, 'throne');
     }
   }
 
@@ -978,11 +977,9 @@ export class Game {
       const gold = Math.round(c.gold * this.sideMods(killer).goldMul);
       this.addGold(killer, gold);
       this.stats.kills[killer]++;
-      if (killer === 0) {
-        this.sfx.push(c.kind === 'lord' ? 'bossDown' : 'kill');
-        const p = this.creepPos(c);
-        this.fx.push({ kind: 'text', x: p.x, y: p.y, text: '+' + gold, color: '#f3d27a', t: 0, life: 0.9 });
-      }
+      this.say(killer, c.kind === 'lord' ? 'bossDown' : 'kill');
+      const p = this.creepPos(c);
+      this.fx.push({ kind: 'text', x: p.x, y: p.y, text: '+' + gold, color: '#f3d27a', t: 0, life: 0.9, to: killer });
     }
   }
 
@@ -1008,7 +1005,8 @@ export class Game {
       h.dead = true;
       h.trip = null;
       h.respawn = BAL.heroRespawn * this.heroMods(h).respawnMul;
-      this.sfx.push('heroDie:' + h.side);
+      this.say(h.side, 'heroDie:mine');
+      this.say((1 - h.side) as Side, 'heroDie:foe');
       this.onHeroDown(h);
     }
   }
@@ -1042,11 +1040,10 @@ export class Game {
     this.stats.pushes[winner]++;
     const exposed = this.atThrone(lane, loser);
     const name = LANE_NAMES[lane];
-    const text = winner === 0
-      ? exposed ? `${name}: путь к трону врага открыт!` : abandoned ? `${name}: враг бросил позицию — она твоя` : `${name} линия продавлена`
-      : exposed ? `${name}: враг у твоего трона!` : abandoned ? `${name}: позиция брошена и потеряна` : `${name} линия потеряна`;
-    this.events.push({ text, side: winner });
-    this.sfx.push('push:' + winner);
+    this.tell(winner, exposed ? `${name}: путь к трону врага открыт!` : abandoned ? `${name}: враг бросил позицию — она твоя` : `${name} линия продавлена`, 'good');
+    this.tell(loser, exposed ? `${name}: враг у твоего трона!` : abandoned ? `${name}: позиция брошена и потеряна` : `${name} линия потеряна`, 'bad');
+    this.say(winner, 'push:good');
+    this.say(loser, 'push:bad');
   }
 
   private cleanup() {
@@ -1056,6 +1053,76 @@ export class Game {
   private fxRingAtHero(h: Hero, color: string, r: number) {
     const p = this.heroPos(h);
     this.fx.push({ kind: 'ring', x: p.x, y: p.y, r, color, t: 0, life: 0.55 });
+  }
+
+  private say(to: Side | null, name: string) {
+    this.sfx.push({ name, to });
+  }
+
+  private tell(to: Side | null, text: string, tone: GameEvent['tone']) {
+    this.events.push({ text, to, tone });
+  }
+
+  // ---------- сеть: снимок состояния (хост → гость) ----------
+
+  snapshot() {
+    const r = (v: number) => Math.round(v * 10) / 10;
+    const tgt = (t: Target) => (t.kind === 'creep' ? { k: 'c', u: t.c.uid } : t.kind === 'hero' ? { k: 'h', u: t.h.uid } : { k: 't', u: t.side });
+    return {
+      t: r(this.t), gold: this.gold.map(r), throne: this.throne.map(r), front: this.front, creepLvl: this.creepLvl,
+      waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
+      autoCast: this.autoCast, tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
+      heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
+        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0]),
+      creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
+        r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r]),
+      wards: this.wards.map((w) => [w.side, w.lane, r(w.s), w.off, r(w.ttl), r(w.dmg), w.range, r(w.atkCd)]),
+      projs: this.projs.map((p) => [r(p.x), r(p.y), tgt(p.target), r(p.dmg), p.speed, p.color, p.size, p.src?.uid ?? 0]),
+      neutrals: this.neutrals.map((n) => [r(n.hp), r(n.maxHp), r(n.dmg), n.alive ? 1 : 0, r(n.respawnT), r(n.atkCd), n.hits, n.owner]),
+      fx: this.fx.map((f) => ({ ...f })),
+    };
+  }
+
+  applySnapshot(S: ReturnType<Game['snapshot']>) {
+    this.t = S.t; this.gold = S.gold as [number, number]; this.throne = S.throne as [number, number];
+    this.front = S.front; this.creepLvl = S.creepLvl; this.waveTimer = S.waveTimer; this.waveNo = S.waveNo;
+    this.winner = S.winner; this.orbs = S.orbs; this.stats = S.stats; this.autoCast = S.autoCast;
+    this.throneAtkFx = S.tac; this.throneCd = S.tcd;
+    const byUid = new Map(this.heroes.map((h) => [h.uid, h]));
+    for (const a of S.heroes) {
+      const h = byUid.get(a[0] as number);
+      if (!h) continue;
+      [, h.lvl, h.hp, h.maxHp, h.mana, h.maxMana, h.dmg, h.cd, h.atkCd] = a as number[];
+      h.dead = a[9] === 1; h.respawn = a[10] as number; h.off = a[11] as number; h.s = a[12] as number;
+      const tr = a[13] as 0 | [number, 'go' | 'fight' | 'back', number, number, number];
+      h.trip = tr ? { nid: tr[0], phase: tr[1], x: tr[2], y: tr[3], idx: tr[4] } : null;
+    }
+    this.creeps = S.creeps.map((a) => ({
+      uid: a[0] as number, kind: a[1] as CreepKind, side: a[2] as Side, lane: a[3] as number, s: a[4] as number, off: a[5] as number,
+      hp: a[6] as number, maxHp: a[7] as number, dmg: a[8] as number, range: a[9] as number, rate: a[10] as number, speed: a[11] as number,
+      atkCd: a[12] as number, slowT: a[13] as number, slowMul: a[14] as number, stunT: a[15] as number, gold: a[16] as number, r: a[17] as number, dead: false,
+    }));
+    const cByUid = new Map(this.creeps.map((c) => [c.uid, c]));
+    this.wards = S.wards.map((a) => ({ side: a[0] as Side, lane: a[1], s: a[2], off: a[3], ttl: a[4], dmg: a[5], range: a[6], atkCd: a[7] }));
+    const projs: Proj[] = [];
+    for (const a of S.projs) {
+      const t = a[2] as { k: string; u: number };
+      let target: Target | null = null;
+      if (t.k === 'c') { const c = cByUid.get(t.u); if (c) target = { kind: 'creep', c }; }
+      else if (t.k === 'h') { const h = byUid.get(t.u); if (h) target = { kind: 'hero', h }; }
+      else target = { kind: 'throne', side: t.u as Side };
+      if (!target) continue;
+      projs.push({ x: a[0] as number, y: a[1] as number, target, dmg: a[3] as number, speed: a[4] as number, color: a[5] as string, size: a[6] as number, src: byUid.get(a[7] as number) });
+    }
+    this.projs = projs;
+    S.neutrals.forEach((a, i) => {
+      const n = this.neutrals[i];
+      if (!n) return;
+      [n.hp, n.maxHp, n.dmg] = a as number[];
+      n.alive = a[3] === 1; n.respawnT = a[4] as number; n.atkCd = a[5] as number; n.hits = a[6] as number; n.owner = a[7] as Side | null;
+    });
+    this.fx = S.fx;
+    this.updateVision();
   }
 
   sideColor(side: Side) {

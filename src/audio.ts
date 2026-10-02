@@ -128,14 +128,14 @@ export class Sound {
         break;
       case 'heroDie':
         if (!this.throttle(name, 300)) return;
-        this.tone(arg === '0' ? 330 : 520, 0.5, 'sawtooth', 0.07, { to: arg === '0' ? 90 : 160 });
+        this.tone(arg === 'mine' ? 330 : 520, 0.5, 'sawtooth', 0.07, { to: arg === 'mine' ? 90 : 160 });
         break;
       case 'push':
-        if (arg === '0') [392, 523, 659, 784].forEach((f, i) => this.tone(f, 0.28, 'square', 0.07, { delay: i * 0.1 }));
+        if (arg === 'good') [392, 523, 659, 784].forEach((f, i) => this.tone(f, 0.28, 'square', 0.07, { delay: i * 0.1 }));
         else [392, 311, 262].forEach((f, i) => this.tone(f, 0.35, 'sawtooth', 0.06, { delay: i * 0.14 }));
         break;
       case 'throne':
-        if (arg !== '0' || !this.throttle(name, 1800)) return;
+        if (!this.throttle(name, 1800)) return;
         this.tone(880, 0.14, 'square', 0.07);
         this.tone(660, 0.14, 'square', 0.07, { delay: 0.18 });
         break;

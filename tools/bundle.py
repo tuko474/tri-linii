@@ -9,7 +9,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_JS = ROOT / '.single'
 ORDER = [
-    'data/config.js', 'data/races.js', 'data/heroes.js', 'sim/map.js', 'sim/game.js', 'sim/bot.js',
+    'data/config.js', 'data/races.js', 'data/heroes.js', 'sim/map.js', 'sim/game.js', 'sim/bot.js', 'sim/draft.js', 'net.js',
     'render/art.js', 'render/renderer.js', 'audio.js', 'main.js',
 ]
 

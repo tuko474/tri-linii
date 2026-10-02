@@ -30,6 +30,11 @@ jobs:
       - name: Установить зависимости
         run: npm install --no-audit --no-fund
 
+      - name: PeerJS для игры с другом
+        run: |
+          mkdir -p public/vendor
+          cp node_modules/peerjs/dist/peerjs.min.js public/vendor/peerjs.min.js
+
       - name: Собрать игру
         run: npm run build
 

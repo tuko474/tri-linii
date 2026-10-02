@@ -110,11 +110,18 @@ export interface Fx {
   text?: string;
   t: number;
   life: number;
+  to?: Side; // показывать только этой стороне (например, «+золото»)
 }
 
 export interface GameEvent {
   text: string;
-  side: Side | null; // в чью пользу; null — нейтральное сообщение
+  to: Side | null; // кому показать; null — обоим
+  tone: 'good' | 'bad' | 'info';
+}
+
+export interface Sfx {
+  name: string;
+  to: Side | null; // кому проиграть; null — обоим
 }
 
 export interface Pick {

@@ -57,7 +57,8 @@ export class Renderer {
   private started = false;
   selected: Hero | null = null;
 
-  constructor(private cv: HTMLCanvasElement, private g: Game) {
+  /** me — за какую сторону смотрим (0 — снизу слева, 1 — сверху справа). Свои всегда бирюзовые, враги красные. */
+  constructor(private cv: HTMLCanvasElement, private g: Game, readonly me: Side = 0) {
     this.ctx = cv.getContext('2d')!;
     this.drawStatic();
   }
@@ -77,9 +78,10 @@ export class Renderer {
     if (!this.started) {
       // по умолчанию в кадре ~2300 единиц мира по длинной стороне: своя база и ближние вышки
       this.cam.z = Math.max(cssW, cssH) / 2300;
-      const t = THRONE_POS[0];
-      this.cam.x = t.x + 950;
-      this.cam.y = t.y - 520;
+      const t = THRONE_POS[this.me];
+      const k = this.me === 0 ? 1 : -1;
+      this.cam.x = t.x + 950 * k;
+      this.cam.y = t.y - 520 * k;
       this.started = true;
     }
     this.clamp();
@@ -92,6 +94,11 @@ export class Renderer {
     const hh = this.vh / 2 / c.z;
     c.x = hw * 2 >= WORLD.W ? WORLD.W / 2 : Math.max(hw, Math.min(WORLD.W - hw, c.x));
     c.y = hh * 2 >= WORLD.H ? WORLD.H / 2 : Math.max(hh, Math.min(WORLD.H - hh, c.y));
+  }
+
+  /** 0 — свои, 1 — враги (для цвета). */
+  rel(side: Side): 0 | 1 {
+    return side === this.me ? 0 : 1;
   }
 
   /** Перевод координат касания (CSS px внутри canvas) в мировые. */
@@ -169,7 +176,7 @@ export class Renderer {
     ([0, 1] as Side[]).forEach((s) => {
       const t = THRONE_POS[s];
       const gr = x.createRadialGradient(t.x, t.y, 100, t.x, t.y, 1500);
-      gr.addColorStop(0, s === 0 ? 'rgba(95,212,196,.16)' : 'rgba(224,86,107,.16)');
+      gr.addColorStop(0, this.rel(s) === 0 ? 'rgba(95,212,196,.16)' : 'rgba(224,86,107,.16)');
       gr.addColorStop(1, 'rgba(0,0,0,0)');
       x.fillStyle = gr;
       x.fillRect(0, 0, W, H);
@@ -280,7 +287,7 @@ export class Renderer {
         x.stroke();
       }
       x.restore();
-      x.strokeStyle = C.side[s];
+      x.strokeStyle = C.side[this.rel(s)];
       x.lineWidth = 6;
       x.globalAlpha = 0.6;
       roundRect(x, t.x - b + 10, t.y - b + 10, (b - 10) * 2, (b - 10) * 2, 52);
@@ -293,7 +300,7 @@ export class Renderer {
       x.beginPath();
       x.arc(fx, fy, 62, 0, 7);
       x.fill();
-      x.fillStyle = s === 0 ? '#3aa79a' : '#b8465a';
+      x.fillStyle = this.rel(s) === 0 ? '#3aa79a' : '#b8465a';
       x.beginPath();
       x.arc(fx, fy, 48, 0, 7);
       x.fill();
@@ -411,7 +418,7 @@ export class Renderer {
     this.drawTripPaths();
     for (const w of g.wards) {
       const p = g.lanes[w.lane].pos(w.s, w.off);
-      if (w.side !== 0 && !g.visible(0, p.x, p.y)) continue;
+      if (w.side !== this.me && !g.visible(this.me, p.x, p.y)) continue;
       ctx.fillStyle = '#2d6b57';
       ctx.fillRect(p.x - 7, p.y - 18, 14, 26);
       ctx.fillStyle = '#5fc9a8';
@@ -420,10 +427,10 @@ export class Renderer {
       ctx.fill();
     }
     for (const c of g.creeps) if (this.seen(c.side, g.creepPos(c))) this.drawCreep(c);
-    for (const h of g.heroes) if (h.side === 0 || (!h.dead && this.seen(h.side, g.heroPos(h)))) this.drawHero(h);
+    for (const h of g.heroes) if (h.side === this.me || (!h.dead && this.seen(h.side, g.heroPos(h)))) this.drawHero(h);
 
     for (const p of g.projs) {
-      if (!g.visible(0, p.x, p.y)) continue;
+      if (!g.visible(this.me, p.x, p.y)) continue;
       ctx.fillStyle = p.color;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, 7);
@@ -435,7 +442,7 @@ export class Renderer {
 
   /** Свои видны всегда, чужие — только вне тумана. */
   private seen(side: Side, p: { x: number; y: number }) {
-    return side === 0 || this.g.visible(0, p.x, p.y);
+    return side === this.me || this.g.visible(this.me, p.x, p.y);
   }
 
   private fog: HTMLCanvasElement = document.createElement('canvas');
@@ -455,7 +462,7 @@ export class Renderer {
     x.fillStyle = 'rgba(6,8,18,.66)';
     x.fillRect(0, 0, f.width, f.height);
     x.globalCompositeOperation = 'destination-out';
-    for (const [vx, vy, r] of g.vision[0]) {
+    for (const [vx, vy, r] of g.vision[this.me]) {
       const gr = x.createRadialGradient(vx / K, vy / K, (r / K) * 0.7, vx / K, vy / K, r / K);
       gr.addColorStop(0, 'rgba(0,0,0,1)');
       gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -467,7 +474,7 @@ export class Renderer {
     // логово без стража и без своего отряда внутри остаётся в тумане, даже если рядом пробегают герои
     x.globalCompositeOperation = 'source-over';
     PITS.forEach((p, i) => {
-      if (g.pitSeen[0][i]) return;
+      if (g.pitSeen[this.me][i]) return;
       // возвращаем логову обычный уровень тумана (не темнее остального)
       x.save();
       x.beginPath();
@@ -569,7 +576,7 @@ export class Renderer {
     }
     ctx.restore();
     // в тумане не видно, кто бьёт босса и сколько у него HP
-    if (!g.visible(0, n.x, n.y, 60)) return;
+    if (!g.visible(this.me, n.x, n.y, 60)) return;
     if (n.hp < n.maxHp || n.kind !== 'camp') {
       const w = n.kind === 'camp' ? 60 : 150;
       const y = n.y - R - (n.kind === 'lord' ? 50 : 26);
@@ -578,7 +585,7 @@ export class Renderer {
     // отряды у логова — по цвету команды
     for (const side of [0, 1] as Side[]) {
       if (g.party(n.id, side, 'fight').length && n.kind !== 'camp') {
-        ctx.strokeStyle = C.side[side];
+        ctx.strokeStyle = C.side[this.rel(side)];
         ctx.lineWidth = 4;
         ctx.setLineDash([12, 10]);
         ctx.beginPath();
@@ -592,8 +599,8 @@ export class Renderer {
   /** Страж логова: каменный обелиск с кристаллом цвета владельца. В тумане — без подробностей. */
   private drawGuard(n: Neutral) {
     const { ctx, g } = this;
-    const seen = g.visible(0, n.x, n.y, 40);
-    const col = !seen ? '#7a7f8c' : n.owner === null ? '#c9cdd6' : C.side[n.owner];
+    const seen = g.visible(this.me, n.x, n.y, 40);
+    const col = !seen ? '#7a7f8c' : n.owner === null ? '#c9cdd6' : C.side[this.rel(n.owner)];
     ctx.save();
     ctx.translate(n.x, n.y);
     ctx.fillStyle = 'rgba(0,0,0,.35)';
@@ -622,7 +629,7 @@ export class Renderer {
     if (seen && n.hp < n.maxHp) bar(ctx, n.x - 40, n.y - 72, 80, 7, n.hp / n.maxHp, col);
     if (seen) for (const side of [0, 1] as Side[]) {
       if (g.party(n.id, side, 'fight').length) {
-        ctx.strokeStyle = C.side[side];
+        ctx.strokeStyle = C.side[this.rel(side)];
         ctx.lineWidth = 4;
         ctx.setLineDash([10, 8]);
         ctx.beginPath(); ctx.arc(n.x, n.y, 115, 0, 7); ctx.stroke();
@@ -636,7 +643,7 @@ export class Renderer {
     ctx.lineWidth = 4;
     ctx.setLineDash([14, 12]);
     for (const h of g.heroes) {
-      if (h.side !== 0 || !h.trip || h.trip.phase === 'fight') continue;
+      if (h.side !== this.me || !h.trip || h.trip.phase === 'fight') continue;
       const n = g.neutrals[h.trip.nid];
       const to = h.trip.phase === 'go' ? { x: n.x, y: n.y } : g.laneSpot(h);
       ctx.strokeStyle = 'rgba(95,212,196,.55)';
@@ -665,14 +672,14 @@ export class Renderer {
         ctx.beginPath();
         ctx.ellipse(p.x, p.y, 62, 48, 0, 0, 7);
         ctx.fill();
-        ctx.strokeStyle = C.side[owner];
+        ctx.strokeStyle = C.side[this.rel(owner)];
         ctx.globalAlpha = front ? 0.9 : 0.45;
         ctx.lineWidth = front ? 6 : 4;
         ctx.stroke();
         ctx.globalAlpha = 1;
         if (!front) {
           // пустая запасная позиция — каменная башенка
-          ctx.fillStyle = C.sideDeep[owner];
+          ctx.fillStyle = C.sideDeep[this.rel(owner)];
           ctx.fillRect(p.x - 14, p.y - 30, 28, 34);
           ctx.fillStyle = C.stoneDark;
           for (let k = 0; k < 3; k++) ctx.fillRect(p.x - 16 + k * 12, p.y - 38, 8, 9);
@@ -693,20 +700,20 @@ export class Renderer {
       const lane = g.lanes[l];
       BAL.slotT.forEach((t, i) => {
         const p = lane.at(t * lane.length);
-        m.fillStyle = C.side[g.slotOwner(l, i)];
+        m.fillStyle = C.side[this.rel(g.slotOwner(l, i))];
         m.fillRect(p.x * k - 3, p.y * k - 3, 6, 6);
       });
     }
     for (const c of g.creeps) {
       const p = g.creepPos(c);
       if (!this.seen(c.side, p)) continue;
-      m.fillStyle = c.side === 0 ? '#bff3ea' : '#ffb3bf';
+      m.fillStyle = this.rel(c.side) === 0 ? '#bff3ea' : '#ffb3bf';
       m.fillRect(p.x * k - 1, p.y * k - 1, 2.5, 2.5);
     }
     ([0, 1] as Side[]).forEach((s) => {
       const t = THRONE_POS[s];
       const blink = g.throneUnderAttack(s) && Math.floor(performance.now() / 250) % 2 === 0;
-      m.fillStyle = blink ? '#fff1d6' : C.side[s];
+      m.fillStyle = blink ? '#fff1d6' : C.side[this.rel(s)];
       m.beginPath();
       m.arc(t.x * k, t.y * k, 6, 0, 7);
       m.fill();
@@ -714,8 +721,8 @@ export class Renderer {
     for (const n of g.neutrals) {
       if (!n.alive) continue;
       if (n.kind === 'guard') {
-        const seen = g.visible(0, n.x, n.y, 40);
-        m.fillStyle = !seen ? '#7a7f8c' : n.owner === null ? '#e8e8f0' : C.side[n.owner];
+        const seen = g.visible(this.me, n.x, n.y, 40);
+        m.fillStyle = !seen ? '#7a7f8c' : n.owner === null ? '#e8e8f0' : C.side[this.rel(n.owner)];
         m.fillRect(n.x * k - 3, n.y * k - 3, 6, 6);
         continue;
       }
@@ -733,7 +740,7 @@ export class Renderer {
       m.beginPath();
       m.arc(p.x * k, p.y * k, 4.5, 0, 7);
       m.fill();
-      m.fillStyle = h.side === 0 ? C.side[0] : C.side[1];
+      m.fillStyle = C.side[this.rel(h.side)];
       m.beginPath();
       m.arc(p.x * k, p.y * k, 3.2, 0, 7);
       m.fill();
@@ -761,10 +768,10 @@ export class Renderer {
     ctx.fillStyle = C.dark;
     hex(ctx, 74);
     ctx.fill();
-    ctx.fillStyle = C.sideDeep[side];
+    ctx.fillStyle = C.sideDeep[this.rel(side)];
     hex(ctx, 62);
     ctx.fill();
-    ctx.fillStyle = hit ? '#fff1d6' : C.side[side];
+    ctx.fillStyle = hit ? '#fff1d6' : C.side[this.rel(side)];
     ctx.beginPath();
     ctx.moveTo(-26, 18);
     ctx.lineTo(-26, -10);
@@ -782,7 +789,7 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(0, 0, 86, 0, 7);
     ctx.stroke();
-    ctx.strokeStyle = k > 0.35 ? C.side[side] : '#ffb347';
+    ctx.strokeStyle = k > 0.35 ? C.side[this.rel(side)] : '#ffb347';
     ctx.beginPath();
     ctx.arc(0, 0, 86, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k);
     ctx.stroke();
@@ -792,7 +799,7 @@ export class Renderer {
   private drawCreep(c: Game['creeps'][number]) {
     const { ctx, g } = this;
     const p = g.creepPos(c);
-    const col = C.side[c.side];
+    const col = C.side[this.rel(c.side)];
     ctx.fillStyle = C.dark;
     ctx.fillStyle = col;
     ctx.strokeStyle = C.dark;
@@ -857,18 +864,18 @@ export class Renderer {
     ctx.beginPath();
     ctx.ellipse(0, R * 0.95, R * 1.05, R * 0.42, 0, 0, 7);
     ctx.fill();
-    ctx.fillStyle = C.sideDeep[h.side];
+    ctx.fillStyle = C.sideDeep[this.rel(h.side)];
     ctx.beginPath();
     ctx.ellipse(0, R * 0.85, R * 0.95, R * 0.36, 0, 0, 7);
     ctx.fill();
-    ctx.strokeStyle = C.side[h.side];
+    ctx.strokeStyle = C.side[this.rel(h.side)];
     ctx.lineWidth = 4;
     ctx.stroke();
     // фигурка
     ctx.save();
     ctx.translate(0, -R * 0.15);
     ctx.scale(R * 1.15, R * 1.15);
-    if (h.side === 1) ctx.scale(-1, 1); // враги смотрят в другую сторону
+    if (h.side === 1) ctx.scale(-1, 1); // верхняя команда смотрит в другую сторону
     drawHeroFigure(ctx, h.def, h.flash > 0);
     ctx.restore();
     // уровень
@@ -882,9 +889,9 @@ export class Renderer {
     ctx.textBaseline = 'middle';
     ctx.fillText(String(h.lvl), R + 4, R * 0.55 + 1);
     // полоски HP и маны
-    bar(ctx, -36, -R * 1.75 - 14, 72, 8, h.hp / h.maxHp, h.side === 0 ? '#7ee07a' : '#ff6f7f');
+    bar(ctx, -36, -R * 1.75 - 14, 72, 8, h.hp / h.maxHp, this.rel(h.side) === 0 ? '#7ee07a' : '#ff6f7f');
     bar(ctx, -36, -R * 1.75 - 4, 72, 5, h.mana / h.maxMana, '#6fa8ff');
-    if (g.canCast(h) && h.side === 0) {
+    if (g.canCast(h) && h.side === this.me) {
       ctx.fillStyle = '#f3d27a';
       ctx.beginPath();
       ctx.moveTo(-6, -R * 1.75 - 30); ctx.lineTo(6, -R * 1.75 - 30); ctx.lineTo(0, -R * 1.75 - 20); ctx.closePath();
@@ -896,7 +903,8 @@ export class Renderer {
   private drawFx() {
     const ctx = this.ctx;
     for (const f of this.g.fx) {
-      if (!this.g.visible(0, f.x, f.y, 40)) continue;
+      if (f.to !== undefined && f.to !== this.me) continue;
+      if (!this.g.visible(this.me, f.x, f.y, 40)) continue;
       const k = f.t / f.life;
       ctx.globalAlpha = 1 - k;
       if (f.kind === 'ring') {

@@ -20,21 +20,32 @@
     </div>
     <h1 class="logo">Три Линии</h1>
     <p class="tagline">Пять героев. Три линии. Один трон, который надо снести.</p>
-    <div class="seg" id="diff" role="radiogroup" aria-label="Сложность бота"></div>
     <p class="crystals" id="crystalsMenu"></p>
-    <button type="button" class="btn primary big" id="toPick">В бой</button>
-    <button type="button" class="btn ghost" id="howBtn">Как играть</button>
+    <div class="menu-row">
+      <div class="menu-col">
+        <div class="seg" id="diff" role="radiogroup" aria-label="Сложность бота"></div>
+        <button type="button" class="btn primary big" id="toPick">Против бота</button>
+      </div>
+      <div class="menu-col">
+        <button type="button" class="btn primary big friend" id="toLobby">Игра с другом</button>
+      </div>
+    </div>
+    <div class="menu-row small">
+      <button type="button" class="btn ghost" id="toHeroes">Герои</button>
+      <button type="button" class="btn ghost" id="howBtn">Как играть</button>
+    </div>
   </section>
 
   <section class="screen scroll" id="how" hidden>
     <h2>Как играть</h2>
     <ol class="rules">
-      <li>Выбери 5 героев и расставь их по трём линиям. На каждой линии нужен хотя бы один.</li>
+      <li>Перед боем вы с соперником по очереди выбираете героев из общего пула (порядок 1-2-2-2-2-1). Одного героя не могут взять обе команды. Потом расставь своих по трём линиям — на каждой нужен хотя бы один.</li>
       <li>Герои стоят на месте как вышки: бьют вражеских крипов автоатакой и способностью. Нажми на портрет внизу, чтобы применить способность.</li>
       <li>Крипы идут волнами с обеих сторон. Улучшай свою волну на линии, чтобы она дошла до вражеских героев.</li>
       <li>Если все вражеские герои на линии пали, враг откатывается на позицию назад, а твои герои встают на его место.</li>
       <li>После трёх откатов путь к трону открыт. Снеси трон — победа. Трон сам отстреливает крипов рядом, так что к нему нужна сильная волна.</li>
       <li>Уровень крипов растёт не быстрее, чем идёт время: максимум открывается постепенно, поэтому закупиться в начале не выйдет.</li>
+      <li>Игра с другом: один нажимает «Создать» и называет код из 4 символов, второй вводит его во «Войти по коду». Оба телефона должны быть в интернете, надёжнее всего — в одной Wi-Fi сети.</li>
       <li>Карту двигай пальцем, приближай двумя пальцами. Миникарта в углу показывает всё поле — нажми на неё, чтобы перейти.</li>
       <li>У каждого героя есть раса. 2, 3, 4 или 5 героев одной расы включают бонус для команды. Лорд даёт сферу случайной расы — она считается за ещё одного героя этой расы, пока Лорд не возродится.</li>
       <li>Врагов, боссов и лес скрывает туман войны: ты видишь только то, что рядом с твоими героями, крипами и вышками. Если вражеского героя нет на линии — думай, где он. Внутрь логов Лорда и Черепахи видно только со стражем у входа: захвати его, а враг может его перехватить.</li>
@@ -46,13 +57,49 @@
   <section class="screen scroll" id="pick" hidden>
     <header class="bar">
       <button type="button" class="btn icon" id="pickBack" aria-label="Назад">‹</button>
-      <h2>Выбор героев</h2>
+      <h2>Герои</h2>
       <span class="crystals" id="crystalsPick"></span>
-      <span class="count" id="pickCount">0/5</span>
     </header>
-    <div class="syn-preview" id="pickSyn"></div>
+    <p class="hint">Открытые герои доступны в драфте. Остальных открывай за кристаллы — их дают за каждый матч.</p>
     <div class="cards" id="cards"></div>
-    <div class="sticky-cta"><button type="button" class="btn primary big" id="toPlace" disabled>Расставить по линиям</button></div>
+  </section>
+
+  <section class="screen" id="lobby" hidden>
+    <header class="bar">
+      <button type="button" class="btn icon" id="lobbyBack" aria-label="Назад">‹</button>
+      <h2>Игра с другом</h2>
+    </header>
+    <div class="lobby">
+      <div class="lobby-card">
+        <h3>Создать комнату</h3>
+        <p class="hint">Получишь код из 4 символов — скажи его другу.</p>
+        <button type="button" class="btn primary big" id="hostBtn">Создать</button>
+        <p class="room-code" id="roomCode" hidden></p>
+      </div>
+      <div class="lobby-card">
+        <h3>Войти по коду</h3>
+        <input id="joinCode" class="code-input" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="КОД" aria-label="Код комнаты">
+        <button type="button" class="btn primary big" id="joinBtn">Войти</button>
+      </div>
+    </div>
+    <p class="hint lobby-status" id="lobbyStatus">Оба телефона должны быть в интернете. Лучше всего — в одной Wi-Fi сети.</p>
+  </section>
+
+  <section class="screen draft" id="draft" hidden>
+    <header class="draft-top">
+      <div class="draft-team mine"><h3>Ты</h3><div class="slots" id="mySlots"></div></div>
+      <div class="draft-mid">
+        <p class="turn" id="draftTurn">Твой выбор</p>
+        <p class="timer" id="draftTimer">25</p>
+        <div class="syn-preview mini" id="draftSyn"></div>
+      </div>
+      <div class="draft-team foe"><h3 id="foeName">Соперник</h3><div class="slots" id="foeSlots"></div></div>
+    </header>
+    <div class="draft-pool" id="draftPool"></div>
+    <footer class="draft-detail" id="draftDetail">
+      <p class="hint" id="draftInfo">Нажми на героя, чтобы посмотреть его, затем «Выбрать».</p>
+      <button type="button" class="btn primary big" id="draftPickBtn" disabled>Выбрать</button>
+    </footer>
   </section>
 
   <section class="screen" id="place" hidden>
@@ -63,7 +110,7 @@
     </header>
     <p class="hint">Нажми на героя, затем на линию. Герои встанут на дальнюю от трона вышку.</p>
     <div class="lanes" id="laneCols"></div>
-    <div class="sticky-cta"><button type="button" class="btn primary big" id="startBattle">Начать бой</button></div>
+    <div class="sticky-cta"><button type="button" class="btn primary big" id="startBattle">Начать бой</button><p class="hint" id="placeWait" hidden>Ждём, пока соперник расставит героев…</p></div>
   </section>
 
   <section class="screen battle" id="battle" hidden>
@@ -131,6 +178,8 @@
 
 </div>
 <!--/APP-->
+<!-- PeerJS для игры с другом; файл кладёт сборка (см. .github/workflows/android.yml) -->
+<script src="./vendor/peerjs.min.js"></script>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
