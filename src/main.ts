@@ -449,7 +449,7 @@ let paused = false;
 let modalPause = false;
 let speed = 1;
 let selected: Hero | null = null;
-let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLElement; cdv: HTMLElement; mana: HTMLElement; badge: HTMLElement; back: HTMLButtonElement }[] = [];
+let heroBtns: { h: Hero; cast: HTMLButtonElement; up: HTMLElement; cdv: HTMLElement; mana: HTMLElement; badge: HTMLElement; back: HTMLButtonElement; lname: HTMLElement }[] = [];
 let synKey = '';
 let creepBtns: HTMLButtonElement[] = [];
 let bossBtns: HTMLButtonElement[] = [];
@@ -505,6 +505,7 @@ function applyCmd(side: Side, cmd: any): boolean {
     case 'creep': return g.upgradeCreeps(cmd.lane, side);
     case 'send': return g.sendParty(side, cmd.nid, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recall': g.recall(side, cmd.nid ?? undefined); return true;
+    case 'help': return g.callHelp(side, cmd.lane, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recallHero': { const h = hero(cmd.uid); if (h) g.recallHero(h); return !!h; }
     case 'auto': g.autoCast[side] = !!cmd.on; return true;
     case 'surrender': if (g.winner === null) g.winner = (1 - side) as Side; return true;
@@ -549,7 +550,7 @@ function buildPanel() {
     wrap.append(lname, cast, up, back);
     hb.appendChild(wrap);
     heroBtns.push({
-      h, cast, up, back,
+      h, cast, up, back, lname,
       cdv: cast.querySelector('.cdv') as HTMLElement,
       mana: cast.querySelector('.mana') as HTMLElement,
       badge: cast.querySelector('.badge') as HTMLElement,
@@ -576,6 +577,12 @@ function buildPanel() {
   all.onclick = () => { act({ c: 'recall' }); sound.play('tap'); };
   bb.appendChild(all);
   synKey = '';
+  const help = document.createElement('button');
+  help.type = 'button';
+  help.className = 'boss help';
+  help.id = 'helpBtn';
+  help.onclick = openHelp;
+  bb.appendChild(help);
   bossBtns = [0, 1].map((nid) => {
     const n = g.neutrals[nid];
     const b = document.createElement('button');
@@ -620,6 +627,8 @@ function syncPanel() {
     b.back.hidden = !h.trip || h.trip.phase === 'back';
     b.badge.hidden = !trip;
     b.badge.textContent = trip;
+    const ln = h.helpT > 0 ? `⇄ ${LANE_SHORT[h.lane]} ${Math.ceil(h.helpT)}` : LANE_SHORT[h.lane];
+    if (b.lname.textContent !== ln) b.lname.textContent = ln;
     const maxed = h.lvl >= BAL.heroMaxLvl;
     (b.up.firstElementChild as HTMLElement).textContent = maxed ? `${h.lvl} ★` : `ур. ${h.lvl}`;
     (b.up.querySelector('span') as HTMLElement).style.width = maxed ? '100%' : `${Math.min(100, (100 * h.xp) / g.xpNeed(h))}%`;
@@ -660,6 +669,14 @@ function syncPanel() {
   if (orbT > 0) {
     const r = (Object.keys(g.orbs[me]) as RaceId[]).find((k) => (g.orbs[me][k] ?? 0) > 0)!;
     orbEl.innerHTML = `<img src="${raceURL(r)}" alt="">Сфера: ${RACES[r].name} · ${clock(orbT)}`;
+  }
+  {
+    const hb = $<HTMLButtonElement>('helpBtn');
+    const cd = g.helpCd[me];
+    const st = cd > 0 ? `через ${Math.ceil(cd)} с` : `◆ ${g.helpCost()}`;
+    const html = `<i>⇄</i>Подмога<small>${st}</small>`;
+    if (hb.dataset.h !== html) { hb.innerHTML = html; hb.dataset.h = html; }
+    hb.classList.toggle('alive', g.canHelp(me));
   }
   $('recallAll').hidden = !g.heroes.some((h) => h.side === me && h.trip && h.trip.phase !== 'back');
   const counts = g.raceCounts(me);
@@ -790,6 +807,99 @@ $('tripGo').onclick = () => {
 $('tripRecall').onclick = () => {
   act({ c: 'recall', nid: tripNid });
   closeTrip();
+};
+
+// ---------- окно подмоги ----------
+let helpLane = 0;
+let helpPick = new Set<Hero>();
+
+/** Самая проблемная своя линия: глубже всего продавлена, при равенстве — меньше живых героев. */
+function weakestLane(g: Game): number {
+  const score = (l: number) => (g.atThrone(l, me) ? 4 : g.depth(l, me)) * 10 - g.heroesOn(l, me).filter((h) => !h.dead && !h.trip).length;
+  return [0, 1, 2].sort((a, b) => score(b) - score(a))[0];
+}
+
+function openHelp() {
+  const g = game;
+  if (!g) return;
+  sound.play('tap');
+  helpLane = weakestLane(g);
+  pickHelpDefault();
+  renderHelp();
+  $('helpModal').hidden = false;
+  modalPause = true;
+}
+
+function pickHelpDefault() {
+  const g = game!;
+  // по умолчанию на каждой другой линии оставляем одного героя, чтобы её не заняли крипы; можно добавить и его
+  helpPick = new Set();
+  for (const l of [0, 1, 2]) {
+    if (l === helpLane) continue;
+    const here = g.heroesOn(l, me).filter((h) => !h.dead && !h.trip).sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp);
+    for (const h of here.slice(1)) helpPick.add(h);
+  }
+}
+
+function renderHelp() {
+  const g = game!;
+  const cd = g.helpCd[me];
+  const cost = g.helpCost();
+  $('helpText').textContent = `Мгновенно перенеси героев на одну линию на ${BAL.help.dur} с, потом они сами вернутся. Стоит ${cost} золота, перезарядка ${BAL.help.cd} с.`
+    + (cd > 0 ? ` Будет готово через ${Math.ceil(cd)} с.` : g.gold[me] < cost ? ' Не хватает золота.' : '');
+  const lanes = $('helpLanes');
+  lanes.innerHTML = '';
+  [0, 1, 2].forEach((l) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn ghost';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(l === helpLane));
+    const here = g.heroesOn(l, me).filter((h) => !h.dead && !h.trip).length;
+    const where = g.atThrone(l, me) ? 'у трона!' : ['впереди', 'отступили', 'у базы', 'у трона'][g.depth(l, me)] ?? '';
+    b.innerHTML = `${LANE_SHORT[l]}<small>${where} · героев ${here}</small>`;
+    b.onclick = () => { helpLane = l; pickHelpDefault(); renderHelp(); };
+    lanes.appendChild(b);
+  });
+  const el = $('helpHeroes');
+  el.innerHTML = '';
+  const mine = g.heroes.filter((h) => h.side === me).sort((a, b) => a.lane - b.lane);
+  for (const h of mine) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'trip-hero';
+    const busy = h.dead ? 'погиб' : h.trip ? 'в походе' : h.lane === helpLane ? 'уже здесь' : '';
+    b.disabled = !!busy;
+    b.setAttribute('aria-pressed', String(helpPick.has(h)));
+    b.innerHTML = `${portrait(h.def)}${h.def.name.split(' ')[0]}<small>${busy || `${LANE_SHORT[h.lane]} · ур. ${h.lvl}`}</small><span class="hpbar"><b style="width:${(100 * h.hp) / h.maxHp}%"></b></span>`;
+    b.onclick = () => {
+      if (helpPick.has(h)) helpPick.delete(h); else helpPick.add(h);
+      renderHelp();
+    };
+    el.appendChild(b);
+  }
+  const empty = [0, 1, 2].filter((l) => l !== helpLane && helpPick.size > 0
+    && g.heroesOn(l, me).filter((h) => !h.dead && !h.trip && !helpPick.has(h)).length === 0
+    && [...helpPick].some((h) => h.lane === l));
+  $('helpWarn').textContent = empty.length
+    ? `${empty.map((l) => LANE_SHORT[l]).join(' и ')} без героев — крипы врага займут позицию.`
+    : '';
+  const go = $<HTMLButtonElement>('helpGo');
+  go.disabled = helpPick.size === 0 || !g.canHelp(me);
+  go.textContent = helpPick.size ? `Перенести (${helpPick.size})` : 'Выбери героев';
+}
+
+function closeHelp() {
+  $('helpModal').hidden = true;
+  modalPause = false;
+}
+$('helpCancel').onclick = closeHelp;
+$('helpGo').onclick = () => {
+  if (game && act({ c: 'help', lane: helpLane, uids: [...helpPick].map((h) => h.uid) })) {
+    const p = game.lanes[helpLane].pos(game.slotS(helpLane, me), 0);
+    renderer?.focus(p.x, p.y);
+  }
+  closeHelp();
 };
 
 function fit() {

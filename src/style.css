@@ -243,6 +243,12 @@ canvas { display: block; }
 .trip-hero small { color: var(--muted); font-weight: 400; }
 .trip-hero .hpbar { width: 70px; height: 4px; background: #0d0b18; border-radius: 2px; overflow: hidden; }
 .trip-hero .hpbar b { display: block; height: 100%; background: #7ee07a; }
+.boss.help i { background: #9fd0ff; }
+.boss.help.alive { border-color: #9fd0ff; box-shadow: 0 0 0 1px #9fd0ff inset; }
+.help-lanes { display: flex; gap: 6px; justify-content: center; }
+.help-lanes button { min-width: 84px; }
+.help-lanes button small { display: block; font-weight: 400; font-size: 10px; color: var(--muted); }
+.help-lanes button[aria-checked="true"] { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
 .warn { color: #ffb347; margin: 0; font-size: 13px; min-height: 1em; }
 
 /* вертикальный телефон — всё в столбик снизу */

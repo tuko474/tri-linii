@@ -59,6 +59,8 @@ export const BAL = {
     guard: { name: 'Страж', hp: 950, hpPerMin: 80, dmg: 24, rate: 1.2, first: 20, respawn: 0, r: 30 },
     camp: { name: 'Лесные', hp: 520, hpPerMin: 45, dmg: 14, rate: 1.2, first: 25, respawn: 60, r: 24, gold: 70 },
   },
+  // Подмога (телепорт): за золото перенести любых героев на одну линию на время, потом они сами возвращаются.
+  help: { cost: 150, costPerMin: 10, cd: 90, dur: 25 },
   tripSpeed: 360, // скорость героя в походе
   // Обзор (туман войны): радиусы видимости
   vision: { throne: 1000, hero: 450, creep: 300, ward: 280, slot: 380, guard: 260 },
