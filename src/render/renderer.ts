@@ -1,7 +1,7 @@
 // Отрисовка поля на Canvas 2D с камерой. Читает состояние Game, ничего в нём не меняет.
 import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
-import { CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, segDist } from '../sim/map';
+import { ALTAR_POS, CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, barracksPos, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
 import { drawHeroFigure } from './art';
 
@@ -360,6 +360,7 @@ export class Renderer {
 
     // лес: деревья везде, кроме дорог, реки, баз, полян и логов
     const tr = rng(42);
+    const spots = [...ALTAR_POS, ...[0, 1, 2].flatMap((l) => [barracksPos(g.lanes, l, 0), barracksPos(g.lanes, l, 1)])];
     for (let i = 0; i < 5200 * area; i++) {
       const px = tr() * W;
       const py = tr() * H;
@@ -370,7 +371,8 @@ export class Renderer {
         THRONE_POS.every((t) => Math.max(Math.abs(t.x - px), Math.abs(t.y - py)) > BASE_HALF + 30 + s) &&
         CAMPS.every((c) => Math.hypot(c.x - px, c.y - py) > 100 + s) &&
         PITS.every((p) => Math.hypot(p.x - px, p.y - py) > 195 + s) &&
-        GUARD_POS.every((p) => Math.hypot(p.x - px, p.y - py) > 110 + s);
+        GUARD_POS.every((p) => Math.hypot(p.x - px, p.y - py) > 110 + s) &&
+        spots.every((p) => Math.hypot(p.x - px, p.y - py) > 85 + s);
       if (!free) continue;
       x.fillStyle = 'rgba(0,0,0,.25)';
       x.beginPath();
@@ -461,7 +463,7 @@ export class Renderer {
     if (sw > 0 && sh > 0) ctx.drawImage(this.bg, sx * BG_SCALE, sy * BG_SCALE, sw * BG_SCALE, sh * BG_SCALE, sx, sy, sw, sh);
 
     this.drawPads();
-    for (const s of [0, 1] as Side[]) this.drawThrone(s);
+    for (const s of [0, 1] as Side[]) { this.drawThrone(s); this.drawBase(s); }
     for (const n of g.neutrals) this.drawNeutral(n);
     this.drawTripPaths();
     for (const w of g.wards) {
@@ -814,6 +816,87 @@ export class Renderer {
     m.strokeRect(c.x * k - w / 2, c.y * k - h / 2, w, h);
   }
 
+  /** Бараки у начала линий и алтарь за троном. Вражеские — только если видны. */
+  private drawBase(side: Side) {
+    const { ctx, g } = this;
+    const rel = this.rel(side);
+    const col = C.side[rel];
+    const deep = C.sideDeep[rel];
+    for (let l = 0; l < 3; l++) {
+      const p = barracksPos(g.lanes, l, side);
+      if (side !== this.me && !g.visible(this.me, p.x, p.y)) continue;
+      const lvl = g.barracks[l][side];
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = 'rgba(0,0,0,.3)';
+      ctx.beginPath(); ctx.ellipse(0, 26, 46, 12, 0, 0, 7); ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.dark;
+      // стены
+      ctx.fillStyle = '#6d5b3d';
+      ctx.beginPath(); ctx.rect(-34, -6, 68, 32); ctx.fill(); ctx.stroke();
+      // крыша цвета команды
+      ctx.fillStyle = deep;
+      ctx.beginPath(); ctx.moveTo(-42, -4); ctx.lineTo(0, -36); ctx.lineTo(42, -4); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.moveTo(-30, -8); ctx.lineTo(0, -30); ctx.lineTo(30, -8); ctx.closePath(); ctx.fill();
+      // ворота
+      ctx.fillStyle = C.dark;
+      ctx.beginPath(); ctx.moveTo(-10, 26); ctx.lineTo(-10, 8); ctx.arc(0, 8, 10, Math.PI, 0); ctx.lineTo(10, 26); ctx.closePath(); ctx.fill();
+      // флажок и звёзды уровня
+      ctx.strokeStyle = C.dark; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, -36); ctx.lineTo(0, -56); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.moveTo(0, -56); ctx.lineTo(16, -51); ctx.lineTo(0, -46); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#f3d27a';
+      ctx.font = '700 16px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      if (lvl) ctx.fillText('★'.repeat(lvl), 0, 46);
+      ctx.restore();
+    }
+    const a = ALTAR_POS[side];
+    if (side !== this.me && !g.visible(this.me, a.x, a.y)) return;
+    const up = g.upg[side];
+    const total = up.armor + up.fury + up.mana;
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.fillStyle = 'rgba(0,0,0,.3)';
+    ctx.beginPath(); ctx.ellipse(0, 22, 44, 13, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = C.dark; ctx.lineWidth = 3;
+    // ступени
+    ctx.fillStyle = C.stone;
+    ctx.beginPath(); ctx.rect(-38, 6, 76, 16); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.stoneDark;
+    ctx.beginPath(); ctx.rect(-26, -10, 52, 18); ctx.fill(); ctx.stroke();
+    // кристалл светится сильнее с улучшениями
+    const glow = 0.25 + Math.min(1, total / 15) * 0.6 + Math.sin(performance.now() / 400) * 0.08;
+    const gr = ctx.createRadialGradient(0, -34, 2, 0, -34, 46);
+    gr.addColorStop(0, `rgba(243,210,122,${glow})`);
+    gr.addColorStop(1, 'rgba(243,210,122,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(0, -34, 46, 0, 7); ctx.fill();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(0, -62); ctx.lineTo(13, -34); ctx.lineTo(0, -10); ctx.lineTo(-13, -34); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.beginPath(); ctx.moveTo(0, -58); ctx.lineTo(5, -34); ctx.lineTo(0, -16); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  /** Постройка базы под пальцем: алтарь, трон или барак. */
+  buildingAt(wx: number, wy: number): { kind: 'altar' | 'throne' | 'barracks'; side: Side; lane?: number } | null {
+    for (const side of [0, 1] as Side[]) {
+      const a = ALTAR_POS[side];
+      if (Math.hypot(a.x - wx, a.y - wy) < 70) return { kind: 'altar', side };
+      for (let l = 0; l < 3; l++) {
+        const p = barracksPos(this.g.lanes, l, side);
+        if (Math.hypot(p.x - wx, p.y - wy + 10) < 62) return { kind: 'barracks', side, lane: l };
+      }
+      const t = THRONE_POS[side];
+      if (Math.hypot(t.x - wx, t.y - wy) < 95) return { kind: 'throne', side };
+    }
+    return null;
+  }
+
   private drawThrone(side: Side) {
     const { ctx, g } = this;
     const p = THRONE_POS[side];
@@ -935,6 +1018,14 @@ export class Renderer {
       ctx.arc(0, 0, h.def.range, 0, 7);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    // глиф: золотой купол над героями на линии
+    if (!h.trip && g.glyphT[h.side] > 0) {
+      ctx.strokeStyle = `rgba(255,230,128,${0.55 + Math.sin(performance.now() / 120) * 0.25})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, -6, R + 12, 0, 7);
+      ctx.stroke();
     }
     // подставка в цвет команды
     ctx.fillStyle = 'rgba(0,0,0,.35)';

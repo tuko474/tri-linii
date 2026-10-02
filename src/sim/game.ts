@@ -3,10 +3,11 @@
 import { BAL, CreepKind, Difficulty, WORLD } from '../data/config';
 import { heroById } from '../data/heroes';
 import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
-import { CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
+import { BARRACKS_S, CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx, Side, Target, Ward } from './types';
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
+export type UpgKey = 'armor' | 'fury' | 'mana' | 'gun';
 
 export class Game {
   t = 0;
@@ -51,6 +52,13 @@ export class Game {
   private throneCd = [0, 0];
   /** Перезарядка подмоги по сторонам. */
   helpCd: [number, number] = [0, 0];
+  /** Улучшения алтаря и пушки трона по сторонам. */
+  upg: [Record<UpgKey, number>, Record<UpgKey, number>] = [{ armor: 0, fury: 0, mana: 0, gun: 0 }, { armor: 0, fury: 0, mana: 0, gun: 0 }];
+  /** Уровень барака: barracks[lane][side]. */
+  barracks: [number, number][] = [[0, 0], [0, 0], [0, 0]];
+  /** Глиф: сколько ещё действует и перезарядка. */
+  glyphT: [number, number] = [0, 0];
+  glyphCd: [number, number] = [0, 0];
 
   constructor(picks: [Pick[], Pick[]], difficulty: Difficulty, seed = Math.floor(Math.random() * 2 ** 31)) {
     this.rs = seed >>> 0 || 1;
@@ -102,6 +110,7 @@ export class Game {
     const add = (v: number) => { h = (Math.imul(h, 31) + Math.round(v * 10)) | 0; };
     add(this.t); add(this.gold[0]); add(this.gold[1]); add(this.throne[0]); add(this.throne[1]); add(this.rs);
     for (const x of this.heroes) { add(x.hp); add(x.mana); add(x.lvl); add(x.lane); }
+    for (const s of [0, 1] as Side[]) { add(this.upg[s].armor + this.upg[s].fury * 7 + this.upg[s].mana * 49 + this.upg[s].gun * 343); add(this.glyphCd[s]); }
     add(this.creeps.length);
     for (const c of this.creeps) { add(c.hp); add(c.s); }
     for (const n of this.neutrals) add(n.hp);
@@ -191,13 +200,13 @@ export class Game {
     }
     return {
       hpMul: own.hpMul ?? 1,
-      atkMul: (own.atkMul ?? 1) * allAtk,
+      atkMul: (own.atkMul ?? 1) * allAtk * (1 + this.upg[h.side].fury * BAL.altar.fury.per),
       rateMul: own.rateMul ?? 1,
       cdMul: own.cdMul ?? 1,
       spellMul: (own.spellMul ?? 1) * allSpell,
       lifesteal: (own.lifesteal ?? 0) + allLs,
       respawnMul: own.respawnMul ?? 1,
-      armor: Math.min(0.6, (own.armor ?? 0) + allArmor),
+      armor: Math.min(0.7, (own.armor ?? 0) + allArmor + this.upg[h.side].armor * BAL.altar.armor.per),
       critChance: own.critChance ?? 0,
       critMul: own.critMul ?? 1,
       xpMul: (own.xpMul ?? 1) * allXp,
@@ -575,6 +584,57 @@ export class Game {
     return sent;
   }
 
+  // ---------- улучшения: алтарь, трон, бараки, глиф ----------
+
+  upgCost(side: Side, k: UpgKey): number | null {
+    const lvl = this.upg[side][k];
+    return lvl < BAL.upgCost.length ? BAL.upgCost[lvl] : null;
+  }
+
+  buyUpg(side: Side, k: UpgKey): boolean {
+    const cost = this.upgCost(side, k);
+    if (cost === null || this.gold[side] < cost) return false;
+    this.gold[side] -= cost;
+    this.upg[side][k]++;
+    this.refreshStats(side);
+    this.say(side, 'creepUp');
+    const name = k === 'gun' ? BAL.gunUp.name : BAL.altar[k].name;
+    this.tell(side, `${name}: уровень ${this.upg[side][k]}`, 'good');
+    return true;
+  }
+
+  barracksCost(lane: number, side: Side): number | null {
+    const lvl = this.barracks[lane][side];
+    return lvl < BAL.barracksCost.length ? BAL.barracksCost[lvl] : null;
+  }
+
+  buyBarracks(lane: number, side: Side): boolean {
+    const cost = this.barracksCost(lane, side);
+    if (cost === null || this.gold[side] < cost) return false;
+    this.gold[side] -= cost;
+    this.barracks[lane][side]++;
+    this.say(side, 'creepUp');
+    this.tell(side, `Барак (${LANE_NAMES[lane].toLowerCase()} линия): уровень ${this.barracks[lane][side]}`, 'good');
+    return true;
+  }
+
+  canGlyph(side: Side): boolean {
+    return this.glyphCd[side] <= 0 && this.gold[side] >= BAL.glyph.cost;
+  }
+
+  /** Глиф: на несколько секунд все герои стороны на линиях не получают урона. */
+  glyph(side: Side): boolean {
+    if (!this.canGlyph(side)) return false;
+    this.gold[side] -= BAL.glyph.cost;
+    this.glyphCd[side] = BAL.glyph.cd;
+    this.glyphT[side] = BAL.glyph.dur;
+    for (const h of this.heroes) if (h.side === side && !h.dead && !h.trip) this.fxRingAtHero(h, '#ffe680', 56);
+    this.tell(side, `Глиф: герои на линиях неуязвимы ${BAL.glyph.dur} с`, 'good');
+    this.tell((1 - side) as Side, 'Враг включил глиф — его герои временно неуязвимы', 'bad');
+    this.say(null, 'cast:heal');
+    return true;
+  }
+
   // ---------- подмога (телепорт на линию) ----------
 
   helpCost(): number {
@@ -921,13 +981,15 @@ export class Game {
       for (const side of [0, 1] as Side[]) {
         const lvl = this.creepLvl[lane][side];
         const kinds: CreepKind[] = [];
-        const melee = 3 + Math.floor(lvl / 4);
+        const [exM, exR] = BAL.barracksExtra[this.barracks[lane][side]];
+        const melee = 3 + Math.floor(lvl / 4) + exM;
         for (let i = 0; i < melee; i++) kinds.push('melee');
         kinds.push('ranged');
         if (lvl >= 6) kinds.push('ranged');
+        for (let i = 0; i < exR; i++) kinds.push('ranged');
         if (this.waveNo % BAL.siegeEvery === 0) kinds.push('siege');
         const dir = side === 0 ? 1 : -1;
-        const base = this.throneS(lane, side);
+        const base = side === 0 ? BARRACKS_S : this.lanes[lane].length - BARRACKS_S;
         kinds.forEach((kind, i) => {
           const st = BAL.creep[kind];
           const late = Math.max(0, this.t - BAL.lateGameFrom) / 60;
@@ -946,7 +1008,11 @@ export class Game {
   }
 
   private updateHeroes(dt: number) {
-    for (const s of [0, 1] as Side[]) this.helpCd[s] = Math.max(0, this.helpCd[s] - dt);
+    for (const s of [0, 1] as Side[]) {
+      this.helpCd[s] = Math.max(0, this.helpCd[s] - dt);
+      this.glyphCd[s] = Math.max(0, this.glyphCd[s] - dt);
+      this.glyphT[s] = Math.max(0, this.glyphT[s] - dt);
+    }
     for (const h of this.heroes) {
       if (h.helpT > 0) { h.helpT -= dt; if (h.helpT <= 0) this.endHelp(h); }
       h.flash = Math.max(0, h.flash - dt);
@@ -960,7 +1026,7 @@ export class Game {
         continue;
       }
       h.cd = Math.max(0, h.cd - dt);
-      h.mana = Math.min(h.maxMana, h.mana + (3 + 0.35 * h.lvl) * dt);
+      h.mana = Math.min(h.maxMana, h.mana + (3 + 0.35 * h.lvl) * (1 + this.upg[h.side].mana * BAL.altar.mana.per) * dt);
       h.hp = Math.min(h.maxHp, h.hp + h.maxHp * BAL.heroRegen * dt);
       this.gainXp(h, BAL.xp.passive * dt);
 
@@ -1005,7 +1071,8 @@ export class Game {
       if (this.throneCd[side] > 0) continue;
       const t = THRONE_POS[side];
       let best: Creep | null = null;
-      let bd = cfg.range;
+      const up = this.upg[side].gun;
+      let bd = cfg.range + up * BAL.gunUp.range;
       for (const c of this.creeps) {
         if (c.dead || c.side === side) continue;
         const p = this.creepPos(c);
@@ -1013,8 +1080,8 @@ export class Game {
         if (d < bd) { bd = d; best = c; }
       }
       if (!best) continue;
-      this.throneCd[side] = cfg.rate;
-      this.projs.push({ x: t.x, y: t.y - 40, target: { kind: 'creep', c: best }, dmg: cfg.dmg + cfg.dmgPerMin * (this.t / 60), speed: 900, color: side === 0 ? '#9ff5e8' : '#ffb0bb', size: 7 });
+      this.throneCd[side] = cfg.rate * BAL.gunUp.rate ** up;
+      this.projs.push({ x: t.x, y: t.y - 40, target: { kind: 'creep', c: best }, dmg: (cfg.dmg + cfg.dmgPerMin * (this.t / 60)) * (1 + up * BAL.gunUp.dmg), speed: 900, color: side === 0 ? '#9ff5e8' : '#ffb0bb', size: 7 });
     }
   }
 
@@ -1145,6 +1212,7 @@ export class Game {
 
   private hitHero(h: Hero, dmg: number) {
     if (h.dead) return;
+    if (!h.trip && this.glyphT[h.side] > 0) return; // глиф: герои на линиях неуязвимы
     if (!h.trip) dmg *= 1 - BAL.depthArmor[Math.max(0, Math.min(3, this.depth(h.lane, h.side)))];
     dmg *= 1 - this.heroMods(h).armor;
     h.hp -= dmg;
@@ -1223,7 +1291,7 @@ export class Game {
     return {
       t: r(this.t), gold: this.gold.map(r), throne: this.throne.map(r), front: this.front, creepLvl: this.creepLvl,
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
-      autoCast: this.autoCast, rs: this.rs, uid: this.uid, vt: r(this.visionT), hcd: this.helpCd.map(r), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
+      autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), hcd: this.helpCd.map(r), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
         h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
@@ -1239,7 +1307,7 @@ export class Game {
     this.t = S.t; this.gold = S.gold as [number, number]; this.throne = S.throne as [number, number];
     this.front = S.front; this.creepLvl = S.creepLvl; this.waveTimer = S.waveTimer; this.waveNo = S.waveNo;
     this.winner = S.winner; this.orbs = S.orbs; this.stats = S.stats; this.autoCast = S.autoCast;
-    this.throneAtkFx = S.tac; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.helpCd = S.hcd as [number, number]; this.throneCd = S.tcd;
+    this.throneAtkFx = S.tac; this.upg = S.upg; this.barracks = S.bar; this.glyphT = [S.gl[0], S.gl[1]]; this.glyphCd = [S.gl[2], S.gl[3]]; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.helpCd = S.hcd as [number, number]; this.throneCd = S.tcd;
     const byUid = new Map(this.heroes.map((h) => [h.uid, h]));
     for (const a of S.heroes) {
       const h = byUid.get(a[0] as number);

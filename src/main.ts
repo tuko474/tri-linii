@@ -496,6 +496,7 @@ function startBattle(picks: [Pick[], Pick[]], seed?: number) {
   $('autoBtn').setAttribute('aria-pressed', String(myAuto));
   $('pauseModal').hidden = true;
   $('tripModal').hidden = true;
+  $('shopModal').hidden = true;
   $('toasts').innerHTML = '';
   if (mode === 'guest') act({ c: 'auto', on: game.autoCast[me] });
   buildPanel();
@@ -519,6 +520,9 @@ function applyCmd(side: Side, cmd: any): boolean {
     case 'creep': return g.upgradeCreeps(cmd.lane, side);
     case 'send': return g.sendParty(side, cmd.nid, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recall': g.recall(side, cmd.nid ?? undefined); return true;
+    case 'upg': return ['armor', 'fury', 'mana', 'gun'].includes(cmd.k) && g.buyUpg(side, cmd.k);
+    case 'barr': return g.buyBarracks(cmd.lane, side);
+    case 'glyph': return g.glyph(side);
     case 'help': return g.callHelp(side, cmd.lane, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recallHero': { const h = hero(cmd.uid); if (h) g.recallHero(h); return !!h; }
     case 'auto': g.autoCast[side] = !!cmd.on; return true;
@@ -576,7 +580,7 @@ function buildPanel() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'btn cb';
-    b.onclick = () => { if (!act({ c: 'creep', lane: l })) sound.play('deny'); };
+    b.onclick = () => openShop({ kind: 'barracks', lane: l });
     cb.appendChild(b);
     return b;
   });
@@ -655,9 +659,11 @@ function syncPanel() {
     const cost = g.creepUpCost(l, me);
     const wait = BAL.creepLvlEvery * cap - g.t;
     const tail = lvl >= BAL.creepMaxLvl ? 'макс' : maxed ? `через ${Math.ceil(wait)} с` : '▲ ' + cost;
-    const html = `<span>Крипы ${LANE_SHORT[l]}</span><small>${lvl} · враг ${g.creepLvl[l][foe()]}</small><span class="cost">${tail}</span>`;
+    const bl = g.barracks[l][me];
+    const html = `<span>Барак ${LANE_SHORT[l]}</span><small>${lvl} · враг ${g.creepLvl[l][foe()]}</small><span class="cost">${tail}${bl ? ` · ★${bl}` : ''}</span>`;
     if (b.dataset.h !== html) { b.innerHTML = html; b.dataset.h = html; }
-    b.disabled = maxed || g.gold[me] < cost;
+    const bc = g.barracksCost(l, me);
+    b.classList.toggle('can', (!maxed && g.gold[me] >= cost) || (bc !== null && g.gold[me] >= bc));
   });
   bossBtns.forEach((b, nid) => {
     const n = g.neutrals[nid];
@@ -692,6 +698,12 @@ function syncPanel() {
     const html = `<i>⇄</i>Подмога<small>${st}</small>`;
     if (hb.dataset.h !== html) { hb.innerHTML = html; hb.dataset.h = html; }
     hb.classList.toggle('alive', g.canHelp(me));
+  }
+  {
+    const cheapest = (ks: ('armor' | 'fury' | 'mana' | 'gun')[]) => Math.min(...ks.map((k) => g.upgCost(me, k) ?? Infinity));
+    $('altarBtn').classList.toggle('can', g.gold[me] >= cheapest(['armor', 'fury', 'mana']));
+    $('throneBtn').classList.toggle('can', g.gold[me] >= cheapest(['gun']) || g.canGlyph(me));
+    if (!$('shopModal').hidden) renderShop();
   }
   $('recallAll').hidden = !g.heroes.some((h) => h.side === me && h.trip && h.trip.phase !== 'back');
   const counts = g.raceCounts(me);
@@ -823,6 +835,90 @@ $('tripRecall').onclick = () => {
   act({ c: 'recall', nid: tripNid });
   closeTrip();
 };
+
+// ---------- окно улучшений: алтарь, трон, бараки ----------
+type ShopWhat = { kind: 'altar' } | { kind: 'throne' } | { kind: 'barracks'; lane: number };
+let shop: ShopWhat = { kind: 'altar' };
+
+function openShop(what: ShopWhat) {
+  if (!game) return;
+  sound.play('tap');
+  shop = what;
+  $('shopRows').innerHTML = '';
+  renderShop();
+  $('shopModal').hidden = false;
+  modalPause = true;
+}
+
+function pips(lvl: number, max: number) {
+  return `<span class="pips">${Array.from({ length: max }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</span>`;
+}
+
+function shopRow(icon: string, name: string, text: string, lvl: number, max: number, btn: string, act: string, ok: boolean) {
+  return `<div class="shop-row"><span class="ico">${icon}</span><span><b>${name}</b><small>${text}</small>${max ? pips(lvl, max) : ''}</span>`
+    + `<button type="button" class="btn ${ok ? 'primary' : 'ghost'}" data-act="${act}" ${ok ? '' : 'disabled'}>${btn}</button></div>`;
+}
+
+function renderShop() {
+  const g = game;
+  if (!g) return;
+  const gold = g.gold[me];
+  const buy = (cost: number | null) => (cost === null ? 'макс' : `◆ ${cost}`);
+  let title = '';
+  let text = '';
+  let rows = '';
+  if (shop.kind === 'altar') {
+    title = 'Алтарь';
+    text = 'Ауры для всех твоих героев. Действуют всю игру, без ограничения по времени.';
+    for (const k of ['armor', 'fury', 'mana'] as const) {
+      const a = BAL.altar[k];
+      const c = g.upgCost(me, k);
+      rows += shopRow(a.icon, a.name, a.text, g.upg[me][k], BAL.upgCost.length, buy(c), 'upg:' + k, c !== null && gold >= c);
+    }
+  } else if (shop.kind === 'throne') {
+    title = 'Трон';
+    text = 'Пушка трона отстреливает вражеских крипов у базы. Глиф спасает линии в беде.';
+    const c = g.upgCost(me, 'gun');
+    rows += shopRow(BAL.gunUp.icon, BAL.gunUp.name, BAL.gunUp.text, g.upg[me].gun, BAL.upgCost.length, buy(c), 'upg:gun', c !== null && gold >= c);
+    const gl = g.glyphT[me] > 0 ? `действует ${Math.ceil(g.glyphT[me])} с` : g.glyphCd[me] > 0 ? `через ${Math.ceil(g.glyphCd[me])} с` : `◆ ${BAL.glyph.cost}`;
+    rows += shopRow('✺', 'Глиф', `Все герои на линиях ${BAL.glyph.dur} с не получают урона. Перезарядка ${BAL.glyph.cd} с.`, 0, 0, gl, 'glyph', g.canGlyph(me));
+  } else {
+    const l = shop.lane;
+    title = `Барак: ${LANE_NAMES[l].toLowerCase()} линия`;
+    text = 'Отсюда выходят крипы этой линии.';
+    const lvl = g.creepLvl[l][me];
+    const cap = g.creepCap();
+    const cc = g.creepUpCost(l, me);
+    const capped = lvl >= cap;
+    const btn = lvl >= BAL.creepMaxLvl ? 'макс' : capped ? `через ${Math.ceil(BAL.creepLvlEvery * cap - g.t)} с` : `◆ ${cc}`;
+    rows += shopRow('⚔', 'Сила крипов', `Уровень ${lvl}, у врага ${g.creepLvl[l][foe()]}. +20% HP и урона за уровень. Сейчас можно до ${cap}.`, 0, 0, btn, 'creep:' + l, !capped && gold >= cc);
+    const bl = g.barracks[l][me];
+    const bc = g.barracksCost(l, me);
+    const ex = (i: number) => { const [m, r] = BAL.barracksExtra[i]; return [m ? `+${m} мечн.` : '', r ? `+${r} лучн.` : ''].filter(Boolean).join(' '); };
+    const next = bl < BAL.barracksCost.length ? `Следующий: ${ex(bl + 1)} в каждой волне.` : 'Барак улучшен полностью.';
+    rows += shopRow('⌂', 'Уровень барака', `${bl ? `Сейчас: ${ex(bl)}. ` : ''}${next}`, bl, BAL.barracksCost.length, buy(bc), 'barr:' + l, bc !== null && gold >= bc);
+  }
+  $('shopTitle').textContent = title;
+  $('shopText').textContent = `${text} Золото: ${Math.floor(gold)}.`;
+  const box = $('shopRows');
+  if (box.dataset.h !== rows) { box.innerHTML = rows; box.dataset.h = rows; }
+}
+
+$('shopRows').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLButtonElement | null;
+  if (!b || b.disabled || !game) return;
+  const [a, v] = b.dataset.act!.split(':');
+  const cmd = a === 'upg' ? { c: 'upg', k: v } : a === 'barr' ? { c: 'barr', lane: Number(v) } : a === 'creep' ? { c: 'creep', lane: Number(v) } : { c: 'glyph' };
+  if (act(cmd)) sound.play('tap'); else sound.play('deny');
+  if (a === 'glyph') closeShop();
+});
+function closeShop() {
+  $('shopModal').hidden = true;
+  modalPause = false;
+}
+$('shopClose').onclick = closeShop;
+$('altarBtn').onclick = () => openShop({ kind: 'altar' });
+$('throneBtn').onclick = () => openShop({ kind: 'throne' });
 
 // ---------- окно подмоги ----------
 let helpLane = 0;
@@ -976,6 +1072,12 @@ const endPtr = (e: PointerEvent) => {
   const w = renderer.toWorld(p.x, p.y);
   const h = renderer.heroAt(w.x, w.y);
   if (h && h.side === me) { selected = h; return; }
+  const bld = renderer.buildingAt(w.x, w.y);
+  if (bld && bld.side === me) {
+    if (bld.kind === 'barracks') openShop({ kind: 'barracks', lane: bld.lane! });
+    else openShop({ kind: bld.kind });
+    return;
+  }
   const n = renderer.neutralAt(w.x, w.y);
   if (n) { openTrip(n.id); return; }
   selected = null;

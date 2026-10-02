@@ -53,6 +53,15 @@ export class Bot {
       if (list.length && g.callHelp(me, worst, list)) return;
     }
 
+    // Глиф: линию продавили глубоко, а её герои почти мертвы
+    if (this.level !== 'easy' && g.canGlyph(me)) {
+      for (let l = 0; l < 3; l++) {
+        if (g.depth(l, me) < 2 && !g.atThrone(l, me)) continue;
+        const hs = g.heroesOn(l, me).filter((h) => !h.dead && !h.trip);
+        if (hs.length && hs.every((h) => h.hp < h.maxHp * 0.35) && g.glyph(me)) return;
+      }
+    }
+
     if (worst >= 0 && worstGap >= (this.style === 'rush' ? 3 : 1)) {
       if (g.upgradeCreeps(worst, me)) return;
       // на сложном копим золото на оборону, пока лимит не позволит усилить эту линию
@@ -62,12 +71,37 @@ export class Bot {
 
     // Нападение: давим одну выбранную линию, иногда меняем фокус.
     if (this.style === 'rush') {
-      if (!g.upgradeCreeps(this.focus, me)) for (const l of [0, 1, 2]) if (g.upgradeCreeps(l, me)) break;
+      if (!g.upgradeCreeps(this.focus, me)) for (const l of [0, 1, 2]) if (g.upgradeCreeps(l, me)) return;
+      this.spendRest(g);
       return;
     }
     if (Math.random() < 0.04) this.focus = Math.floor(Math.random() * 3);
-    // золото тратится только на крипов: сначала на линию фокуса, потом на остальные
-    if (!g.upgradeCreeps(this.focus, me)) for (const l of [0, 1, 2].sort(() => Math.random() - 0.5)) if (g.upgradeCreeps(l, me)) break;
+    // сначала крипы: линия фокуса, потом остальные; упёрлись в лимит времени — улучшения
+    if (g.upgradeCreeps(this.focus, me)) return;
+    for (const l of [0, 1, 2].sort(() => Math.random() - 0.5)) if (g.upgradeCreeps(l, me)) return;
+    this.spendRest(g);
+  }
+
+  /** Золото, которое некуда деть в крипов: алтарь, пушка, бараки. Держим запас на глиф. */
+  private spendRest(g: Game) {
+    const me = this.side;
+    if (this.level === 'easy' && Math.random() < 0.6) return;
+    const reserve = g.glyphCd[me] <= 0 ? 0 : 200;
+    const opts: (() => boolean)[] = [];
+    const costs: number[] = [];
+    for (const k of ['armor', 'fury', 'mana', 'gun'] as const) {
+      const c = g.upgCost(me, k);
+      if (c !== null) { opts.push(() => g.buyUpg(me, k)); costs.push(c); }
+    }
+    for (let l = 0; l < 3; l++) {
+      const c = g.barracksCost(l, me);
+      if (c !== null) { opts.push(() => g.buyBarracks(l, me)); costs.push(c * (l === this.focus ? 0.8 : 1.1)); }
+    }
+    if (!opts.length) return;
+    // самое дешёвое из доступного — так прокачка идёт ровно
+    let best = 0;
+    for (let i = 1; i < opts.length; i++) if (costs[i] < costs[best]) best = i;
+    if (g.gold[me] - reserve >= costs[best]) opts[best]();
   }
 
   /** Линии нужна подмога: мы глубоко, а живых героев там мало или они ранены. */

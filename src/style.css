@@ -249,6 +249,20 @@ canvas { display: block; }
 .help-lanes button { min-width: 84px; }
 .help-lanes button small { display: block; font-weight: 400; font-size: 10px; color: var(--muted); }
 .help-lanes button[aria-checked="true"] { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.dock-row { display: flex; gap: 6px; align-items: center; }
+.base-btn { display: flex; align-items: center; gap: 4px; padding: 5px 9px; font-size: 12px; }
+.base-btn i { font-style: normal; color: var(--gold); }
+.base-btn.can { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.cb.can { border-color: var(--gold); }
+.shop-rows { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.shop-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+.shop-row .ico { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #17142a; color: var(--gold); font-size: 17px; }
+.shop-row b { display: block; font-size: 14px; }
+.shop-row small { display: block; color: var(--muted); font-size: 12px; line-height: 1.25; }
+.shop-row .pips { display: flex; gap: 3px; margin-top: 4px; }
+.shop-row .pips i { width: 14px; height: 5px; border-radius: 2px; background: #0d0b18; }
+.shop-row .pips i.on { background: var(--gold); }
+.shop-row .btn { min-width: 92px; padding: 8px 10px; font-size: 13px; }
 .warn { color: #ffb347; margin: 0; font-size: 13px; min-height: 1em; }
 
 /* вертикальный телефон — всё в столбик снизу */

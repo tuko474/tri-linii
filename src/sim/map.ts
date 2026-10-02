@@ -76,6 +76,29 @@ export const THRONE_R = 120;
 /** Куда отходят герои, когда все вышки линии потеряны. */
 export const GUARD_R = 300;
 
+/** Барак стоит у начала каждой линии: на этом расстоянии от трона, сбоку от дороги. Оттуда выходят крипы. */
+export const BARRACKS_S = 270;
+export const BARRACKS_OFF = 135;
+/** Где стоит барак линии: сбоку от дороги, с той стороны, где дальше от соседних линий. */
+export function barracksPos(lanes: LaneGeo[], lane: number, side: 0 | 1): { x: number; y: number } {
+  const L = lanes[lane];
+  const s = side === 0 ? BARRACKS_S : L.length - BARRACKS_S;
+  let best = L.pos(s, BARRACKS_OFF);
+  let bd = -1;
+  for (const off of [BARRACKS_OFF, -BARRACKS_OFF]) {
+    const p = L.pos(s, off);
+    const d = Math.min(...lanes.filter((_, i) => i !== lane).map((o) => o.dist(p.x, p.y)));
+    if (d > bd) { bd = d; best = p; }
+  }
+  return best;
+}
+
+/** Алтарь — за троном, в углу базы. */
+export const ALTAR_POS: [{ x: number; y: number }, { x: number; y: number }] = [
+  { x: THRONE_POS[0].x - 175, y: THRONE_POS[0].y + 175 },
+  { x: THRONE_POS[1].x + 175, y: THRONE_POS[1].y - 175 },
+];
+
 export const LANE_NAMES = ['Верхняя', 'Центральная', 'Нижняя'];
 export const LANE_SHORT = ['Верх', 'Центр', 'Низ'];
 
