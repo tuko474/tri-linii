@@ -470,3 +470,21 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .update-bar { display: inline-flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px; border-radius: 999px; background: #1c2a40; border: 1px solid #3a6a88; color: #dff0ff; font-size: 13px; text-decoration: none; }
 .update-bar b { background: var(--gold); color: #1b1630; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
 .update-bar[hidden] { display: none; }
+
+/* звёзды героев */
+.stars { display: inline-flex; gap: 1px; font-size: 15px; line-height: 1; letter-spacing: 0; }
+.stars i { font-style: normal; color: #4a4466; }
+.stars i.on { color: var(--gold); text-shadow: 0 0 6px rgba(243,210,122,.55); }
+.stars.small { font-size: 11px; }
+.card .star-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card .star-line small { color: var(--muted); font-size: 11px; }
+.card .skill2.off { opacity: .55; }
+.card .skill2.off .skill-ico { filter: grayscale(.9); }
+.card .skill2 em { font-style: normal; color: var(--gold); }
+.card.maxed { border-color: rgba(243,210,122,.6); }
+.card .star-up { margin-top: auto; padding: 7px 10px; font-size: 13px; color: #1b1630; background: var(--gold); border-color: var(--gold); }
+.card .star-up:disabled { color: var(--muted); border-color: var(--line); background: var(--panel); }
+.tile-stars { position: absolute; left: 4px; top: 3px; font-size: 10px; color: var(--gold); background: rgba(23,20,42,.8); border-radius: 6px; padding: 0 4px; line-height: 15px; }
+.st-gold { color: var(--gold); }
+.hb > .s2 { position: absolute; left: -3px; top: 20px; z-index: 2; pointer-events: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--night); filter: grayscale(1) brightness(.6); transition: filter .2s; }
+.hb > .s2.on { filter: none; border-color: var(--gold); box-shadow: 0 0 8px rgba(255,230,128,.8); }

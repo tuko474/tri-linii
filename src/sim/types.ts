@@ -16,6 +16,8 @@ export interface Hero {
   maxMana: number;
   dmg: number;
   cd: number; // перезарядка способности
+  stars: number; // звёзды 0..5: бонус к HP, урону и силе способностей; на 5★ — вторая способность
+  cd2: number; // перезарядка второй способности
   atkCd: number;
   dead: boolean;
   respawn: number;
@@ -131,4 +133,5 @@ export interface Sfx {
 export interface Pick {
   heroId: string;
   lane: number;
+  stars?: number; // звёзды героя 0..5 (прокачка вне боя)
 }

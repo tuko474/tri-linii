@@ -60,9 +60,11 @@ export interface HeroDef {
   range: number;
   rate: number;
   skill: SkillDef;
+  /** Вторая способность: открывается на 5★, срабатывает сама, без маны. */
+  skill2: SkillDef;
 }
 
-export const HEROES: HeroDef[] = [
+const HERO_LIST: Omit<HeroDef, 'skill2'>[] = [
   // ---------- Стихии ----------
   {
     id: 'frost', name: 'Инеята', role: 'Маг холода', race: 'elemental', proto: 'Crystal Maiden', color: '#7cc8f0', glyph: 'И', price: 0,
@@ -252,6 +254,43 @@ export const HEROES: HeroDef[] = [
     skill: { name: 'Реквием душ', kind: 'blast', icon: 'eye', desc: 'Огромный урон тьмой по группе', mana: 110, cd: 10, power: 160, perLvl: 42, radius: 125 },
   },
 ];
+
+type S2 = Omit<SkillDef, 'mana'>;
+/** Вторые способности (5★). Срабатывают автоматически по перезарядке, маны не тратят. */
+const SKILL2: Record<string, S2> = {
+  frost: { name: 'Морозная аура', kind: 'around', icon: 'snowflake', desc: 'Холод вокруг: урон и замедление всех рядом', cd: 14, power: 50, perLvl: 14, radius: 160, slow: 0.6, slowT: 2 },
+  storm: { name: 'Гроза', kind: 'volley', icon: 'lightning', desc: 'Молнии бьют 4 цели', cd: 15, power: 70, perLvl: 20, count: 4 },
+  fire: { name: 'Огненный шквал', kind: 'chain', icon: 'flame', desc: 'Огонь перескакивает по 4 крипам', cd: 15, power: 75, perLvl: 20, count: 4 },
+  windy: { name: 'Порыв ветра', kind: 'snipe', icon: 'storm', desc: 'Вихрь в самого крепкого крипа', cd: 14, power: 180, perLvl: 45, range: 320 },
+  necro: { name: 'Жатва', kind: 'snipe', icon: 'skull', desc: 'Коса по самому крепкому крипу', cd: 16, power: 200, perLvl: 50 },
+  healer: { name: 'Проклятие вуду', kind: 'blast', icon: 'skull', desc: 'Урон по группе и замедление', cd: 15, power: 80, perLvl: 22, radius: 110, slow: 0.6, slowT: 2 },
+  bone: { name: 'Костяной град', kind: 'volley', icon: 'arrows', desc: 'Стрелы в 4 цели', cd: 13, power: 60, perLvl: 17, count: 4 },
+  ghoul: { name: 'Пир', kind: 'drain', icon: 'claws', desc: 'Рвёт всех рядом, герои линии лечатся', cd: 15, power: 45, perLvl: 13 },
+  archer: { name: 'Ледяная стрела', kind: 'snipe', icon: 'crosshair', desc: 'Меткий выстрел в самого крепкого', cd: 14, power: 170, perLvl: 42, range: 400 },
+  shaman: { name: 'Сглаз', kind: 'blast', icon: 'serpent', desc: 'Оглушает группу крипов', cd: 16, power: 60, perLvl: 16, radius: 100, stun: 1.2 },
+  bear: { name: 'Неистовство', kind: 'around', icon: 'paw', desc: 'Шквал ударов по всем рядом', cd: 13, power: 90, perLvl: 24, radius: 140 },
+  sniper: { name: 'Шрапнель', kind: 'blast', icon: 'firearrows', desc: 'Дробь по группе и замедление', cd: 14, power: 70, perLvl: 19, radius: 120, slow: 0.7, slowT: 2 },
+  paladin: { name: 'Защита веры', kind: 'heal', icon: 'cross', desc: 'Лечит героев линии', cd: 18, power: 130, perLvl: 30, radius: 140 },
+  banner: { name: 'Ополчение', kind: 'wards', icon: 'horn', desc: '2 воина сражаются 10 секунд', cd: 20, power: 18, perLvl: 5, count: 2 },
+  axe: { name: 'Встречный вихрь', kind: 'around', icon: 'axes', desc: 'Секира бьёт всех рядом', cd: 11, power: 60, perLvl: 16, radius: 140 },
+  quake: { name: 'Эхо удара', kind: 'around', icon: 'quake', desc: 'Ударная волна по всем рядом', cd: 16, power: 70, perLvl: 19, radius: 190 },
+  golem: { name: 'Бросок', kind: 'blast', icon: 'boulder', desc: 'Швыряет камень в группу', cd: 15, power: 110, perLvl: 28, radius: 110, range: 260 },
+  lich: { name: 'Ледяной взрыв', kind: 'blast', icon: 'snowflake', desc: 'Взрыв льда по группе и замедление', cd: 15, power: 85, perLvl: 23, radius: 120, slow: 0.5, slowT: 2 },
+  tide: { name: 'Щупальца', kind: 'around', icon: 'wave', desc: 'Оглушает всех рядом', cd: 18, power: 60, perLvl: 17, radius: 180, stun: 1.2 },
+  wolf: { name: 'Вой', kind: 'around', icon: 'howl', desc: 'Вой рвёт всех рядом', cd: 13, power: 70, perLvl: 19, radius: 150 },
+  treant: { name: 'Листва', kind: 'heal', icon: 'leaf', desc: 'Лечит героев линии', cd: 16, power: 120, perLvl: 28, radius: 140 },
+  dragon: { name: 'Удар хвостом', kind: 'snipe', icon: 'fist', desc: 'Тяжёлый удар по самому крепкому', cd: 13, power: 160, perLvl: 40, range: 180 },
+  alch: { name: 'Кислотный взрыв', kind: 'blast', icon: 'potion', desc: 'Взрыв по группе и оглушение', cd: 15, power: 80, perLvl: 21, radius: 120, stun: 1 },
+  centaur: { name: 'Возмездие', kind: 'around', icon: 'horn', desc: 'Отдача бьёт всех рядом', cd: 13, power: 75, perLvl: 20, radius: 150 },
+  tusk: { name: 'Снежок', kind: 'blast', icon: 'snowflake', desc: 'Снежный ком по группе и оглушение', cd: 15, power: 90, perLvl: 24, radius: 110, stun: 1, range: 300 },
+  phantom: { name: 'Кинжал', kind: 'snipe', icon: 'dagger', desc: 'Бросок кинжала в самого крепкого', cd: 12, power: 190, perLvl: 48, range: 300 },
+  stalker: { name: 'Ночной ужас', kind: 'around', icon: 'moon', desc: 'Страх: урон и замедление всех рядом', cd: 14, power: 65, perLvl: 18, radius: 150, slow: 0.6, slowT: 2 },
+  weaver: { name: 'Паутина', kind: 'blast', icon: 'web', desc: 'Сеть по группе: урон и сильное замедление', cd: 15, power: 50, perLvl: 14, radius: 130, slow: 0.4, slowT: 3 },
+  whisper: { name: 'Удар из тени', kind: 'snipe', icon: 'dagger', desc: 'Клинок в спину самому крепкому', cd: 13, power: 200, perLvl: 50, range: 240 },
+  soul: { name: 'Разрыв души', kind: 'volley', icon: 'eye', desc: 'Тьма бьёт 4 цели', cd: 13, power: 70, perLvl: 19, count: 4 },
+};
+
+export const HEROES: HeroDef[] = HERO_LIST.map((h) => ({ ...h, skill2: { ...SKILL2[h.id], mana: 0 } }));
 
 export const heroById = (id: string): HeroDef => {
   const h = HEROES.find((x) => x.id === id);

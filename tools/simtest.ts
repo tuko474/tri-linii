@@ -5,9 +5,11 @@ import { Bot, botPicks } from '../src/sim/bot';
 
 const N = Number(process.argv[2] ?? 20);
 const RUSH = process.argv[3] === 'rush';
+// stars=A,B — звёзды всех героев стороны 0 и 1 (например stars=5,0)
+const STARS = (process.argv.find((a) => a.startsWith('stars=')) ?? 'stars=0,0').slice(6).split(',').map(Number);
 const res: { winner: number | null; t: number; pushes: number[]; lvl: number; lords: number[]; turtles: number[]; camps: number[] }[] = [];
 for (let i = 0; i < N; i++) {
-  const g = new Game([botPicks(), botPicks()], 'normal');
+  const g = new Game([botPicks().map((p) => ({ ...p, stars: STARS[0] })), botPicks().map((p) => ({ ...p, stars: STARS[1] }))], 'normal');
   g.autoCast = [true, true];
   const HARD = process.argv[4] === 'hard';
   const bots = [new Bot(0, RUSH ? 'rush' : 'normal'), new Bot(1, 'normal', HARD ? 'hard' : 'normal')];

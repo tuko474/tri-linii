@@ -14,6 +14,7 @@ export interface Profile {
   losses: number;
   crystals: number;
   owned: string[];
+  stars?: Record<string, number>; // нет у старого сервера
   hasPass: boolean;
 }
 

@@ -2,7 +2,7 @@
 import { BAL, Difficulty, WORLD } from './data/config';
 import { HEROES, HeroDef, STARTER_IDS, heroById } from './data/heroes';
 import { RACES, RACE_IDS, RaceId, tierIndex } from './data/races';
-import { portraitURL, raceURL, skillURL, drawCastleFigure } from './render/art';
+import { portraitURL, raceURL, skillURL, skill2URL, drawCastleFigure } from './render/art';
 import { Sound } from './audio';
 import { Renderer, clock } from './render/renderer';
 import { Bot } from './sim/bot';
@@ -26,14 +26,30 @@ const store = {
 
 let difficulty: Difficulty = (store.get('tl-diff') as Difficulty) || 'normal';
 // ---------- прогресс игрока: кристаллы и открытые герои ----------
+function parseJSON(v: string | null): unknown { try { return v ? JSON.parse(v) : null; } catch { return null; } }
+/** Звёзды из хранилища или с сервера: только известные герои, целые 1..5. */
+function cleanStars(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (v && typeof v === 'object') for (const [id, n] of Object.entries(v as Record<string, unknown>)) {
+    const k = Math.floor(Number(n));
+    if (HEROES.some((h) => h.id === id) && k > 0) out[id] = Math.min(BAL.stars.max, k);
+  }
+  return out;
+}
+const progressMsg = () => ({ t: 'save', crystals: meta.crystals, owned: [...meta.owned], stars: meta.stars });
+
 const meta = {
   crystals: Number(store.get('tl-crystals') ?? 300), // стартовый подарок, чтобы сразу открыть одного героя
   owned: new Set<string>([...STARTER_IDS, ...(store.get('tl-owned') || '').split(',').filter((id) => HEROES.some((h) => h.id === id))]),
+  /** Звёзды героев 0..5 (прокачка за кристаллы). */
+  stars: cleanStars(parseJSON(store.get('tl-stars'))),
+  starsOf(id: string): number { return this.stars[id] ?? 0; },
   save() {
     store.set('tl-crystals', String(this.crystals));
     store.set('tl-owned', [...this.owned].join(','));
+    store.set('tl-stars', JSON.stringify(this.stars));
     // на сервер; если связи нет — отправим при следующем входе
-    if (online.me && online.ready) online.send({ t: 'save', crystals: this.crystals, owned: [...this.owned] });
+    if (online.me && online.ready) online.send(progressMsg());
     else store.set('tl-dirty', '1');
   },
 };
@@ -174,6 +190,15 @@ function renderRaces() {
 }
 
 // ---------- коллекция героев (просмотр и покупка) ----------
+/** Ряд звёзд героя: закрашенные и пустые. */
+function starsHTML(n: number, small = false): string {
+  return `<span class="stars${small ? ' small' : ''}" aria-label="${n} из ${BAL.stars.max} звёзд">${Array.from({ length: BAL.stars.max }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('')}</span>`;
+}
+/** Чем помогают звёзды: одной строкой. */
+function starBonusText(n: number): string {
+  return `+${Math.round(n * BAL.stars.hp * 100)}% HP и урона, +${Math.round(n * BAL.stars.spell * 100)}% к силе способностей`;
+}
+
 function renderCards() {
   syncCrystals();
   const el = $('cards');
@@ -190,15 +215,21 @@ function renderCards() {
       el.appendChild(hd);
     }
     const owned = meta.owned.has(h.id);
+    const st = meta.starsOf(h.id);
+    const upCost = BAL.stars.cost[st] ?? 0;
     const b = document.createElement('div');
-    b.className = 'card' + (owned ? '' : ' locked');
+    b.className = 'card' + (owned ? '' : ' locked') + (st >= BAL.stars.max ? ' maxed' : '');
     const race = RACES[h.race];
     b.innerHTML = `
       <div class="card-head">${portrait(h)}<div><h3>${h.name}</h3><div class="role">${h.role}</div>
         <span class="race-tag" style="--rc:${race.color}"><img src="${raceURL(h.race, 40)}" alt="">${race.name}</span></div></div>
-      <div class="nums"><span>HP ${h.hp}</span><span>урон ${h.dmg}</span><span>дальн. ${h.range}</span></div>
+      <div class="star-line">${starsHTML(st)}<small>${st ? starBonusText(st) : owned ? 'звёзды усиливают героя' : ''}</small></div>
+      <div class="nums"><span>HP ${Math.round(h.hp * (1 + BAL.stars.hp * st))}</span><span>урон ${Math.round(h.dmg * (1 + BAL.stars.dmg * st))}</span><span>дальн. ${h.range}</span></div>
       <div class="skill"><img class="skill-ico" src="${skillURL(h)}" alt=""><span><b>${h.skill.name}.</b> ${h.skill.desc}</span></div>
-      ${owned ? '<span class="owned-tag">Открыт</span>' : `<button type="button" class="btn buy" ${meta.crystals < h.price ? 'disabled' : ''}>Открыть за ✦ ${h.price}</button>`}`;
+      <div class="skill skill2${st >= BAL.stars.max ? '' : ' off'}"><img class="skill-ico" src="${skill2URL(h)}" alt=""><span><b>${h.skill2.name}.</b> ${h.skill2.desc}. ${st >= BAL.stars.max ? `Срабатывает сама, раз в ${h.skill2.cd} с.` : `<em>Откроется на ${BAL.stars.max}★.</em>`}</span></div>
+      ${!owned ? `<button type="button" class="btn buy" ${meta.crystals < h.price ? 'disabled' : ''}>Открыть за ✦ ${h.price}</button>`
+        : st >= BAL.stars.max ? '<span class="owned-tag">5★ — максимум</span>'
+        : `<button type="button" class="btn star-up" ${meta.crystals < upCost ? 'disabled' : ''}>Звезда ${st + 1}★ за ✦ ${upCost}</button>`}`;
     const buy = b.querySelector('.buy') as HTMLButtonElement | null;
     if (buy) buy.onclick = () => {
       if (meta.crystals < h.price) return;
@@ -207,6 +238,20 @@ function renderCards() {
       meta.save();
       sound.play('levelUp');
       renderCards();
+    };
+    const up = b.querySelector('.star-up') as HTMLButtonElement | null;
+    if (up) up.onclick = () => {
+      const cur = meta.starsOf(h.id);
+      const cost = BAL.stars.cost[cur];
+      if (cost === undefined || meta.crystals < cost) return;
+      meta.crystals -= cost;
+      meta.stars[h.id] = cur + 1;
+      meta.save();
+      sound.play('levelUp');
+      const y = $('pick').scrollTop;
+      renderCards();
+      $('pick').scrollTop = y;
+      if (cur + 1 === BAL.stars.max) toast(`${h.name}: 5★! Открыта вторая способность «${h.skill2.name}»`, 'good');
     };
     el.appendChild(b);
   }
@@ -420,7 +465,8 @@ function renderDraft() {
     b.type = 'button';
     const lockedNow = !owned && !taken && !noOwnedFree(meta.owned);
     b.className = 'pool-hero' + (taken ? (taken.side === me ? ' taken mine' : ' taken theirs') : '') + (lockedNow ? ' locked' : '') + (draftSel === h.id ? ' sel' : '');
-    b.innerHTML = `<img src="${portraitURL(h, 72)}" alt=""><span>${h.name}</span><img class="race" src="${raceURL(h.race, 32)}" alt="${RACES[h.race].name}">${lockedNow ? '<i>🔒</i>' : ''}`;
+    const hs = owned ? meta.starsOf(h.id) : 0;
+    b.innerHTML = `<img src="${portraitURL(h, 72)}" alt=""><span>${h.name}</span><img class="race" src="${raceURL(h.race, 32)}" alt="${RACES[h.race].name}">${lockedNow ? '<i>🔒</i>' : ''}${hs ? `<b class="tile-stars">${hs}★</b>` : ''}`;
     b.onclick = () => {
       draftSel = h.id;
       renderDraft();
@@ -432,7 +478,8 @@ function renderDraft() {
     const race = RACES[sel.race];
     const trial = !meta.owned.has(sel.id) && noOwnedFree(meta.owned);
     const note = d.taken(sel.id) ? ' · уже выбран' : trial ? ' · пробный на этот бой' : !meta.owned.has(sel.id) ? ' · не открыт (открой в «Героях»)' : '';
-    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b> · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}. HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
+    const ss = meta.owned.has(sel.id) ? meta.starsOf(sel.id) : 0;
+    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b>${ss ? ` <span class="st-gold">${ss}★</span>` : ''} · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}.${ss >= BAL.stars.max ? ` 5★: «${sel.skill2.name}» — ${sel.skill2.desc.toLowerCase()}.` : ''} HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
   } else {
     $('draftInfo').textContent = turn === me && noOwnedFree(meta.owned)
       ? 'Свободных открытых героев не осталось — можно взять любого как пробного на этот бой.'
@@ -469,6 +516,13 @@ function tickDraft(now: number) {
 // ---------- расстановка ----------
 let selectedChip: string | null = null;
 let foePlacement: Pick[] | null = null;
+
+/** Звёзды героев бота — по силе твоей пятёрки: на лёгком на звезду меньше, на сложном на звезду больше. */
+function botStars(): number {
+  const avg = placement.reduce((a, p) => a + (p.stars ?? 0), 0) / Math.max(1, placement.length);
+  const shift = difficulty === 'easy' ? -1 : difficulty === 'hard' ? 1 : 0;
+  return Math.max(0, Math.min(BAL.stars.max, Math.round(avg) + shift));
+}
 let myPlacementSent = false;
 const laneCount = (l: number) => placement.filter((p) => p.lane === l).length;
 const validPlacement = () => [0, 1, 2].every((l) => laneCount(l) >= 1 && laneCount(l) <= 3);
@@ -479,11 +533,11 @@ function toPlacement() {
   const saved = store.get('tl-place');
   const prev: Pick[] = saved ? JSON.parse(saved) : [];
   const lanes = [0, 0, 1, 2, 2];
-  placement = mine.map((id, i) => ({ heroId: id, lane: prev.find((p) => p.heroId === id)?.lane ?? lanes[i] }));
-  if (!validPlacement()) placement = mine.map((id, i) => ({ heroId: id, lane: lanes[i] }));
+  placement = mine.map((id, i) => ({ heroId: id, lane: prev.find((p) => p.heroId === id)?.lane ?? lanes[i], stars: meta.starsOf(id) }));
+  if (!validPlacement()) placement = mine.map((id, i) => ({ heroId: id, lane: lanes[i], stars: meta.starsOf(id) }));
   selectedChip = null;
   myPlacementSent = false;
-  if (mode !== 'guest') foePlacement = mode === 'bot' ? botPlacement(draft.team(foe())) : foePlacement;
+  if (mode !== 'guest') foePlacement = mode === 'bot' ? botPlacement(draft.team(foe())).map((p) => ({ ...p, stars: botStars() })) : foePlacement;
   $('placeWait').hidden = true;
   $<HTMLButtonElement>('startBattle').hidden = false;
   renderPlace();
@@ -669,6 +723,15 @@ function buildPanel() {
     back.hidden = true;
     back.onclick = () => { act({ c: 'recallHero', uid: h.uid }); sound.play('tap'); };
     wrap.append(lname, cast, up, back);
+    if (h.stars >= BAL.stars.max) {
+      // значок второй способности (5★): светится, когда готова
+      const s2 = document.createElement('img');
+      s2.className = 's2';
+      s2.src = skill2URL(h.def, 48);
+      s2.alt = '';
+      s2.title = `${h.def.skill2.name}: срабатывает сама`;
+      wrap.appendChild(s2);
+    }
     hb.appendChild(wrap);
     heroBtns.push({
       h, cast, up, back, lname,
@@ -739,6 +802,8 @@ function syncPanel() {
     else if (h.cd > 0) { b.cdv.hidden = false; b.cdv.textContent = String(Math.ceil(h.cd)); }
     else b.cdv.hidden = true;
     b.mana.style.width = (100 * h.mana) / h.maxMana + '%';
+    const s2 = b.cast.parentElement!.querySelector<HTMLElement>('.s2');
+    if (s2) s2.classList.toggle('on', h.cd2 <= 0 && !h.dead);
     const trip = h.trip ? (h.trip.phase === 'back' ? '↩' : '⚔') : '';
     b.back.hidden = !h.trip || h.trip.phase === 'back';
     b.badge.hidden = !trip;
@@ -1305,15 +1370,19 @@ function applyServerProgress() {
   if (store.get('tl-dirty') === '1' && store.get('tl-acc-synced') === p.id) {
     // играли без связи — отправляем своё
     store.set('tl-dirty', '0');
-    online.send({ t: 'save', crystals: meta.crystals, owned: [...meta.owned] });
+    online.send(progressMsg());
     return;
   }
   store.set('tl-acc-synced', p.id);
   store.set('tl-dirty', '0');
   meta.crystals = p.crystals;
   meta.owned = new Set([...STARTER_IDS, ...p.owned.filter((id) => HEROES.some((h) => h.id === id))]);
+  // старый сервер звёзд не знает — тогда оставляем свои и отправим их при следующем сохранении
+  if (p.stars) meta.stars = cleanStars(p.stars);
+  else if (Object.keys(meta.stars).length) online.send(progressMsg());
   store.set('tl-crystals', String(meta.crystals));
   store.set('tl-owned', [...meta.owned].join(','));
+  store.set('tl-stars', JSON.stringify(meta.stars));
   syncCrystals();
 }
 
@@ -1414,7 +1483,7 @@ $('regBtn').onclick = () => {
   const name = $<HTMLInputElement>('regName').value.trim();
   if (name.length < 2) { $('accStatus').textContent = 'Имя — хотя бы 2 символа'; return; }
   store.set('tl-dirty', '0');
-  online.send({ t: 'register', name, crystals: meta.crystals, owned: [...meta.owned] });
+  online.send({ t: 'register', name, crystals: meta.crystals, owned: [...meta.owned], stars: meta.stars });
   $('accStatus').textContent = 'Создаём…';
 };
 $('loginBtn').onclick = () => {

@@ -2,6 +2,7 @@
 // Это пригодится для онлайна: тот же код сможет крутиться на сервере.
 import { BAL, CreepKind, Difficulty, WORLD } from '../data/config';
 import { heroById } from '../data/heroes';
+import type { SkillDef } from '../data/heroes';
 import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
 import { BARRACKS_S, CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx, Side, Target, Ward } from './types';
@@ -67,6 +68,7 @@ export class Game {
         this.heroes.push({
           uid: this.uid++, def, side, lane: p.lane, lvl: 1, xp: 0,
           hp: def.hp, maxHp: def.hp, mana: def.mana * 0.5, maxMana: def.mana, dmg: def.dmg,
+          stars: Math.max(0, Math.min(BAL.stars.max, Math.floor(p.stars ?? 0))), cd2: BAL.stars.firstCd2,
           cd: 0, atkCd: 0, dead: false, respawn: 0, off: 0, s: 0, flash: 0, casts: 0, trip: null, home: p.lane, helpT: 0, moveCd: 0,
         });
       }
@@ -107,7 +109,7 @@ export class Game {
     let h = 0;
     const add = (v: number) => { h = (Math.imul(h, 31) + Math.round(v * 10)) | 0; };
     add(this.t); add(this.gold[0]); add(this.gold[1]); add(this.throne[0]); add(this.throne[1]); add(this.rs);
-    for (const x of this.heroes) { add(x.hp); add(x.mana); add(x.lvl); add(x.lane); }
+    for (const x of this.heroes) { add(x.hp); add(x.mana); add(x.lvl); add(x.lane); add(x.stars); add(x.cd2); }
     for (const s of [0, 1] as Side[]) { add(this.upg[s].armor + this.upg[s].fury * 7 + this.upg[s].mana * 49 + this.upg[s].gun * 343); add(this.glyphCd[s]); }
     add(this.creeps.length);
     for (const c of this.creeps) { add(c.hp); add(c.s); }
@@ -227,9 +229,10 @@ export class Game {
       const m = this.heroMods(h);
       const k = h.lvl - 1;
       const ratio = h.maxHp > 0 ? h.hp / h.maxHp : 1;
-      h.maxHp = h.def.hp * (1 + BAL.heroHpPerLvl * k) * m.hpMul;
+      const st = h.stars;
+      h.maxHp = h.def.hp * (1 + BAL.heroHpPerLvl * k) * m.hpMul * (1 + BAL.stars.hp * st);
       h.hp = h.dead ? 0 : Math.max(1, ratio * h.maxHp);
-      h.dmg = h.def.dmg * (1 + BAL.heroDmgPerLvl * k) * m.atkMul;
+      h.dmg = h.def.dmg * (1 + BAL.heroDmgPerLvl * k) * m.atkMul * (1 + BAL.stars.dmg * st);
       h.maxMana = h.def.mana * (1 + BAL.heroManaPerLvl * k);
     }
   }
@@ -411,13 +414,27 @@ export class Game {
     return !h.dead && h.cd <= 0 && h.mana >= h.def.skill.mana;
   }
 
-  /** Применить способность. strict=true — только если эффект стоящий (для автокаста). */
-  cast(h: Hero, strict = false): boolean {
-    if (!this.canCast(h)) return false;
-    if (h.trip) return h.trip.phase === 'fight' ? this.castTrip(h) : false;
-    const sk = h.def.skill;
+  /** Вторая способность готова: герой 5★, перезарядка прошла (маны не нужно). */
+  canCast2(h: Hero) {
+    return !h.dead && h.stars >= BAL.stars.max && h.cd2 <= 0;
+  }
+
+  private ready(h: Hero, second: boolean) {
+    return second ? this.canCast2(h) : this.canCast(h);
+  }
+
+  /** Сила способности: уровень героя, бонусы рас и звёзд. */
+  private skillPow(h: Hero, sk: SkillDef) {
+    return (sk.power + sk.perLvl * (h.lvl - 1)) * this.heroMods(h).spellMul * (1 + BAL.stars.spell * h.stars);
+  }
+
+  /** Применить способность (second — вторую, 5★). strict=true — только если эффект стоящий (для автокаста). */
+  cast(h: Hero, strict = false, second = false): boolean {
+    if (!this.ready(h, second)) return false;
+    if (h.trip) return h.trip.phase === 'fight' ? this.castTrip(h, second) : false;
+    const sk = second ? h.def.skill2 : h.def.skill;
     const mods = this.heroMods(h);
-    const pow = (sk.power + sk.perLvl * (h.lvl - 1)) * mods.spellMul;
+    const pow = this.skillPow(h, sk);
     const range = sk.range ?? h.def.range;
     let dealtSum = 0;
     const hit = (c: Creep, d: number) => { dealtSum += Math.min(d, Math.max(0, c.hp)); this.hitCreep(c, d); };
@@ -545,10 +562,11 @@ export class Game {
 
     if (ok) {
       this.dealt(h, dealtSum);
-      h.mana -= sk.mana;
-      h.cd = sk.cd * mods.cdMul;
-      h.casts++;
-      this.say(h.side, 'cast:' + sk.kind);
+      this.spent(h, sk, second, mods.cdMul);
+      if (second) {
+        const p = this.heroPos(h);
+        this.fx.push({ kind: 'text', x: p.x, y: p.y - 58, text: sk.name, color: '#ffe680', t: 0, life: 1 });
+      }
     }
     return ok;
   }
@@ -747,6 +765,7 @@ export class Game {
     const tg = this.tripTarget(h);
     if (!tg) { t.phase = 'back'; return; }
     if (this.autoCast[h.side] && this.canCast(h)) this.castTrip(h);
+    if (this.canCast2(h)) this.castTrip(h, true);
     h.atkCd -= dt;
     if (h.atkCd > 0) return;
     h.atkCd = h.def.rate * this.heroMods(h).rateMul;
@@ -759,11 +778,11 @@ export class Game {
   }
 
   /** Способность в походе: бьёт текущую цель, лекари лечат свой отряд. */
-  private castTrip(h: Hero): boolean {
-    if (!this.canCast(h)) return false;
-    const sk = h.def.skill;
+  private castTrip(h: Hero, second = false): boolean {
+    if (!this.ready(h, second)) return false;
+    const sk = second ? h.def.skill2 : h.def.skill;
     const mods = this.heroMods(h);
-    const pow = (sk.power + sk.perLvl * (h.lvl - 1)) * mods.spellMul;
+    const pow = this.skillPow(h, sk);
     const mates = this.party(h.trip!.nid, h.side, 'fight');
     if (sk.kind === 'heal') {
       if (!mates.some((m) => m.hp < m.maxHp * 0.8)) return false;
@@ -783,11 +802,17 @@ export class Game {
       this.dealt(h, dmg * 0.7);
       if (sk.kind === 'drain') for (const m of mates) this.healHero(m, pow * 0.4);
     }
+    this.spent(h, sk, second, mods.cdMul);
+    return true;
+  }
+
+  /** Списать ману и запустить перезарядку после применения способности. */
+  private spent(h: Hero, sk: SkillDef, second: boolean, cdMul: number) {
     h.mana -= sk.mana;
-    h.cd = sk.cd * mods.cdMul;
+    if (second) h.cd2 = sk.cd * cdMul;
+    else h.cd = sk.cd * cdMul;
     h.casts++;
     this.say(h.side, 'cast:' + sk.kind);
-    return true;
   }
 
   private updateNeutrals(dt: number) {
@@ -1028,12 +1053,14 @@ export class Game {
         continue;
       }
       h.cd = Math.max(0, h.cd - dt);
+      h.cd2 = Math.max(0, h.cd2 - dt);
       h.mana = Math.min(h.maxMana, h.mana + (3 + 0.35 * h.lvl) * (1 + this.upg[h.side].mana * BAL.altar.mana.per) * dt);
       h.hp = Math.min(h.maxHp, h.hp + h.maxHp * BAL.heroRegen * dt);
       this.gainXp(h, BAL.xp.passive * dt);
 
       if (h.trip) { this.updateTrip(h, dt); continue; }
       if (this.autoCast[h.side] && this.canCast(h)) this.cast(h, true);
+      if (this.canCast2(h)) this.cast(h, true, true); // вторая способность всегда сама
 
       h.atkCd -= dt;
       if (h.atkCd > 0) continue;
@@ -1296,7 +1323,7 @@ export class Game {
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
       autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
-        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT), r(h.moveCd)]),
+        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT), r(h.moveCd), h.stars, r(h.cd2)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
         r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r]),
       wards: this.wards.map((w) => [w.side, w.lane, r(w.s), w.off, r(w.ttl), r(w.dmg), w.range, r(w.atkCd)]),
@@ -1319,7 +1346,7 @@ export class Game {
       h.dead = a[10] === 1; h.respawn = a[11] as number; h.off = a[12] as number; h.s = a[13] as number;
       const tr = a[14] as 0 | [number, 'go' | 'fight' | 'back', number, number, number];
       h.trip = tr ? { nid: tr[0], phase: tr[1], x: tr[2], y: tr[3], idx: tr[4] } : null;
-      h.lane = a[15] as number; h.helpT = a[16] as number; h.moveCd = a[17] as number;
+      h.lane = a[15] as number; h.helpT = a[16] as number; h.moveCd = a[17] as number; h.stars = a[18] as number; h.cd2 = a[19] as number;
     }
     this.creeps = S.creeps.map((a) => ({
       uid: a[0] as number, kind: a[1] as CreepKind, side: a[2] as Side, lane: a[3] as number, s: a[4] as number, off: a[5] as number,

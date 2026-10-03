@@ -43,15 +43,31 @@ db.exec(`
     ended INTEGER
   );
 `);
+// звёзды героев (добавлены позже — старой базе докидываем колонку)
+if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'stars')) {
+  db.exec(`ALTER TABLE users ADD COLUMN stars TEXT NOT NULL DEFAULT '{}'`);
+}
+/** Звёзды из сообщения: объект {героя: 1..5}, не больше 200 записей. */
+const cleanStars = (v) => {
+  const out = {};
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    for (const [id, n] of Object.entries(v).slice(0, 200)) {
+      const k = Math.floor(Number(n));
+      if (typeof id === 'string' && id.length <= 32 && k > 0) out[id] = Math.min(5, k);
+    }
+  }
+  return out;
+};
+
 const q = {
   byId: db.prepare('SELECT * FROM users WHERE id = ?'),
   byName: db.prepare('SELECT * FROM users WHERE name = ?'),
-  insert: db.prepare('INSERT INTO users (id, token, name, crystals, owned, created, seen) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+  insert: db.prepare('INSERT INTO users (id, token, name, crystals, owned, stars, created, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
   seen: db.prepare('UPDATE users SET seen = ? WHERE id = ?'),
   name: db.prepare('UPDATE users SET name = ? WHERE id = ?'),
   pass: db.prepare('UPDATE users SET pass = ? WHERE id = ?'),
   token: db.prepare('UPDATE users SET token = ? WHERE id = ?'),
-  save: db.prepare('UPDATE users SET crystals = ?, owned = ? WHERE id = ?'),
+  save: db.prepare('UPDATE users SET crystals = ?, owned = ?, stars = ? WHERE id = ?'),
   rate: db.prepare('UPDATE users SET rating = ?, wins = wins + ?, losses = losses + ? WHERE id = ?'),
   top: db.prepare('SELECT name, rating, wins, losses FROM users WHERE wins + losses > 0 ORDER BY rating DESC LIMIT 50'),
   count: db.prepare('SELECT COUNT(*) AS n FROM users'),
@@ -73,7 +89,7 @@ const cleanName = (s) => String(s ?? '').replace(/[^\p{L}\p{N}_\- ]/gu, '').repl
 function profile(u) {
   return {
     t: 'me', id: u.id, token: u.token, name: u.name, rating: u.rating, wins: u.wins, losses: u.losses,
-    crystals: u.crystals, owned: JSON.parse(u.owned), hasPass: !!u.pass,
+    crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass,
   };
 }
 
@@ -205,7 +221,7 @@ class Client {
         const id = rid(9);
         const crystals = Math.max(0, Math.min(100000, Number(m.crystals) || START_CRYSTALS));
         const owned = Array.isArray(m.owned) ? m.owned.filter((x) => typeof x === 'string').slice(0, 200) : [];
-        q.insert.run(id, rid(24), name, crystals, JSON.stringify(owned), Date.now(), Date.now());
+        q.insert.run(id, rid(24), name, crystals, JSON.stringify(owned), JSON.stringify(cleanStars(m.stars)), Date.now(), Date.now());
         this.login(q.byId.get(id));
         return;
       }
@@ -247,7 +263,8 @@ class Client {
         // прогресс: кристаллы и открытые герои
         const crystals = Math.max(0, Math.min(1000000, Math.floor(Number(m.crystals) || 0)));
         const owned = Array.isArray(m.owned) ? m.owned.filter((x) => typeof x === 'string').slice(0, 200) : JSON.parse(me.owned);
-        q.save.run(crystals, JSON.stringify(owned), me.id);
+        const stars = m.stars === undefined ? JSON.parse(me.stars || '{}') : cleanStars(m.stars); // старый телефон звёзд не шлёт — не затираем
+        q.save.run(crystals, JSON.stringify(owned), JSON.stringify(stars), me.id);
         this.refresh();
         return; // без ответа — телефон и так знает
       }

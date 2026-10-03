@@ -552,6 +552,10 @@ export function skillURL(def: HeroDef, px = 112): string {
   return render('s:' + def.id + ':' + px, px, (c) => drawSkillIcon(c, def.skill.icon, def.color, px));
 }
 
+export function skill2URL(def: HeroDef, px = 112): string {
+  return render('s2:' + def.id + ':' + px, px, (c) => drawSkillIcon(c, def.skill2.icon, def.color, px));
+}
+
 export function raceURL(race: RaceId, px = 64): string {
   return render('r:' + race + ':' + px, px, (c) => drawRaceIcon(c, race, px));
 }
