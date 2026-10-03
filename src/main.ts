@@ -88,6 +88,29 @@ $('racesBack').onclick = () => show('menu');
 /** Версия игры: в APK её вписывает сборка (meta app-version). */
 const APP_VERSION = document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content || 'dev';
 $('version').textContent = `Версия ${APP_VERSION === 'dev' ? 'для разработки' : APP_VERSION}`;
+
+/** Есть ли на GitHub сборка новее установленной — тогда на главном экране плашка со ссылкой на APK. */
+async function checkUpdate() {
+  const cur = Number(APP_VERSION.split('.')[2]);
+  if (!cur) return; // версия для разработки
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch('https://api.github.com/repos/tuko474/tri-linii/releases/latest', { signal: ctl.signal, headers: { Accept: 'application/vnd.github+json' } });
+    clearTimeout(timer);
+    if (!r.ok) return;
+    const rel = await r.json() as { tag_name?: string; assets?: { name: string; browser_download_url: string }[] };
+    const n = Number(/^build-(\d+)$/.exec(rel.tag_name ?? '')?.[1]);
+    if (!n || n <= cur) return;
+    const ver = `0.1.${n}`;
+    const file = rel.assets?.find((a) => a.name === `tri-linii-${ver}.apk`);
+    const bar = $<HTMLAnchorElement>('updateBar');
+    bar.href = file?.browser_download_url ?? `https://github.com/tuko474/tri-linii/releases/download/build-${n}/tri-linii-${ver}.apk`;
+    bar.innerHTML = `Вышла версия ${ver} <b>Скачать</b>`;
+    bar.hidden = false;
+  } catch { /* нет сети или GitHub недоступен — молчим */ }
+}
+void checkUpdate();
 $('howBack').onclick = () => show('menu');
 
 // ---------- общие куски интерфейса ----------

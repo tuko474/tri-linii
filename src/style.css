@@ -467,3 +467,6 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .race-heroes .rh img { width: 40px; height: 40px; border-radius: 50%; }
 .race-heroes .rh.locked img { filter: grayscale(.85) brightness(.75); }
 #draftInfo .race-line { font-weight: 700; }
+.update-bar { display: inline-flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px; border-radius: 999px; background: #1c2a40; border: 1px solid #3a6a88; color: #dff0ff; font-size: 13px; text-decoration: none; }
+.update-bar b { background: var(--gold); color: #1b1630; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.update-bar[hidden] { display: none; }
