@@ -42,8 +42,8 @@ export class Bot {
       const gap = g.creepLvl[l][foe] - g.creepLvl[l][me] + deep + (g.atThrone(l, me) ? 2 : 0);
       if (gap > worstGap) { worstGap = gap; worst = l; }
     }
-    // Подмога: линия продавлена глубоко, а герои там гибнут — стягиваем помощь с других линий.
-    if (worst >= 0 && this.level !== 'easy' && g.canHelp(me) && this.needHelp(g, worst)) {
+    // Переход: линия продавлена глубоко, а герои там гибнут — переводим помощь с других линий по одному.
+    if (worst >= 0 && this.level !== 'easy' && this.needHelp(g, worst)) {
       const keep = this.level === 'hard' ? 1 : 2; // сколько героев оставить на каждой из других линий
       const list: Hero[] = [];
       for (let l = 0; l < 3; l++) {
@@ -51,7 +51,9 @@ export class Bot {
         const here = g.heroesOn(l, me).filter((h) => !h.dead && !h.trip && h.helpT <= 0).sort((a, b) => b.hp - a.hp);
         list.push(...here.slice(0, Math.max(0, here.length - keep)));
       }
-      if (list.length && g.callHelp(me, worst, list)) return;
+      let moved = 0;
+      for (const h of list) if (moved < 3 && g.moveHero(h, worst)) moved++;
+      if (moved) return;
     }
 
     // Глиф: линию продавили глубоко, а её герои почти мертвы; или трон бьют, а прочности мало

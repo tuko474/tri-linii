@@ -225,7 +225,11 @@ canvas { display: block; }
 .hb-cast .cdv { position: absolute; inset: 0; background: rgba(10,8,20,.62); display: grid; place-items: center; font: 700 17px var(--body); color: var(--parch); }
 .hb-cast .mana { position: absolute; left: 0; bottom: 0; height: 4px; background: #6fa8ff; }
 .hb-cast .badge { position: absolute; top: 2px; right: 2px; font-size: 11px; background: var(--dark); color: #fff; border-radius: 6px; padding: 0 3px; line-height: 15px; }
-.hb .lname { font-size: 10px; color: var(--parch); line-height: 1; white-space: nowrap; background: rgba(23,20,42,.75); border-radius: 6px; padding: 2px 6px; }
+.hb .lname { font-size: 10px; color: var(--parch); line-height: 1; white-space: nowrap; background: rgba(23,20,42,.75); border-radius: 6px; padding: 3px 7px; border: 1px solid transparent; font: inherit; font-size: 10px; cursor: pointer; }
+.hb .lname.can { border-color: #9fd0ff; color: #dff0ff; }
+.hb .lname.away { background: #2b4a6b; border-color: #9fd0ff; color: #fff; }
+.help-lanes button.need { border-color: #ffb347; }
+.help-lanes button:disabled { opacity: .45; }
 .hb-up { padding: 3px 2px; font-size: 11px; border-radius: 8px; width: 100%; white-space: nowrap; overflow: hidden; background: rgba(43,37,73,.92); }
 
 /* окно похода */
@@ -243,8 +247,6 @@ canvas { display: block; }
 .trip-hero small { color: var(--muted); font-weight: 400; }
 .trip-hero .hpbar { width: 70px; height: 4px; background: #0d0b18; border-radius: 2px; overflow: hidden; }
 .trip-hero .hpbar b { display: block; height: 100%; background: #7ee07a; }
-.boss.help i { background: #9fd0ff; }
-.boss.help.alive { border-color: #9fd0ff; box-shadow: 0 0 0 1px #9fd0ff inset; }
 .help-lanes { display: flex; gap: 6px; justify-content: center; }
 .help-lanes button { min-width: 84px; }
 .help-lanes button small { display: block; font-weight: 400; font-size: 10px; color: var(--muted); }

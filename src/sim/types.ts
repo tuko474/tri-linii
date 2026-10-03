@@ -24,8 +24,9 @@ export interface Hero {
   flash: number;
   casts: number;
   trip: Trip | null; // поход к боссу или в лес; null — герой стоит на линии
-  home: number; // своя линия героя (lane может временно отличаться во время подмоги)
-  helpT: number; // сколько ещё секунд герой на подмоге
+  home: number; // своя линия героя (lane может временно отличаться во время перехода)
+  helpT: number; // сколько ещё секунд герой на чужой линии (переход), потом вернётся домой
+  moveCd: number; // перезарядка перехода героя
 }
 
 export interface Trip {

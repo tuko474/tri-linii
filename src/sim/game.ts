@@ -50,8 +50,6 @@ export class Game {
   private rs = 1;
   private throneAtkFx = [0, 0];
   private throneCd = [0, 0];
-  /** Перезарядка подмоги по сторонам. */
-  helpCd: [number, number] = [0, 0];
   /** Улучшения алтаря и пушки трона по сторонам. */
   upg: [Record<UpgKey, number>, Record<UpgKey, number>] = [{ armor: 0, fury: 0, mana: 0, gun: 0 }, { armor: 0, fury: 0, mana: 0, gun: 0 }];
   /** Уровень барака: barracks[lane][side]. */
@@ -69,7 +67,7 @@ export class Game {
         this.heroes.push({
           uid: this.uid++, def, side, lane: p.lane, lvl: 1, xp: 0,
           hp: def.hp, maxHp: def.hp, mana: def.mana * 0.5, maxMana: def.mana, dmg: def.dmg,
-          cd: 0, atkCd: 0, dead: false, respawn: 0, off: 0, s: 0, flash: 0, casts: 0, trip: null, home: p.lane, helpT: 0,
+          cd: 0, atkCd: 0, dead: false, respawn: 0, off: 0, s: 0, flash: 0, casts: 0, trip: null, home: p.lane, helpT: 0, moveCd: 0,
         });
       }
     });
@@ -635,39 +633,43 @@ export class Game {
     return true;
   }
 
-  // ---------- подмога (телепорт на линию) ----------
+  // ---------- переход героя на другую линию ----------
 
-  helpCost(): number {
-    return Math.round(BAL.help.cost + BAL.help.costPerMin * (this.t / 60));
+  moveCost(): number {
+    return Math.round(BAL.move.cost + BAL.move.costPerMin * (this.t / 60));
   }
 
-  canHelp(side: Side): boolean {
-    return this.helpCd[side] <= 0 && this.gold[side] >= this.helpCost();
+  /** Можно ли перевести героя (на линию lane, если задана). На чужой линии — сначала вернуть домой. */
+  canMove(h: Hero, lane?: number): boolean {
+    if (h.dead || h.trip || h.moveCd > 0 || h.helpT > 0) return false;
+    if (lane !== undefined && (lane < 0 || lane > 2 || lane === h.lane)) return false;
+    return this.gold[h.side] >= this.moveCost();
   }
 
-  /** Перенести героев на линию lane на BAL.help.dur секунд. */
-  callHelp(side: Side, lane: number, list: Hero[]): number {
-    if (!this.canHelp(side) || lane < 0 || lane > 2) return 0;
-    const ok = list.filter((h) => h.side === side && !h.dead && !h.trip && h.lane !== lane);
-    if (!ok.length) return 0;
-    this.gold[side] -= this.helpCost();
-    this.helpCd[side] = BAL.help.cd;
-    const from = new Set<number>();
-    for (const h of ok) {
-      this.fxRingAtHero(h, '#9fd0ff', 46);
-      from.add(h.lane);
-      h.lane = lane;
-      h.helpT = BAL.help.dur;
-    }
-    for (const l of from) this.placeHeroes(l);
+  /** Переход: герой мгновенно идёт на линию lane на BAL.move.dur секунд, потом сам вернётся. */
+  moveHero(h: Hero, lane: number): boolean {
+    if (!this.canMove(h, lane)) return false;
+    this.gold[h.side] -= this.moveCost();
+    h.moveCd = BAL.move.cd;
+    const from = h.lane;
+    this.fxRingAtHero(h, '#9fd0ff', 46);
+    h.lane = lane;
+    h.helpT = BAL.move.dur;
+    this.placeHeroes(from);
     this.placeHeroes(lane);
-    for (const h of ok) this.fxRingAtHero(h, '#9fd0ff', 60);
-    this.tell(side, `Подмога: ${ok.length} ${ok.length === 1 ? 'герой' : ok.length < 5 ? 'героя' : 'героев'} на ${['верхнюю', 'центральную', 'нижнюю'][lane]} линию на ${BAL.help.dur} с`, 'info');
-    this.say(side, 'creepUp');
-    return ok.length;
+    this.fxRingAtHero(h, '#9fd0ff', 60);
+    this.tell(h.side, `${h.def.name} — на ${['верхнюю', 'центральную', 'нижнюю'][lane]} линию на ${BAL.move.dur} с`, 'info');
+    return true;
   }
 
-  /** Конец подмоги: герой возвращается на свою линию. */
+  /** Вернуть героя с чужой линии раньше времени (бесплатно). */
+  sendHome(h: Hero): boolean {
+    if (h.helpT <= 0) return false;
+    this.endHelp(h);
+    return true;
+  }
+
+  /** Конец перехода: герой возвращается на свою линию. */
   private endHelp(h: Hero) {
     h.helpT = 0;
     if (h.lane === h.home) return;
@@ -1009,12 +1011,12 @@ export class Game {
 
   private updateHeroes(dt: number) {
     for (const s of [0, 1] as Side[]) {
-      this.helpCd[s] = Math.max(0, this.helpCd[s] - dt);
       this.glyphCd[s] = Math.max(0, this.glyphCd[s] - dt);
       this.glyphT[s] = Math.max(0, this.glyphT[s] - dt);
     }
     for (const h of this.heroes) {
       if (h.helpT > 0) { h.helpT -= dt; if (h.helpT <= 0) this.endHelp(h); }
+      if (h.moveCd > 0) h.moveCd = Math.max(0, h.moveCd - dt);
       h.flash = Math.max(0, h.flash - dt);
       if (h.dead) {
         h.respawn -= dt;
@@ -1144,7 +1146,7 @@ export class Game {
       const foe = (1 - c.side) as Side;
       if (!this.atThrone(c.lane, foe) && (this.slotS(c.lane, foe) - c.s) * dir <= 0) {
         const hs = this.heroesOn(c.lane, foe);
-        // (или все ушли на подмогу на другую линию — героев здесь нет совсем)
+        // (или все ушли переходом на другую линию — героев здесь нет совсем)
         if ((hs.length === 0 || hs.some((x) => !x.dead && x.trip)) && !hs.some((x) => !x.dead && !x.trip)) this.pushLane(c.lane, foe, true);
       }
 
@@ -1292,9 +1294,9 @@ export class Game {
     return {
       t: r(this.t), gold: this.gold.map(r), throne: this.throne.map(r), front: this.front, creepLvl: this.creepLvl,
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
-      autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), hcd: this.helpCd.map(r), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
+      autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
-        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT)]),
+        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT), r(h.moveCd)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
         r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r]),
       wards: this.wards.map((w) => [w.side, w.lane, r(w.s), w.off, r(w.ttl), r(w.dmg), w.range, r(w.atkCd)]),
@@ -1308,7 +1310,7 @@ export class Game {
     this.t = S.t; this.gold = S.gold as [number, number]; this.throne = S.throne as [number, number];
     this.front = S.front; this.creepLvl = S.creepLvl; this.waveTimer = S.waveTimer; this.waveNo = S.waveNo;
     this.winner = S.winner; this.orbs = S.orbs; this.stats = S.stats; this.autoCast = S.autoCast;
-    this.throneAtkFx = S.tac; this.upg = S.upg; this.barracks = S.bar; this.glyphT = [S.gl[0], S.gl[1]]; this.glyphCd = [S.gl[2], S.gl[3]]; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.helpCd = S.hcd as [number, number]; this.throneCd = S.tcd;
+    this.throneAtkFx = S.tac; this.upg = S.upg; this.barracks = S.bar; this.glyphT = [S.gl[0], S.gl[1]]; this.glyphCd = [S.gl[2], S.gl[3]]; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.throneCd = S.tcd;
     const byUid = new Map(this.heroes.map((h) => [h.uid, h]));
     for (const a of S.heroes) {
       const h = byUid.get(a[0] as number);
@@ -1317,7 +1319,7 @@ export class Game {
       h.dead = a[10] === 1; h.respawn = a[11] as number; h.off = a[12] as number; h.s = a[13] as number;
       const tr = a[14] as 0 | [number, 'go' | 'fight' | 'back', number, number, number];
       h.trip = tr ? { nid: tr[0], phase: tr[1], x: tr[2], y: tr[3], idx: tr[4] } : null;
-      h.lane = a[15] as number; h.helpT = a[16] as number;
+      h.lane = a[15] as number; h.helpT = a[16] as number; h.moveCd = a[17] as number;
     }
     this.creeps = S.creeps.map((a) => ({
       uid: a[0] as number, kind: a[1] as CreepKind, side: a[2] as Side, lane: a[3] as number, s: a[4] as number, off: a[5] as number,
