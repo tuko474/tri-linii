@@ -824,9 +824,9 @@ export class Game {
         n.respawnT -= dt;
         if (n.respawnT <= 0) {
           n.alive = true;
-          n.maxHp = cfg.hp + cfg.hpPerMin * min;
+          n.maxHp = this.neutralHp(n.kind, min);
           n.hp = n.maxHp;
-          n.dmg = cfg.dmg * (1 + 0.06 * min);
+          n.dmg = this.neutralDmg(n.kind, min);
           n.hits = 0;
           if (n.kind === 'lord' || n.kind === 'turtle') {
             this.tell(null, `${cfg.name} ${n.kind === 'turtle' ? 'появилась' : 'появился'} в реке`, 'info');
@@ -835,6 +835,12 @@ export class Game {
           if (n.kind === 'lord') this.expireOrbs();
         }
         continue;
+      }
+      // живой босс крепнет со временем, даже если его долго не трогают (раньше рос только при появлении)
+      if (n.kind === 'lord' || n.kind === 'turtle') {
+        const target = this.neutralHp(n.kind, min);
+        if (target > n.maxHp) { n.hp += target - n.maxHp; n.maxHp = target; }
+        n.dmg = Math.max(n.dmg, this.neutralDmg(n.kind, min));
       }
       // страж бьёт только тех, кто пришёл его отбить, а не хозяев
       const fighters = this.heroes.filter((h) => !h.dead && h.trip?.nid === n.id && h.trip.phase === 'fight' && h.side !== n.owner);
@@ -854,6 +860,17 @@ export class Game {
         this.hitHero(tg, n.dmg);
       }
     }
+  }
+
+  /** HP нейтрала на этой минуте: база + рост в минуту (у боссов к поздней игре рост ускоряется). */
+  private neutralHp(kind: NeutralKind, min: number) {
+    const cfg = BAL.neutral[kind];
+    const late = Math.max(0, min - BAL.bossLateFrom);
+    return cfg.hp + cfg.hpPerMin * min + (kind === 'lord' || kind === 'turtle' ? cfg.hpPerMin * BAL.bossLateMul * late : 0);
+  }
+
+  private neutralDmg(kind: NeutralKind, min: number) {
+    return BAL.neutral[kind].dmg * (1 + (kind === 'lord' || kind === 'turtle' ? BAL.bossDmgPerMin : 0.06) * min);
   }
 
   private hitNeutral(n: Neutral, dmg: number, side: Side) {

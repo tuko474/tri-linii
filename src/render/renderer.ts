@@ -976,12 +976,26 @@ export class Renderer {
     // шаг: лёгкое покачивание, у каждого крипа своя фаза
     const step = c.stunT > 0 ? 0 : Math.sin(performance.now() / 110 + c.uid * 1.7);
     const size = c.kind === 'lord' ? r * 2.4 : c.kind === 'siege' ? r * 2.3 : r * 2.6;
-    ctx.save();
-    ctx.translate(p.x, p.y - Math.abs(step) * r * 0.12);
-    if (left) ctx.scale(-1, 1);
-    ctx.rotate(step * 0.06);
-    ctx.drawImage(this.creepSprite(c.kind, rel), -size, -size, size * 2, size * 2);
-    ctx.restore();
+    if (c.kind === 'lord') {
+      // Лорд, идущий по линии, — та же фигура, что в логове, с кольцом цвета своей команды
+      const R = r * 1.5;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(0, R * 0.6, R * 1.1, R * 0.32, 0, 0, 7); ctx.stroke();
+      ctx.translate(0, R * 0.6 - Math.abs(step) * R * 0.06);
+      ctx.scale(1, 1 + step * 0.015);
+      ctx.drawImage(this.beastSprite('lord'), -R * 2, -R * 2 - R * 0.6, R * 4, R * 4);
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.translate(p.x, p.y - Math.abs(step) * r * 0.12);
+      if (left) ctx.scale(-1, 1);
+      ctx.rotate(step * 0.06);
+      ctx.drawImage(this.creepSprite(c.kind, rel), -size, -size, size * 2, size * 2);
+      ctx.restore();
+    }
     if (c.stunT > 0) {
       ctx.fillStyle = '#ffe680';
       for (let i = 0; i < 3; i++) {
@@ -998,7 +1012,8 @@ export class Renderer {
       ctx.ellipse(p.x, p.y + r * 0.7, r * 1.1, r * 0.4, 0, 0, 7);
       ctx.stroke();
     }
-    if (c.hp < c.maxHp) bar(ctx, p.x - 16, p.y - r * 1.25 - 8, 32, 4, c.hp / c.maxHp, col);
+    if (c.kind === 'lord') bar(ctx, p.x - 40, p.y - r * 3.2, 80, 7, c.hp / c.maxHp, col);
+    else if (c.hp < c.maxHp) bar(ctx, p.x - 16, p.y - r * 1.25 - 8, 32, 4, c.hp / c.maxHp, col);
   }
 
   private drawHero(h: Hero) {

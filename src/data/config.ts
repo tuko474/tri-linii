@@ -52,9 +52,13 @@ export const BAL = {
   creepUpCost: (lvl: number) => 110 + 65 * lvl,
 
   // Нейтралы. first — когда появляется впервые (сек), respawn — через сколько после смерти.
+  // Боссы растут и пока живы; после bossLateFrom минут рост HP ускоряется (×(1+bossLateMul)) — поздняя пятёрка не сносит их мгновенно
+  bossLateFrom: 10,
+  bossLateMul: 0.8,
+  bossDmgPerMin: 0.08,
   neutral: {
-    lord: { name: 'Лорд', hp: 3200, hpPerMin: 260, dmg: 55, rate: 1.4, first: 180, respawn: 180, r: 64 },
-    turtle: { name: 'Черепаха', hp: 1700, hpPerMin: 140, dmg: 32, rate: 1.3, first: 75, respawn: 120, r: 54, gold: 320 },
+    lord: { name: 'Лорд', hp: 3200, hpPerMin: 330, dmg: 55, rate: 1.4, first: 180, respawn: 180, r: 64 },
+    turtle: { name: 'Черепаха', hp: 2000, hpPerMin: 190, dmg: 32, rate: 1.3, first: 75, respawn: 120, r: 54, gold: 320 },
     // Страж у входа в логово: после захвата даёт обзор логова, его можно перехватить
     guard: { name: 'Страж', hp: 950, hpPerMin: 80, dmg: 24, rate: 1.2, first: 20, respawn: 0, r: 30 },
     camp: { name: 'Лесные', hp: 520, hpPerMin: 45, dmg: 14, rate: 1.2, first: 25, respawn: 60, r: 24, gold: 70 },

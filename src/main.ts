@@ -1499,6 +1499,19 @@ $('passBtn').onclick = () => {
   $<HTMLInputElement>('newPass').value = '';
   $('accStatus').textContent = 'Пароль сохранён — теперь можно войти с другого телефона.';
 };
+$('promoBtn').onclick = () => {
+  const code = $<HTMLInputElement>('promoCode').value.trim();
+  if (!code) { $('accStatus').textContent = 'Введи промокод'; return; }
+  if (!online.ready) { $('accStatus').textContent = 'Нет связи с сервером'; return; }
+  online.send({ t: 'promo', code });
+  $('accStatus').textContent = 'Проверяем код…';
+};
+online.on('promoOk', (m: { code: string; crystals: number }) => {
+  $<HTMLInputElement>('promoCode').value = '';
+  $('accStatus').textContent = `Промокод ${m.code} активирован: +✦ ${m.crystals}!`;
+  toast(`Промокод: +✦ ${m.crystals} кристаллов`, 'good');
+  sound.play('coins');
+});
 $('logoutBtn').onclick = () => { online.logout(); renderAccount(); renderProfileChip(); online.start(); };
 setInterval(() => {
   if (!$('queue').hidden) {

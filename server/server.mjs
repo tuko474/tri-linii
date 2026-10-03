@@ -51,6 +51,23 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'stars')) {
   db.exec(`ALTER TABLE users ADD COLUMN stars TEXT NOT NULL DEFAULT '{}'`);
 }
+// промокоды: код → кристаллы; лимит активаций (0 — без лимита); каждый игрок — один раз
+db.exec(`
+  CREATE TABLE IF NOT EXISTS promos (
+    code TEXT PRIMARY KEY COLLATE NOCASE,
+    crystals INTEGER NOT NULL,
+    max_uses INTEGER NOT NULL DEFAULT 0,
+    uses INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS promo_uses (
+    code TEXT NOT NULL COLLATE NOCASE,
+    user TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (code, user)
+  );
+`);
+
 /** Звёзды из сообщения: объект {героя: 1..5}, не больше 200 записей. */
 const cleanStars = (v) => {
   const out = {};
@@ -73,6 +90,10 @@ const q = {
   token: db.prepare('UPDATE users SET token = ? WHERE id = ?'),
   save: db.prepare('UPDATE users SET crystals = ?, owned = ?, stars = ? WHERE id = ?'),
   give: db.prepare('UPDATE users SET crystals = crystals + ? WHERE id = ?'),
+  promo: db.prepare('SELECT * FROM promos WHERE code = ?'),
+  promoUsed: db.prepare('SELECT 1 FROM promo_uses WHERE code = ? AND user = ?'),
+  promoUse: db.prepare('INSERT INTO promo_uses (code, user, at) VALUES (?, ?, ?)'),
+  promoCount: db.prepare('UPDATE promos SET uses = uses + 1 WHERE code = ?'),
   rate: db.prepare('UPDATE users SET rating = ?, wins = wins + ?, losses = losses + ? WHERE id = ?'),
   top: db.prepare('SELECT name, rating, wins, losses FROM users WHERE wins + losses > 0 ORDER BY rating DESC LIMIT 50'),
   count: db.prepare('SELECT COUNT(*) AS n FROM users'),
@@ -289,6 +310,31 @@ class Client {
         if (me.crystals < cost) { this.send({ t: 'error', where: 'buy', text: 'Не хватает кристаллов' }); break; }
         q.save.run(me.crystals - cost, JSON.stringify(owned), JSON.stringify(stars), me.id);
         break; // ниже — свежий профиль телефону
+      }
+      case 'promo': {
+        // не больше 8 попыток в минуту — чтобы коды не подбирали перебором
+        const now = Date.now();
+        this.promoTries = (this.promoTries ?? []).filter((t) => now - t < 60000);
+        if (this.promoTries.length >= 8) { this.send({ t: 'error', where: 'promo', text: 'Слишком много попыток — подожди минуту' }); return; }
+        this.promoTries.push(now);
+        const code = String(m.code ?? '').trim().slice(0, 32);
+        const p = code && q.promo.get(code);
+        if (!p) { this.send({ t: 'error', where: 'promo', text: 'Такого промокода нет' }); return; }
+        if (q.promoUsed.get(p.code, me.id)) { this.send({ t: 'error', where: 'promo', text: 'Ты уже активировал этот промокод' }); return; }
+        if (p.max_uses > 0 && p.uses >= p.max_uses) { this.send({ t: 'error', where: 'promo', text: 'Этот промокод закончился' }); return; }
+        db.exec('BEGIN');
+        try {
+          q.promoUse.run(p.code, me.id, now);
+          q.promoCount.run(p.code);
+          q.give.run(p.crystals, me.id);
+          db.exec('COMMIT');
+        } catch (e) {
+          db.exec('ROLLBACK');
+          this.send({ t: 'error', where: 'promo', text: 'Не получилось — попробуй ещё раз' });
+          return;
+        }
+        this.send({ t: 'promoOk', code: p.code, crystals: p.crystals });
+        break; // ниже — свежий профиль
       }
       case 'queue':
         if (this.build < MIN_BUILD) { this.send({ t: 'error', where: 'version', text: 'Обнови игру до последней версии — старая не подходит для боёв по сети' }); return; }
