@@ -905,11 +905,11 @@ function renderShop() {
     }
   } else if (shop.kind === 'throne') {
     title = 'Трон';
-    text = 'Пушка трона отстреливает вражеских крипов у базы. Глиф спасает линии в беде.';
+    text = 'Пушка трона отстреливает вражеских крипов у базы. Глиф спасает линии и трон в беде.';
     const c = g.upgCost(me, 'gun');
     rows += shopRow(BAL.gunUp.icon, BAL.gunUp.name, BAL.gunUp.text, g.upg[me].gun, BAL.upgCost.length, buy(c), 'upg:gun', c !== null && gold >= c);
     const gl = g.glyphT[me] > 0 ? `действует ${Math.ceil(g.glyphT[me])} с` : g.glyphCd[me] > 0 ? `через ${Math.ceil(g.glyphCd[me])} с` : `◆ ${BAL.glyph.cost}`;
-    rows += shopRow('✺', 'Глиф', `Все герои на линиях ${BAL.glyph.dur} с не получают урона. Перезарядка ${BAL.glyph.cd} с.`, 0, 0, gl, 'glyph', g.canGlyph(me));
+    rows += shopRow('✺', 'Глиф', `Все герои на линиях и трон ${BAL.glyph.dur} с не получают урона. Перезарядка ${BAL.glyph.cd} с.`, 0, 0, gl, 'glyph', g.canGlyph(me));
   } else {
     const l = shop.lane;
     title = `Барак: ${LANE_NAMES[l].toLowerCase()} линия`;

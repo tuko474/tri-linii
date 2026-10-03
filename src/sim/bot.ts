@@ -1,4 +1,5 @@
 // Простой противник. Играет по тем же правилам и тем же кнопкам, что и игрок.
+import { BAL } from '../data/config';
 import { HEROES } from '../data/heroes';
 import type { Game } from './game';
 import { halfOf } from './map';
@@ -53,8 +54,9 @@ export class Bot {
       if (list.length && g.callHelp(me, worst, list)) return;
     }
 
-    // Глиф: линию продавили глубоко, а её герои почти мертвы
+    // Глиф: линию продавили глубоко, а её герои почти мертвы; или трон бьют, а прочности мало
     if (this.level !== 'easy' && g.canGlyph(me)) {
+      if (g.throneUnderAttack(me) && g.throne[me] < BAL.throneHp * 0.3 && g.glyph(me)) return;
       for (let l = 0; l < 3; l++) {
         if (g.depth(l, me) < 2 && !g.atThrone(l, me)) continue;
         const hs = g.heroesOn(l, me).filter((h) => !h.dead && !h.trip);

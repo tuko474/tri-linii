@@ -3,7 +3,7 @@ import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
 import { ALTAR_POS, CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, barracksPos, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
-import { drawCastleFigure, drawHeroFigure } from './art';
+import { drawBeastFigure, drawCastleFigure, drawHeroFigure } from './art';
 
 const C = {
   grass: '#2f4a33',
@@ -559,84 +559,28 @@ export class Renderer {
       return;
     }
     if (n.kind === 'guard') { this.drawGuard(n); return; }
-    ctx.save();
-    ctx.translate(n.x, n.y);
-    const white = false; // не мигаем: иначе вспышка выдаёт бой у босса даже сквозь туман
-    if (n.kind === 'lord') {
-      ctx.fillStyle = 'rgba(0,0,0,.35)';
-      ctx.beginPath();
-      ctx.ellipse(6, 14, R, R * 0.8, 0, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = white ? '#fff' : '#5b3a8c';
-      ctx.beginPath();
-      ctx.arc(0, 0, R, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = white ? '#fff' : '#8a63c9';
-      ctx.beginPath();
-      ctx.arc(0, -6, R * 0.72, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = '#e8dcc0';
-      for (const sx of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(sx * R * 0.45, -R * 0.55);
-        ctx.lineTo(sx * R * 0.95, -R * 1.25);
-        ctx.lineTo(sx * R * 0.2, -R * 0.7);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.fillStyle = '#ffd25a';
-      for (const sx of [-1, 1]) {
-        ctx.beginPath();
-        ctx.arc(sx * R * 0.28, -R * 0.12, 7, 0, 7);
-        ctx.fill();
-      }
-    } else if (n.kind === 'turtle') {
-      ctx.fillStyle = 'rgba(0,0,0,.35)';
-      ctx.beginPath();
-      ctx.ellipse(6, 12, R * 1.1, R * 0.8, 0, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = white ? '#fff' : '#6fae6a';
-      ctx.beginPath();
-      ctx.arc(0, -R * 0.9, R * 0.35, 0, 7);
-      ctx.fill();
-      ctx.fillStyle = white ? '#fff' : '#3f7a45';
-      ctx.beginPath();
-      ctx.ellipse(0, 0, R * 1.05, R * 0.85, 0, 0, 7);
-      ctx.fill();
-      ctx.strokeStyle = '#9ccf7e';
-      ctx.lineWidth = 4;
-      hex(ctx, R * 0.42);
-      ctx.stroke();
-      for (let i = 0; i < 6; i++) {
-        const a = Math.PI / 6 + (i * Math.PI) / 3;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * R * 0.42, Math.sin(a) * R * 0.42);
-        ctx.lineTo(Math.cos(a) * R * 0.85, Math.sin(a) * R * 0.7);
-        ctx.stroke();
-      }
-    } else {
-      for (const [ox, oy, k] of [[-18, 6, 1], [20, -4, 0.8]] as const) {
-        ctx.fillStyle = 'rgba(0,0,0,.3)';
-        ctx.beginPath();
-        ctx.arc(ox + 3, oy + 5, R * k, 0, 7);
-        ctx.fill();
-        ctx.fillStyle = white ? '#fff' : '#8b6b3e';
-        ctx.beginPath();
-        ctx.arc(ox, oy, R * k, 0, 7);
-        ctx.fill();
-        ctx.fillStyle = '#f0d36a';
-        ctx.beginPath();
-        ctx.arc(ox - 6 * k, oy - 4, 3.5, 0, 7);
-        ctx.arc(ox + 6 * k, oy - 4, 3.5, 0, 7);
-        ctx.fill();
-      }
+    // звери «дышат» и чуть покачиваются, у каждого своя фаза
+    const now = performance.now() / 1000;
+    const beast = (kind: string, x: number, y: number, size: number, flip: boolean, ph: number) => {
+      const br = Math.sin(now * 2.2 + ph);
+      ctx.save();
+      ctx.translate(x, y + size * 0.6);
+      ctx.scale(flip ? -1 : 1, 1 + br * 0.025);
+      ctx.drawImage(this.beastSprite(kind), -size * 2, -size * 2 - size * 0.6, size * 4, size * 4);
+      ctx.restore();
+    };
+    if (n.kind === 'lord') beast('lord', n.x, n.y + 6, R * 1.05, false, 0);
+    else if (n.kind === 'turtle') beast('turtle', n.x, n.y, R * 1.05, n.x > WORLD.W / 2, 1);
+    else {
+      const kind = ['wolf', 'boar', 'spider'][n.id % 3];
+      beast(kind, n.x + 26, n.y - 10, R * 0.9, true, n.id + 2);
+      beast(kind, n.x - 22, n.y + 10, R * 1.15, false, n.id);
     }
-    ctx.restore();
     // в тумане не видно, кто бьёт босса и сколько у него HP
     if (!g.visible(this.me, n.x, n.y, 60)) return;
     if (n.hp < n.maxHp || n.kind !== 'camp') {
       const w = n.kind === 'camp' ? 60 : 150;
-      const y = n.y - R - (n.kind === 'lord' ? 50 : 26);
+      const y = n.y - R - (n.kind === 'lord' ? 64 : 26);
       bar(ctx, n.x - w / 2, y, w, n.kind === 'camp' ? 6 : 10, n.hp / n.maxHp, '#f0a24a');
     }
     // отряды у логова — по цвету команды
@@ -897,6 +841,24 @@ export class Renderer {
     return null;
   }
 
+  /** Готовые картинки лесных зверей и боссов (рамка ±40 единиц рисунка). */
+  private beastSprites = new Map<string, HTMLCanvasElement>();
+
+  private beastSprite(kind: string): HTMLCanvasElement {
+    let cv = this.beastSprites.get(kind);
+    if (!cv) {
+      const k = kind === 'lord' || kind === 'turtle' ? 8 : 4; // пикселей на единицу рисунка
+      cv = document.createElement('canvas');
+      cv.width = cv.height = 80 * k;
+      const x = cv.getContext('2d')!;
+      x.scale(k, k);
+      x.translate(40, 40);
+      drawBeastFigure(x, kind);
+      this.beastSprites.set(kind, cv);
+    }
+    return cv;
+  }
+
   /** Готовые картинки замка: сторона × разрушения × белый силуэт (для вспышки). */
   private castleSprites = new Map<string, HTMLCanvasElement>();
 
@@ -937,10 +899,11 @@ export class Renderer {
       ctx.beginPath(); ctx.ellipse(0, 46, 112, 34, 0, Math.PI / 2 - Math.PI * k, Math.PI / 2 + Math.PI * k); ctx.stroke();
     }
     // лёгкая дрожь под ударами
-    const shake = hit ? Math.sin(now / 35) * 1.2 : 0;
+    const shake = hit && g.glyphT[side] <= 0 ? Math.sin(now / 35) * 1.2 : 0;
     const bx = CASTLE_BOX.x + shake, by = CASTLE_BOX.y;
     ctx.drawImage(this.castleSprite(rel, dmg, false), bx, by, CASTLE_BOX.w, CASTLE_BOX.h);
-    if (hit) {
+    const shield = g.glyphT[side] > 0;
+    if (hit && !shield) {
       ctx.globalAlpha = 0.18 + 0.22 * Math.max(0, Math.sin(now / 90));
       ctx.drawImage(this.castleSprite(rel, dmg, true), bx, by, CASTLE_BOX.w, CASTLE_BOX.h);
       ctx.globalAlpha = 1;
@@ -964,6 +927,20 @@ export class Renderer {
           ctx.beginPath(); ctx.moveTo(fx - 4, fy); ctx.quadraticCurveTo(fx - 4, fy - 8 * f, fx, fy - 12 * f); ctx.quadraticCurveTo(fx + 4, fy - 8 * f, fx + 4, fy); ctx.closePath(); ctx.fill();
         }
       }
+    }
+    // глиф: золотой купол над замком
+    if (shield) {
+      const pulse = 0.5 + Math.sin(now / 120) * 0.2;
+      const gr = ctx.createLinearGradient(0, -190, 0, 50);
+      gr.addColorStop(0, `rgba(255,230,128,${0.32 * pulse})`);
+      gr.addColorStop(1, `rgba(255,230,128,${0.08 * pulse})`);
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.ellipse(0, 46, 118, 236, 0, Math.PI, 0); ctx.ellipse(0, 46, 118, 34, 0, 0, Math.PI); ctx.fill();
+      ctx.strokeStyle = `rgba(255,230,128,${0.55 + Math.sin(now / 120) * 0.25})`;
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.ellipse(0, 46, 118, 236, 0, Math.PI, 0); ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(0, 46, 118, 34, 0, 0, Math.PI); ctx.stroke();
     }
     ctx.restore();
   }
@@ -1164,17 +1141,6 @@ export class Renderer {
 
 /** Рамка картинки замка в координатах мира относительно точки трона. */
 const CASTLE_BOX = { x: -96, y: -180, w: 192, h: 230 };
-
-function hex(ctx: CanvasRenderingContext2D, r: number) {
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = Math.PI / 6 + (i * Math.PI) / 3;
-    const x = Math.cos(a) * r;
-    const y = Math.sin(a) * r;
-    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  }
-  ctx.closePath();
-}
 
 function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, k: number, col: string) {
   ctx.fillStyle = 'rgba(10,8,16,.8)';

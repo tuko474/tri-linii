@@ -629,8 +629,8 @@ export class Game {
     this.glyphCd[side] = BAL.glyph.cd;
     this.glyphT[side] = BAL.glyph.dur;
     for (const h of this.heroes) if (h.side === side && !h.dead && !h.trip) this.fxRingAtHero(h, '#ffe680', 56);
-    this.tell(side, `Глиф: герои на линиях неуязвимы ${BAL.glyph.dur} с`, 'good');
-    this.tell((1 - side) as Side, 'Враг включил глиф — его герои временно неуязвимы', 'bad');
+    this.tell(side, `Глиф: герои на линиях и трон неуязвимы ${BAL.glyph.dur} с`, 'good');
+    this.tell((1 - side) as Side, 'Враг включил глиф — его герои и трон временно неуязвимы', 'bad');
     this.say(null, 'cast:heal');
     return true;
   }
@@ -1177,8 +1177,9 @@ export class Game {
     else if (t.kind === 'hero') this.hitHero(t.h, dmg);
     else {
       if (this.winner !== null) return;
-      this.throne[t.side] -= dmg;
       this.throneAtkFx[t.side] = 1.2;
+      if (this.glyphT[t.side] > 0) return; // глиф: трон тоже под щитом
+      this.throne[t.side] -= dmg;
       this.say(t.side, 'throne');
     }
   }

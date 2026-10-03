@@ -689,3 +689,148 @@ export function drawCastleFigure(c: Ctx, col: string, deep: string, dmg = 0, whi
     c.lineWidth = 3;
   }
 }
+
+// ---------- лесные крипы и боссы ----------
+
+/**
+ * Нейтралы в координатах «радиус фигуры ≈ 20», центр (0,0), земля около y = 12.
+ * Звери смотрят вправо. kind: wolf | boar | spider | turtle | lord.
+ */
+export function drawBeastFigure(c: Ctx, kind: string) {
+  const ink = '#14121c';
+  c.lineJoin = 'round';
+  c.lineCap = 'round';
+  c.strokeStyle = ink;
+  c.lineWidth = 1.6;
+  const sh = (fill: string, path: () => void, stroke = true) => {
+    c.beginPath(); path(); c.fillStyle = fill; c.fill(); if (stroke) c.stroke();
+  };
+  const eye = (x: number, y: number, r: number, col: string) => {
+    c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  };
+  const shadow = (rx: number, y = 12) => {
+    c.fillStyle = 'rgba(0,0,0,.32)'; c.beginPath(); c.ellipse(0, y, rx, rx * 0.25, 0, 0, 7); c.fill();
+  };
+
+  if (kind === 'wolf') {
+    shadow(16);
+    const fur = '#8f939c', furD = '#5d616b', belly = '#c9ccd2';
+    // дальние лапы и хвост
+    sh(furD, () => { c.rect(-9, 3, 3.5, 9); c.rect(6, 3, 3.5, 9); });
+    sh(fur, () => { c.moveTo(-12, -2); c.quadraticCurveTo(-21, -4, -22, -12); c.quadraticCurveTo(-17, -6, -11, -5); c.closePath(); });
+    // тело
+    sh(fur, () => c.ellipse(-1, -1, 12, 6.5, -0.05, 0, 7));
+    sh(belly, () => c.ellipse(0, 2.5, 8, 2.6, 0, 0, 7), false);
+    // ближние лапы
+    sh(fur, () => { c.rect(-6, 3, 3.5, 9); c.rect(8.5, 3, 3.5, 9); });
+    // голова с мордой и ушами
+    sh(fur, () => { c.moveTo(7, -9); c.lineTo(9, -16); c.lineTo(12, -10); c.closePath(); });
+    sh(fur, () => c.ellipse(12, -6, 6, 5, 0, 0, 7));
+    sh(fur, () => { c.moveTo(15, -8); c.lineTo(22, -5); c.lineTo(21, -2); c.lineTo(15, -2); c.closePath(); });
+    sh(furD, () => { c.moveTo(11, -11); c.lineTo(13, -17); c.lineTo(15, -10); c.closePath(); });
+    eye(21.5, -4.6, 1.2, ink);
+    eye(15, -7, 1.4, '#ffd34d');
+  } else if (kind === 'boar') {
+    shadow(16);
+    const hide = '#7a5236', hideD = '#4f3423', mane = '#2f2119';
+    sh(hideD, () => { c.rect(-9, 4, 4, 8); c.rect(5, 4, 4, 8); });
+    sh(hide, () => c.ellipse(-1, -1, 13, 9, 0, 0, 7));
+    // щетина по хребту
+    sh(mane, () => { c.moveTo(-12, -4); for (let i = 0; i < 6; i++) { c.lineTo(-10 + i * 3.6, -13 + (i % 2) * 3); } c.lineTo(9, -5); c.closePath(); });
+    sh(hide, () => { c.rect(-6, 4, 4, 8); c.rect(8, 4, 4, 8); });
+    // голова-рыло
+    sh(hide, () => c.ellipse(12, -1, 7, 6.5, 0, 0, 7));
+    sh('#c98d74', () => c.ellipse(19, 1, 3, 3.6, 0, 0, 7));
+    eye(18.4, 0.4, 0.7, ink); eye(19.8, 1.8, 0.7, ink);
+    sh('#f3ead6', () => { c.moveTo(15, 3); c.quadraticCurveTo(19, 4, 18, -2); c.quadraticCurveTo(17, 2, 15, 1); c.closePath(); });
+    sh(hideD, () => { c.moveTo(9, -6); c.lineTo(8, -12); c.lineTo(12, -7); c.closePath(); });
+    eye(13.5, -3, 1.4, '#ff6b4a');
+  } else if (kind === 'spider') {
+    shadow(17);
+    const body = '#5a4580', bodyL = '#7d65a8';
+    c.lineWidth = 2.4;
+    c.strokeStyle = '#2e2440';
+    for (const s of [-1, 1]) for (let i = 0; i < 4; i++) {
+      const a = -0.9 + i * 0.55;
+      c.beginPath();
+      c.moveTo(2 * s, 0);
+      c.quadraticCurveTo(s * (10 + i * 2), -10 + i * 3, s * (16 + i * 1.5), 10 - Math.abs(a) * 2);
+      c.stroke();
+    }
+    c.strokeStyle = ink;
+    c.lineWidth = 1.6;
+    sh(body, () => c.ellipse(-4, -2, 10, 8, 0, 0, 7));
+    sh('#c23a4c', () => { c.moveTo(-4, -8); c.lineTo(-1, -3); c.lineTo(-4, 2); c.lineTo(-7, -3); c.closePath(); }, false); // знак на спине
+    sh(bodyL, () => c.ellipse(8, 0, 6, 5.5, 0, 0, 7));
+    eye(10, -1.6, 1.2, '#ff5a5a'); eye(12, 0.2, 1.1, '#ff5a5a'); eye(8.6, 0.6, 0.9, '#ff5a5a');
+    sh('#e8dcc0', () => { c.moveTo(12, 3); c.lineTo(14, 7); c.lineTo(11, 4.5); c.closePath(); });
+  } else if (kind === 'turtle') {
+    shadow(24, 13);
+    const skin = '#7fb86d', shell = '#3f7a45', shellD = '#2b5a33', plate = '#9ccf7e';
+    // лапы
+    sh(skin, () => { c.ellipse(-15, 8, 5, 4, 0.4, 0, 7); });
+    sh(skin, () => { c.ellipse(13, 8, 5, 4, -0.4, 0, 7); });
+    // хвост
+    sh(skin, () => { c.moveTo(-20, 4); c.lineTo(-27, 7); c.lineTo(-19, 8); c.closePath(); });
+    // голова
+    sh(skin, () => { c.moveTo(14, 0); c.quadraticCurveTo(20, -8, 26, -6); c.quadraticCurveTo(31, -3, 27, 2); c.quadraticCurveTo(21, 4, 15, 5); c.closePath(); });
+    eye(25, -3.5, 1.3, ink);
+    c.beginPath(); c.moveTo(27, 0.5); c.lineTo(30, -0.5); c.stroke();
+    // панцирь: купол с краем
+    sh(shellD, () => c.ellipse(-2, 3, 21, 7, 0, 0, 7));
+    sh(shell, () => { c.moveTo(-22, 3); c.quadraticCurveTo(-20, -19, -2, -20); c.quadraticCurveTo(16, -19, 18, 3); c.closePath(); });
+    // пластины
+    c.fillStyle = plate;
+    c.strokeStyle = shellD;
+    c.lineWidth = 1.4;
+    const plates: [number, number, number][] = [[-2, -10, 6], [-12, -5, 4.5], [8, -5, 4.5], [-8, -15, 3.6], [4, -15, 3.6]];
+    for (const [px, py, pr] of plates) {
+      c.beginPath();
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; const xx = px + Math.cos(a) * pr, yy = py + Math.sin(a) * pr * 0.8; if (i) c.lineTo(xx, yy); else c.moveTo(xx, yy); }
+      c.closePath(); c.fill(); c.stroke();
+    }
+    // шипы по краю
+    c.strokeStyle = ink; c.lineWidth = 1.6;
+    for (const sx of [-17, -9, 5, 13]) sh('#e8dcc0', () => { c.moveTo(sx - 2.5, 1); c.lineTo(sx, 6); c.lineTo(sx + 2.5, 1); c.closePath(); });
+    c.beginPath(); c.moveTo(-22, 3); c.quadraticCurveTo(-20, -19, -2, -20); c.quadraticCurveTo(16, -19, 18, 3); c.stroke();
+  } else {
+    // Лорд: рогатый демон с крыльями, вид спереди
+    shadow(26, 14);
+    const hide = '#9566dc', hideD = '#5f3d9e', armor = '#3a2f52', gold = '#f3c85a', wing = '#7048b0';
+    // крылья
+    for (const s of [-1, 1]) {
+      sh(wing, () => {
+        c.moveTo(s * 8, -12);
+        c.lineTo(s * 30, -30);
+        c.lineTo(s * 33, -6);
+        c.quadraticCurveTo(s * 28, -10, s * 25, -2);
+        c.quadraticCurveTo(s * 21, -8, s * 17, 0);
+        c.quadraticCurveTo(s * 14, -6, s * 9, 0);
+        c.closePath();
+      });
+      c.strokeStyle = 'rgba(20,18,28,.6)'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(s * 9, -11); c.lineTo(s * 25, -2); c.moveTo(s * 9, -11); c.lineTo(s * 17, 0); c.stroke();
+      c.strokeStyle = ink; c.lineWidth = 1.6;
+    }
+    // ноги
+    sh(hideD, () => { c.rect(-9, 4, 6, 9); c.rect(3, 4, 6, 9); });
+    sh('#e8dcc0', () => { c.moveTo(-10, 13); c.lineTo(-8, 15); c.lineTo(-6, 13); c.moveTo(2, 13); c.lineTo(4, 15); c.lineTo(6, 13); });
+    // туловище и доспех
+    sh(hide, () => { c.moveTo(-11, 6); c.quadraticCurveTo(-14, -10, -9, -16); c.lineTo(9, -16); c.quadraticCurveTo(14, -10, 11, 6); c.closePath(); });
+    sh(armor, () => { c.moveTo(-7, -14); c.lineTo(7, -14); c.lineTo(5, 2); c.lineTo(0, 5); c.lineTo(-5, 2); c.closePath(); });
+    sh(gold, () => { c.moveTo(0, -11); c.lineTo(3, -6); c.lineTo(0, -1); c.lineTo(-3, -6); c.closePath(); });
+    // руки с когтями
+    for (const s of [-1, 1]) {
+      sh(hide, () => { c.moveTo(s * 9, -14); c.quadraticCurveTo(s * 19, -10, s * 17, 2); c.lineTo(s * 13, 2); c.quadraticCurveTo(s * 14, -6, s * 8, -8); c.closePath(); });
+      sh(armor, () => c.ellipse(s * 11, -14, 5.5, 3.5, s * 0.3, 0, 7));
+      sh('#e8dcc0', () => { c.moveTo(s * 13, 2); c.lineTo(s * 13.5, 6); c.lineTo(s * 15, 2.5); c.lineTo(s * 16.5, 6); c.lineTo(s * 17, 2); c.closePath(); });
+    }
+    // голова, рога, глаза
+    sh(hide, () => c.ellipse(0, -21, 7, 6.5, 0, 0, 7));
+    for (const s of [-1, 1]) sh('#efe6d0', () => { c.moveTo(s * 4, -25); c.quadraticCurveTo(s * 13, -28, s * 12, -37); c.quadraticCurveTo(s * 9, -30, s * 2, -27); c.closePath(); });
+    sh(armor, () => { c.moveTo(-6, -24); c.lineTo(0, -29); c.lineTo(6, -24); c.lineTo(0, -22); c.closePath(); });
+    eye(-2.8, -21, 1.6, '#ffd34d'); eye(2.8, -21, 1.6, '#ffd34d');
+    c.strokeStyle = ink; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(-3, -17); c.lineTo(-1, -16); c.lineTo(1, -17); c.lineTo(3, -16); c.stroke();
+  }
+}
