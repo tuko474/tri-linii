@@ -11,7 +11,7 @@ import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
 import type { Hero, Pick, Side } from './sim/types';
 import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
-import { Ended, Online } from './online';
+import { BUILD, Ended, Online } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const SCREENS = ['menu', 'how', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
@@ -36,7 +36,6 @@ function cleanStars(v: unknown): Record<string, number> {
   }
   return out;
 }
-const progressMsg = () => ({ t: 'save', crystals: meta.crystals, owned: [...meta.owned], stars: meta.stars });
 
 const meta = {
   crystals: Number(store.get('tl-crystals') ?? 300), // стартовый подарок, чтобы сразу открыть одного героя
@@ -48,9 +47,7 @@ const meta = {
     store.set('tl-crystals', String(this.crystals));
     store.set('tl-owned', [...this.owned].join(','));
     store.set('tl-stars', JSON.stringify(this.stars));
-    // на сервер; если связи нет — отправим при следующем входе
-    if (online.me && online.ready) online.send(progressMsg());
-    else store.set('tl-dirty', '1');
+    // с аккаунтом прогресс ведёт сервер: покупки идут туда (buy), кристаллы начисляет он же
   },
 };
 const online = new Online();
@@ -190,6 +187,17 @@ function renderRaces() {
 }
 
 // ---------- коллекция героев (просмотр и покупка) ----------
+/** Покупка за кристаллы. С аккаунтом — через сервер (он проверит цену и пришлёт свежий профиль), без — в телефоне. */
+function purchase(what: 'hero' | 'star', id: string, cost: number, apply: () => void): boolean {
+  if (meta.crystals < cost) return false;
+  if (online.me && !online.ready) { toast('Нет связи с сервером — покупка не прошла', 'bad'); return false; }
+  meta.crystals -= cost; // сразу показываем, сервер потом пришлёт точные цифры
+  apply();
+  meta.save();
+  if (online.me) online.send({ t: 'buy', what, id });
+  return true;
+}
+
 /** Ряд звёзд героя: закрашенные и пустые. */
 function starsHTML(n: number, small = false): string {
   return `<span class="stars${small ? ' small' : ''}" aria-label="${n} из ${BAL.stars.max} звёзд">${Array.from({ length: BAL.stars.max }, (_, i) => `<i class="${i < n ? 'on' : ''}">★</i>`).join('')}</span>`;
@@ -232,10 +240,7 @@ function renderCards() {
         : `<button type="button" class="btn star-up" ${meta.crystals < upCost ? 'disabled' : ''}>Звезда ${st + 1}★ за ✦ ${upCost}</button>`}`;
     const buy = b.querySelector('.buy') as HTMLButtonElement | null;
     if (buy) buy.onclick = () => {
-      if (meta.crystals < h.price) return;
-      meta.crystals -= h.price;
-      meta.owned.add(h.id);
-      meta.save();
+      if (!purchase('hero', h.id, h.price, () => meta.owned.add(h.id))) return;
       sound.play('levelUp');
       renderCards();
     };
@@ -243,10 +248,7 @@ function renderCards() {
     if (up) up.onclick = () => {
       const cur = meta.starsOf(h.id);
       const cost = BAL.stars.cost[cur];
-      if (cost === undefined || meta.crystals < cost) return;
-      meta.crystals -= cost;
-      meta.stars[h.id] = cur + 1;
-      meta.save();
+      if (cost === undefined || !purchase('star', h.id, cost, () => { meta.stars[h.id] = cur + 1; })) return;
       sound.play('levelUp');
       const y = $('pick').scrollTop;
       renderCards();
@@ -603,7 +605,10 @@ $('startBattle').onclick = () => {
 /** Хост начинает бой, когда обе расстановки готовы. */
 function tryStartNet() {
   if (mode !== 'host' || !myPlacementSent || !foePlacement) return;
-  const picks: [Pick[], Pick[]] = [placement, foePlacement];
+  // в бою через сервер звёзды обеих сторон берём из базы сервера, а не с телефонов
+  const st = online.match?.stars;
+  const withStars = (pl: Pick[], tbl?: Record<string, number>) => pl.map((p) => ({ ...p, stars: tbl ? Math.min(BAL.stars.max, tbl[p.heroId] ?? 0) : p.stars }));
+  const picks: [Pick[], Pick[]] = link?.via === 'server' && st ? [withStars(placement, st[0]), withStars(foePlacement, st[1])] : [placement, foePlacement];
   const seed = Math.floor(Math.random() * 2 ** 31);
   startMsg = { t: 'start', picks, seed };
   link?.send(startMsg);
@@ -1328,11 +1333,11 @@ function finish(aborted = false) {
     <dt>Сумма уровней героев</dt><dd>${myLvl}</dd>
     <dt>Заработано золота</dt><dd>${Math.round(g.stats.goldEarned[me])}</dd>`;
   if (win) store.set('tl-wins', String(Number(store.get('tl-wins') || 0) + 1));
-  const reward = (win ? 150 : 60) + 20 * g.stats.lords[me];
-  meta.crystals += reward;
-  meta.save();
-  syncCrystals();
-  $('resReward').textContent = `+✦ ${reward} кристаллов · всего ${meta.crystals}. Новых героев открывай при выборе команды.`;
+  // кристаллы дают только за рейтинговые бои, и начисляет их сервер (придёт в 'ended')
+  $('resReward').textContent = lastRanked && link?.via === 'server'
+    ? 'Кристаллы — после того как сервер подтвердит итог…'
+    : 'Кристаллы дают только за рейтинговые бои.';
+  renderRewardLine();
   game = null;
   show('result');
 }
@@ -1366,24 +1371,14 @@ function renderProfileChip() {
 }
 
 function applyServerProgress() {
+  // прогресс аккаунта ведёт сервер — всегда берём его цифры
   const p = online.me!;
-  if (store.get('tl-dirty') === '1' && store.get('tl-acc-synced') === p.id) {
-    // играли без связи — отправляем своё
-    store.set('tl-dirty', '0');
-    online.send(progressMsg());
-    return;
-  }
-  store.set('tl-acc-synced', p.id);
-  store.set('tl-dirty', '0');
   meta.crystals = p.crystals;
   meta.owned = new Set([...STARTER_IDS, ...p.owned.filter((id) => HEROES.some((h) => h.id === id))]);
-  // старый сервер звёзд не знает — тогда оставляем свои и отправим их при следующем сохранении
-  if (p.stars) meta.stars = cleanStars(p.stars);
-  else if (Object.keys(meta.stars).length) online.send(progressMsg());
-  store.set('tl-crystals', String(meta.crystals));
-  store.set('tl-owned', [...meta.owned].join(','));
-  store.set('tl-stars', JSON.stringify(meta.stars));
+  meta.stars = cleanStars(p.stars ?? {});
+  meta.save();
   syncCrystals();
+  if (!$('pick').hidden) { const y = $('pick').scrollTop; renderCards(); $('pick').scrollTop = y; }
 }
 
 function openAccount(msg = '') {
@@ -1464,8 +1459,17 @@ online.on('match', (m: { ranked: boolean; role: 'host' | 'guest'; foe: { name: s
 });
 online.on('ended', (m: Ended) => {
   lastEnded = m;
-  if (!$('result').hidden) renderRatingLine();
+  if (!$('result').hidden) { renderRatingLine(); renderRewardLine(); }
 });
+
+/** Строка о кристаллах на экране итога рейтингового боя. */
+function renderRewardLine() {
+  if (!lastEnded || !lastEnded.ranked) return;
+  const c = lastEnded.crystals ?? 0;
+  $('resReward').textContent = c > 0
+    ? `+✦ ${c} кристаллов · всего ${(online.me?.crystals ?? meta.crystals)}.`
+    : 'Этот бой кристаллов не дал: матч был слишком коротким или его покинули.';
+}
 online.on('top', (m: { list: { name: string; rating: number; wins: number; losses: number }[]; players: number; online: number }) => {
   $('topList').innerHTML = m.list.length
     ? m.list.map((x) => `<li class="${x.name === online.me?.name ? 'me' : ''}">${escapeHtml(x.name)}<span>★ ${x.rating}</span></li>`).join('')
@@ -1482,13 +1486,11 @@ $('qCancel').onclick = () => { online.send({ t: 'unqueue' }); show('menu'); };
 $('regBtn').onclick = () => {
   const name = $<HTMLInputElement>('regName').value.trim();
   if (name.length < 2) { $('accStatus').textContent = 'Имя — хотя бы 2 символа'; return; }
-  store.set('tl-dirty', '0');
-  online.send({ t: 'register', name, crystals: meta.crystals, owned: [...meta.owned], stars: meta.stars });
+  online.send({ t: 'register', name, v: BUILD });
   $('accStatus').textContent = 'Создаём…';
 };
 $('loginBtn').onclick = () => {
-  store.set('tl-dirty', '0');
-  online.send({ t: 'login', name: $<HTMLInputElement>('loginName').value.trim(), password: $<HTMLInputElement>('loginPass').value });
+  online.send({ t: 'login', v: BUILD, name: $<HTMLInputElement>('loginName').value.trim(), password: $<HTMLInputElement>('loginPass').value });
   $('accStatus').textContent = 'Входим…';
 };
 $('nameBtn').onclick = () => online.send({ t: 'setName', name: $<HTMLInputElement>('newName').value.trim() });

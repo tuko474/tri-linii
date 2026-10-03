@@ -3,6 +3,7 @@
 // Запуск: node server.mjs  (порт — PORT, по умолчанию 8080; база — DB, по умолчанию ./arena.db)
 // Снаружи его прикрывает Caddy: он даёт https/wss и сам получает сертификат.
 
+import { HERO_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS } from './economy.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -13,6 +14,9 @@ const START_RATING = 1000;
 const K = 32; // насколько сильно меняется рейтинг за бой
 const REJOIN_MS = 45000; // сколько ждём вернувшегося после обрыва игрока
 const START_CRYSTALS = 300;
+/** Минимальная сборка игры для боёв по сети: старые сами начисляли кристаллы и звёзды. */
+const MIN_BUILD = 33;
+const STARTERS = Object.keys(HERO_PRICE).filter((id) => HERO_PRICE[id] === 0);
 
 // ---------- база ----------
 const db = new DatabaseSync(DB_PATH);
@@ -68,6 +72,7 @@ const q = {
   pass: db.prepare('UPDATE users SET pass = ? WHERE id = ?'),
   token: db.prepare('UPDATE users SET token = ? WHERE id = ?'),
   save: db.prepare('UPDATE users SET crystals = ?, owned = ?, stars = ? WHERE id = ?'),
+  give: db.prepare('UPDATE users SET crystals = crystals + ? WHERE id = ?'),
   rate: db.prepare('UPDATE users SET rating = ?, wins = wins + ?, losses = losses + ? WHERE id = ?'),
   top: db.prepare('SELECT name, rating, wins, losses FROM users WHERE wins + losses > 0 ORDER BY rating DESC LIMIT 50'),
   count: db.prepare('SELECT COUNT(*) AS n FROM users'),
@@ -195,7 +200,8 @@ class Client {
     try { this.handle(m); } catch (e) { console.error('handle', m.t, e); }
   }
 
-  login(u) {
+  login(u, build) {
+    this.build = Number(build) || 0;
     const prev = online.get(u.id);
     if (prev && prev !== this) { prev.send({ t: 'kicked' }); prev.user = null; prev.close(); }
     this.user = u;
@@ -214,28 +220,27 @@ class Client {
         this.send({ t: 'pong', ts: m.ts });
         return;
       case 'register': {
-        // новый аккаунт: имя + прогресс с телефона (кристаллы и открытые герои)
+        // новый аккаунт: имя; стартовые кристаллы и герои
         let name = cleanName(m.name);
         if (name.length < 2) { this.send({ t: 'error', where: 'register', text: 'Имя слишком короткое' }); return; }
         if (q.byName.get(name)) { this.send({ t: 'error', where: 'register', text: 'Такое имя уже занято' }); return; }
         const id = rid(9);
-        const crystals = Math.max(0, Math.min(100000, Number(m.crystals) || START_CRYSTALS));
-        const owned = Array.isArray(m.owned) ? m.owned.filter((x) => typeof x === 'string').slice(0, 200) : [];
-        q.insert.run(id, rid(24), name, crystals, JSON.stringify(owned), JSON.stringify(cleanStars(m.stars)), Date.now(), Date.now());
-        this.login(q.byId.get(id));
+        // прогресс с телефона не переносим: его можно накрутить. Новый аккаунт — как новая игра.
+        q.insert.run(id, rid(24), name, START_CRYSTALS, JSON.stringify(STARTERS), '{}', Date.now(), Date.now());
+        this.login(q.byId.get(id), m.v);
         return;
       }
       case 'auth': {
         const u = q.byId.get(String(m.id ?? ''));
         if (!u || u.token !== m.token) { this.send({ t: 'error', where: 'auth', text: 'Аккаунт не найден' }); return; }
-        this.login(u);
+        this.login(u, m.v);
         if (m.matchId) matches.get(m.matchId)?.rejoin(this);
         return;
       }
       case 'login': {
         const u = q.byName.get(cleanName(m.name));
         if (!u || !checkPass(String(m.password ?? ''), u.pass)) { this.send({ t: 'error', where: 'login', text: 'Неверное имя или пароль' }); return; }
-        this.login(u);
+        this.login(u, m.v);
         return;
       }
       case 'top':
@@ -259,16 +264,32 @@ class Client {
         q.pass.run(hashPass(p), me.id);
         break;
       }
-      case 'save': {
-        // прогресс: кристаллы и открытые герои
-        const crystals = Math.max(0, Math.min(1000000, Math.floor(Number(m.crystals) || 0)));
-        const owned = Array.isArray(m.owned) ? m.owned.filter((x) => typeof x === 'string').slice(0, 200) : JSON.parse(me.owned);
-        const stars = m.stars === undefined ? JSON.parse(me.stars || '{}') : cleanStars(m.stars); // старый телефон звёзд не шлёт — не затираем
-        q.save.run(crystals, JSON.stringify(owned), JSON.stringify(stars), me.id);
-        this.refresh();
-        return; // без ответа — телефон и так знает
+      case 'save':
+        // старые версии игры присылали свой прогресс — теперь его ведёт только сервер
+        return;
+      case 'buy': {
+        // покупка за кристаллы: открыть героя или звезду. Цена — только серверная.
+        const id = String(m.id ?? '');
+        if (!(id in HERO_PRICE)) break;
+        const owned = JSON.parse(me.owned);
+        const stars = JSON.parse(me.stars || '{}');
+        let cost;
+        if (m.what === 'hero') {
+          if (owned.includes(id) || HERO_PRICE[id] === 0) break;
+          cost = HERO_PRICE[id];
+          owned.push(id);
+        } else if (m.what === 'star') {
+          const cur = stars[id] ?? 0;
+          if ((!owned.includes(id) && HERO_PRICE[id] !== 0) || cur >= MAX_STARS) break;
+          cost = STAR_COST[cur];
+          stars[id] = cur + 1;
+        } else break;
+        if (me.crystals < cost) { this.send({ t: 'error', where: 'buy', text: 'Не хватает кристаллов' }); break; }
+        q.save.run(me.crystals - cost, JSON.stringify(owned), JSON.stringify(stars), me.id);
+        break; // ниже — свежий профиль телефону
       }
       case 'queue':
+        if (this.build < MIN_BUILD) { this.send({ t: 'error', where: 'version', text: 'Обнови игру до последней версии — старая не подходит для боёв по сети' }); return; }
         if (this.match) return;
         queue.set(me.id, { c: this, since: Date.now() });
         this.send({ t: 'queued', size: queue.size });
@@ -278,6 +299,7 @@ class Client {
         queue.delete(me.id);
         return;
       case 'host': {
+        if (this.build < MIN_BUILD) { this.send({ t: 'error', where: 'version', text: 'Обнови игру до последней версии — старая не подходит для боёв по сети' }); return; }
         if (this.match) return;
         for (const [code, h] of rooms) if (h === this) rooms.delete(code);
         let code;
@@ -287,6 +309,7 @@ class Client {
         return;
       }
       case 'join': {
+        if (this.build < MIN_BUILD) { this.send({ t: 'error', where: 'version', text: 'Обнови игру до последней версии — старая не подходит для боёв по сети' }); return; }
         const code = String(m.code ?? '').toUpperCase().trim();
         const h = rooms.get(code);
         if (!h || !h.alive || !h.user) { this.send({ t: 'error', where: 'join', text: 'Комната не найдена. Проверь код' }); return; }
@@ -326,6 +349,9 @@ class Match {
     this.reports = [null, null];
     this.done = false;
     this.timer = null;
+    this.started = Date.now();
+    // звёзды героев — из базы, а не с телефона
+    this.stars = [host.user, guest.user].map((u) => JSON.parse(u.stars || '{}'));
     matches.set(this.id, this);
     q.matchNew.run(this.id, this.ids[0], this.ids[1], ranked ? 1 : 0, Date.now());
     for (let i = 0; i < 2; i++) {
@@ -333,7 +359,7 @@ class Match {
       queue.delete(this.ids[i]);
       c.match = this;
       const foe = this.p[1 - i].user;
-      c.send({ t: 'match', id: this.id, role: i === 0 ? 'host' : 'guest', ranked, foe: { name: foe.name, rating: foe.rating } });
+      c.send({ t: 'match', id: this.id, role: i === 0 ? 'host' : 'guest', ranked, foe: { name: foe.name, rating: foe.rating }, stars: this.stars });
     }
   }
 
@@ -412,12 +438,19 @@ class Match {
       q.rate.run(Math.max(0, l.rating - delta), 0, 1, l.id);
     }
     q.matchEnd.run(winner === null ? null : this.ids[winner], delta, reason, Date.now(), this.id);
+    // кристаллы: только рейтинг, только честно доигранный матч (не короче MIN_REWARD_MS); сбежавшему — ничего
+    const gain = [0, 0];
+    if (this.ranked && winner !== null && Date.now() - this.started >= MIN_REWARD_MS) {
+      gain[winner] = REWARD.win;
+      if (reason === 'throne' || reason === 'throne-one') gain[1 - winner] = REWARD.loss;
+      for (let i = 0; i < 2; i++) if (gain[i]) q.give.run(gain[i], this.ids[i]);
+    }
     for (let i = 0; i < 2; i++) {
       const c = this.p[i];
       if (!c) continue;
       c.match = null;
       c.refresh();
-      c.send({ t: 'ended', winner, reason, ranked: this.ranked, delta: winner === null ? 0 : winner === i ? delta : -delta });
+      c.send({ t: 'ended', winner, reason, ranked: this.ranked, delta: winner === null ? 0 : winner === i ? delta : -delta, crystals: gain[i] });
       if (c.user) c.send(profile(c.user));
     }
   }

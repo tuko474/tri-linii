@@ -23,6 +23,7 @@ export interface MatchInfo {
   role: 'host' | 'guest';
   ranked: boolean;
   foe: { name: string; rating: number };
+  stars?: Record<string, number>[]; // звёзды хоста и гостя из базы сервера
 }
 
 export interface Ended {
@@ -30,6 +31,7 @@ export interface Ended {
   reason: string;
   ranked: boolean;
   delta: number;
+  crystals?: number; // сколько кристаллов дал сервер за этот бой
 }
 
 const kv = {
@@ -37,6 +39,9 @@ const kv = {
   set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* */ } },
   del(k: string) { try { localStorage.removeItem(k); } catch { /* */ } },
 };
+
+/** Номер сборки игры (0.1.N → N); для сервера. Локальная сборка — «dev», считаем свежей. */
+export const BUILD = Number(document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content.split('.')[2]) || 9999;
 
 export function serverUrl(): string {
   return (kv.get('tl-server') || SERVER_URL).trim();
@@ -92,7 +97,7 @@ export class Online {
       this.retry = 0;
       const id = kv.get('tl-acc-id');
       const token = kv.get('tl-acc-token');
-      if (id && token) this.raw({ t: 'auth', id, token, matchId: this.match?.id });
+      if (id && token) this.raw({ t: 'auth', id, token, matchId: this.match?.id, v: BUILD });
       for (const s of this.outbox.splice(0)) ws.send(s);
       clearInterval(this.pingTimer);
       this.pingTimer = window.setInterval(() => this.raw({ t: 'ping', ts: Math.round(performance.now()) }), 5000);
@@ -153,7 +158,7 @@ export class Online {
         this.wantOpen = false; // вошли с другого телефона — не переподключаемся сами
         break;
       case 'match':
-        this.match = { id: m.id, role: m.role, ranked: m.ranked, foe: m.foe };
+        this.match = { id: m.id, role: m.role, ranked: m.ranked, foe: m.foe, stars: m.stars };
         this.link = this.makeLink();
         break;
       case 'rejoined':
