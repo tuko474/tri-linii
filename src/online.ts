@@ -15,7 +15,14 @@ export interface Profile {
   crystals: number;
   owned: string[];
   stars?: Record<string, number>; // нет у старого сервера
+  daily?: Daily; // нет у старого сервера
   hasPass: boolean;
+}
+
+export interface Daily {
+  resetIn: number; // мс до нового дня
+  login: { can: boolean; day: number; rewards: number[] };
+  quests: { id: string; text: string; need: number; have: number; reward: number; claimed: boolean }[];
 }
 
 export interface MatchInfo {

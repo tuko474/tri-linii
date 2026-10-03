@@ -44,3 +44,23 @@ export const MAX_STARS = 5;
 export const REWARD = { win: 75, loss: 30 };
 /** Матч короче этого (мс) кристаллов не даёт — против договорных сдач. */
 export const MIN_REWARD_MS = Number(process.env.MIN_REWARD_MS ?? 3 * 60 * 1000);
+
+// ---------- ежедневное ----------
+/** Награда за вход по дням цепочки (7-й день — большая), потом цепочка идёт по кругу. Пропуск дня — заново с 1-го. */
+export const LOGIN_REWARD = [20, 30, 40, 50, 60, 80, 150];
+/** Сколько заданий в день. */
+export const QUESTS_PER_DAY = 3;
+/** Набор заданий. stat — что считаем после боя по сети (play/win — сам факт боя и победы). */
+export const QUESTS = [
+  { id: 'play', text: 'Сыграй 2 боя по сети', stat: 'play', need: 2, reward: 40 },
+  { id: 'win', text: 'Победи в бою по сети', stat: 'win', need: 1, reward: 50 },
+  { id: 'lords', text: 'Убей Лорда', stat: 'lords', need: 1, reward: 50 },
+  { id: 'turtles', text: 'Убей 2 Черепахи', stat: 'turtles', need: 2, reward: 40 },
+  { id: 'camps', text: 'Зачисти 6 лесных лагерей', stat: 'camps', need: 6, reward: 30 },
+  { id: 'pushes', text: 'Продави 5 позиций врага', stat: 'pushes', need: 5, reward: 40 },
+  { id: 'kills', text: 'Убей 150 крипов', stat: 'kills', need: 150, reward: 30 },
+];
+/** День по Москве (UTC+3): номер суток. */
+export const dayNow = (now = Date.now()) => Math.floor((now + 3 * 3600 * 1000) / 86400000);
+/** Сколько миллисекунд до следующего дня по Москве. */
+export const msToNextDay = (now = Date.now()) => (dayNow(now) + 1) * 86400000 - (now + 3 * 3600 * 1000);

@@ -11,10 +11,10 @@ import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
 import type { Hero, Pick, Side } from './sim/types';
 import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
-import { BUILD, Ended, Online } from './online';
+import { BUILD, Daily, Ended, Online } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const SCREENS = ['menu', 'how', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
+const SCREENS = ['menu', 'how', 'daily', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
 function show(id: string) {
   for (const s of SCREENS) $(s).hidden = s !== id;
 }
@@ -95,6 +95,61 @@ $('toLobby').onclick = () => {
   show('lobby');
 };
 $('howBtn').onclick = () => show('how');
+$('toDaily').onclick = () => { renderDaily(); show('daily'); };
+$('dailyBack').onclick = () => show('menu');
+
+// ---------- задания дня и награда за вход ----------
+let dailyAt = 0; // когда пришли данные (для обратного отсчёта до нового дня)
+function dailyData(): Daily | null {
+  return online.me?.daily ?? null;
+}
+/** Есть что забрать — точка на кнопке «Задания». */
+function renderDailyDot() {
+  const d = dailyData();
+  $('dailyDot').hidden = !d || !(d.login.can || d.quests.some((q) => !q.claimed && q.have >= q.need));
+}
+function renderDaily() {
+  const d = dailyData();
+  $('crystalsDaily').textContent = crystalsText();
+  const body = $('dailyBody');
+  if (!online.me) {
+    $('dailyHint').textContent = 'Задания и награды за вход — для игроков с аккаунтом. Создай его в меню (кнопка справа вверху).';
+    body.innerHTML = '';
+    return;
+  }
+  if (!d) {
+    $('dailyHint').textContent = online.ready ? 'Сервер ещё не обновлён — заданий пока нет.' : 'Нет связи с сервером.';
+    body.innerHTML = '';
+    return;
+  }
+  const left = Math.max(0, d.resetIn - (Date.now() - dailyAt));
+  const hh = Math.floor(left / 3600000), mm = Math.floor((left % 3600000) / 60000);
+  $('dailyHint').textContent = `Новые задания через ${hh} ч ${mm} мин. Задания засчитываются в боях по сети (рейтинг и с другом), не короче 3 минут.`;
+  const cells = d.login.rewards.map((r, i) => {
+    const n = i + 1;
+    const got = d.login.can ? n < d.login.day : n <= d.login.day;
+    const today = d.login.can && n === d.login.day;
+    return `<div class="lg${got ? ' got' : ''}${today ? ' today' : ''}${n === 7 ? ' big' : ''}"><small>День ${n}</small><b>✦ ${r}</b>${got ? '<i>✓</i>' : ''}</div>`;
+  }).join('');
+  const login = `<div class="daily-card"><h3>Награда за вход</h3><p class="hint">Заходи каждый день — награда растёт к 7-му дню. Пропустишь день — цепочка начнётся заново.</p>
+    <div class="login-row">${cells}</div>
+    ${d.login.can ? `<button type="button" class="btn primary big" id="claimLogin">Забрать ✦ ${d.login.rewards[d.login.day - 1]}</button>` : '<p class="hint done">Сегодняшняя награда получена — приходи завтра.</p>'}</div>`;
+  const quests = d.quests.map((q) => {
+    const ready = !q.claimed && q.have >= q.need;
+    return `<div class="quest${q.claimed ? ' claimed' : ''}${ready ? ' ready' : ''}">
+      <div class="q-text"><b>${q.text}</b><span class="q-bar"><i style="width:${(100 * q.have) / q.need}%"></i></span><small>${q.have} / ${q.need}</small></div>
+      ${q.claimed ? '<span class="q-done">✓ Получено</span>' : `<button type="button" class="btn ${ready ? 'primary' : 'ghost'} q-claim" data-q="${q.id}" ${ready ? '' : 'disabled'}>✦ ${q.reward}</button>`}
+    </div>`;
+  }).join('');
+  body.innerHTML = login + `<div class="daily-card"><h3>Задания дня</h3>${quests}</div>`;
+  $('claimLogin')?.addEventListener('click', () => { online.send({ t: 'claimLogin' }); sound.play('tap'); });
+  body.querySelectorAll<HTMLButtonElement>('.q-claim').forEach((b) => b.addEventListener('click', () => { online.send({ t: 'claimQuest', id: b.dataset.q }); sound.play('tap'); }));
+}
+online.on('claimed', (m: { what: string; day?: number; crystals: number }) => {
+  toast(m.what === 'login' ? `Награда за вход (день ${m.day}): +✦ ${m.crystals}` : `Задание выполнено: +✦ ${m.crystals}`, 'good');
+  sound.play('coins');
+});
+
 $('toRaces').onclick = () => { renderRaces(); show('races'); };
 $('racesBack').onclick = () => show('menu');
 
@@ -1319,7 +1374,11 @@ function finish(aborted = false) {
     return;
   }
   const win = g.winner === me;
-  if (mode !== 'bot' && link?.via === 'server') online.send({ t: 'result', winner: g.winner });
+  if (mode !== 'bot' && link?.via === 'server') {
+    // статистику шлют оба телефона: симуляция одинаковая, сервер засчитывает задания, только если цифры совпали
+    const st = g.stats;
+    online.send({ t: 'result', winner: g.winner, stats: { kills: st.kills, lords: st.lords, turtles: st.turtles, camps: st.camps, pushes: st.pushes } });
+  }
   renderRatingLine();
   sound.play(win ? 'win' : 'lose');
   $('resTitle').textContent = win ? 'Победа' : 'Поражение';
@@ -1429,7 +1488,10 @@ online.on('status', (ok: boolean) => {
   if (!ok && !$('queue').hidden) $('qStatus').textContent = 'Связь с сервером пропала, переподключаемся…';
 });
 online.on('me', () => {
+  dailyAt = Date.now();
   applyServerProgress();
+  renderDailyDot();
+  if (!$('daily').hidden) renderDaily();
   renderProfileChip();
   if (!$('account').hidden) { renderAccount(); $('accStatus').textContent = ''; }
   if (!$('result').hidden) renderRatingLine();

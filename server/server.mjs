@@ -3,7 +3,7 @@
 // Запуск: node server.mjs  (порт — PORT, по умолчанию 8080; база — DB, по умолчанию ./arena.db)
 // Снаружи его прикрывает Caddy: он даёт https/wss и сам получает сертификат.
 
-import { HERO_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS } from './economy.mjs';
+import { HERO_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -51,6 +51,11 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'stars')) {
   db.exec(`ALTER TABLE users ADD COLUMN stars TEXT NOT NULL DEFAULT '{}'`);
 }
+// ежедневное: задания дня и цепочка входов (JSON в users.daily)
+if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'daily')) {
+  db.exec(`ALTER TABLE users ADD COLUMN daily TEXT NOT NULL DEFAULT '{}'`);
+}
+
 // промокоды: код → кристаллы; лимит активаций (0 — без лимита); каждый игрок — один раз
 db.exec(`
   CREATE TABLE IF NOT EXISTS promos (
@@ -90,6 +95,7 @@ const q = {
   token: db.prepare('UPDATE users SET token = ? WHERE id = ?'),
   save: db.prepare('UPDATE users SET crystals = ?, owned = ?, stars = ? WHERE id = ?'),
   give: db.prepare('UPDATE users SET crystals = crystals + ? WHERE id = ?'),
+  daily: db.prepare('UPDATE users SET daily = ? WHERE id = ?'),
   promo: db.prepare('SELECT * FROM promos WHERE code = ?'),
   promoUsed: db.prepare('SELECT 1 FROM promo_uses WHERE code = ? AND user = ?'),
   promoUse: db.prepare('INSERT INTO promo_uses (code, user, at) VALUES (?, ?, ?)'),
@@ -112,10 +118,65 @@ const checkPass = (p, stored) => {
 };
 const cleanName = (s) => String(s ?? '').replace(/[^\p{L}\p{N}_\- ]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 16);
 
+/** Задания дня для игрока: одинаковые весь день, у разных игроков — разные. */
+function rollQuests(userId, day) {
+  let h = 2166136261;
+  for (const ch of userId + ':' + day) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const pool = [...QUESTS];
+  const out = [];
+  while (out.length < QUESTS_PER_DAY && pool.length) {
+    h = Math.imul(h ^ (h >>> 15), 2246822519) >>> 0;
+    out.push(pool.splice(h % pool.length, 1)[0].id);
+  }
+  return out.map((id) => ({ id, have: 0, claimed: false }));
+}
+
+/** Ежедневное состояние игрока на сегодня (при смене дня — новые задания). Сохраняет, если что-то поменялось. */
+function dailyOf(u) {
+  const today = dayNow();
+  let d;
+  try { d = JSON.parse(u.daily || '{}'); } catch { d = {}; }
+  if (d.day !== today) {
+    d = { day: today, quests: rollQuests(u.id, today), loginDay: d.loginDay ?? 0, streak: d.streak ?? 0 };
+    const s = JSON.stringify(d);
+    q.daily.run(s, u.id);
+    u.daily = s;
+  }
+  return d;
+}
+/** Какой день цепочки входа будет при следующей награде. */
+const nextStreak = (d) => (d.loginDay === dayNow() - 1 ? (d.streak % LOGIN_REWARD.length) + 1 : 1);
+
+function dailyView(u) {
+  const d = dailyOf(u);
+  const can = d.loginDay !== d.day;
+  return {
+    resetIn: msToNextDay(),
+    login: { can, day: can ? nextStreak(d) : d.streak, rewards: LOGIN_REWARD },
+    quests: d.quests.map((x) => {
+      const def = QUESTS.find((qq) => qq.id === x.id);
+      return def ? { id: x.id, text: def.text, need: def.need, have: Math.min(def.need, x.have), reward: def.reward, claimed: x.claimed } : null;
+    }).filter(Boolean),
+  };
+}
+
+/** Засчитать бой по сети в задания игрока. st — статистика его стороны (или null, если ей нельзя верить). */
+function questProgress(userId, won, st) {
+  const u = q.byId.get(userId);
+  if (!u) return;
+  const d = dailyOf(u);
+  const add = { play: 1, win: won ? 1 : 0, lords: st?.lords ?? 0, turtles: st?.turtles ?? 0, camps: st?.camps ?? 0, pushes: st?.pushes ?? 0, kills: st?.kills ?? 0 };
+  for (const x of d.quests) {
+    const def = QUESTS.find((qq) => qq.id === x.id);
+    if (def && !x.claimed) x.have = Math.min(def.need, x.have + (add[def.stat] ?? 0));
+  }
+  q.daily.run(JSON.stringify(d), userId);
+}
+
 function profile(u) {
   return {
     t: 'me', id: u.id, token: u.token, name: u.name, rating: u.rating, wins: u.wins, losses: u.losses,
-    crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass,
+    crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass, daily: dailyView(u),
   };
 }
 
@@ -311,6 +372,34 @@ class Client {
         q.save.run(me.crystals - cost, JSON.stringify(owned), JSON.stringify(stars), me.id);
         break; // ниже — свежий профиль телефону
       }
+      case 'claimLogin': {
+        // награда за вход: один раз в день
+        this.refresh();
+        const u = this.user;
+        const d = dailyOf(u);
+        if (d.loginDay === d.day) break;
+        const day = nextStreak(d);
+        const gain = LOGIN_REWARD[day - 1];
+        d.loginDay = d.day;
+        d.streak = day;
+        q.daily.run(JSON.stringify(d), u.id);
+        q.give.run(gain, u.id);
+        this.send({ t: 'claimed', what: 'login', day, crystals: gain });
+        break;
+      }
+      case 'claimQuest': {
+        this.refresh();
+        const u = this.user;
+        const d = dailyOf(u);
+        const x = d.quests.find((qq) => qq.id === m.id);
+        const def = QUESTS.find((qq) => qq.id === m.id);
+        if (!x || !def || x.claimed || x.have < def.need) break;
+        x.claimed = true;
+        q.daily.run(JSON.stringify(d), u.id);
+        q.give.run(def.reward, u.id);
+        this.send({ t: 'claimed', what: 'quest', id: def.id, crystals: def.reward });
+        break;
+      }
       case 'promo': {
         // не больше 8 попыток в минуту — чтобы коды не подбирали перебором
         const now = Date.now();
@@ -373,7 +462,7 @@ class Client {
         this.match?.relay(this, m.d);
         return;
       case 'result':
-        this.match?.report(this, m.winner);
+        this.match?.report(this, m.winner, m.stats);
         return;
       case 'quit':
         this.match?.quit(this);
@@ -386,6 +475,18 @@ class Client {
   }
 }
 
+/** Статистика боя из сообщения: только целые счётчики по двум сторонам. */
+function cleanMatchStats(s) {
+  if (!s || typeof s !== 'object') return null;
+  const out = {};
+  for (const k of ['kills', 'lords', 'turtles', 'camps', 'pushes']) {
+    const v = s[k];
+    if (!Array.isArray(v) || v.length !== 2) return null;
+    out[k] = v.map((n) => Math.max(0, Math.min(5000, Math.floor(Number(n) || 0))));
+  }
+  return out;
+}
+
 class Match {
   constructor(host, guest, ranked) {
     this.id = rid(9);
@@ -395,6 +496,7 @@ class Match {
     this.names = [host.user.name, guest.user.name];
     this.away = [0, 0]; // когда игрок пропал (0 — на связи)
     this.reports = [null, null];
+    this.statReports = [null, null]; // статистика боя от каждого телефона (у обоих одинаковая симуляция)
     this.done = false;
     this.timer = null;
     this.started = Date.now();
@@ -449,10 +551,11 @@ class Match {
   }
 
   /** Оба присылают, кто победил. Совпало — засчитываем; второй молчит 15 с — верим первому. */
-  report(c, winnerSide) {
+  report(c, winnerSide, stats) {
     const i = this.side(c);
     if (i < 0 || this.done || (winnerSide !== 0 && winnerSide !== 1)) return;
     this.reports[i] = winnerSide;
+    this.statReports[i] = cleanMatchStats(stats);
     const [a, b] = this.reports;
     if (a !== null && b !== null) { if (a === b) this.finish(a, 'throne'); else this.finish(null, 'disputed'); return; }
     clearTimeout(this.timer);
@@ -492,6 +595,15 @@ class Match {
       gain[winner] = REWARD.win;
       if (reason === 'throne' || reason === 'throne-one') gain[1 - winner] = REWARD.loss;
       for (let i = 0; i < 2; i++) if (gain[i]) q.give.run(gain[i], this.ids[i]);
+    }
+    // задания: только доигранный до трона бой не короче MIN_REWARD_MS. Статистике верим, если оба телефона прислали
+    // одинаковую (или прислал один, а второй промолчал) — подделать её в одиночку нельзя
+    if (winner !== null && (reason === 'throne' || reason === 'throne-one') && Date.now() - this.started >= MIN_REWARD_MS) {
+      const [sa, sb] = this.statReports.map((x) => (x ? JSON.stringify(x) : null));
+      const st = sa && sb ? (sa === sb ? this.statReports[0] : null) : (this.statReports[0] ?? this.statReports[1]);
+      for (let i = 0; i < 2; i++) {
+        questProgress(this.ids[i], winner === i, st ? Object.fromEntries(Object.entries(st).map(([k, v]) => [k, v[i]])) : null);
+      }
     }
     for (let i = 0; i < 2; i++) {
       const c = this.p[i];
