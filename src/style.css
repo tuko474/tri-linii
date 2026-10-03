@@ -164,7 +164,7 @@ canvas { display: block; }
   box-shadow: 0 4px 14px rgba(0,0,0,.45); touch-action: none; cursor: pointer;
 }
 
-.hud-top { top: calc(6px + var(--sat)); left: calc(var(--mini) + 18px + var(--sal)); right: calc(250px + var(--sar)); display: flex; justify-content: center; pointer-events: none; }
+.hud-top { top: calc(6px + var(--sat)); left: calc(var(--mini) + 18px + var(--sal)); right: calc(292px + var(--sar)); display: flex; justify-content: center; pointer-events: none; }
 .thrones { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 520px; padding: 6px 10px; background: rgba(23,20,42,.82); border: 1px solid rgba(61,53,96,.9); border-radius: 12px; }
 .throne-bar { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
 .throne-bar.foe { text-align: right; }
@@ -514,3 +514,37 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .quest.claimed { opacity: .55; }
 .quest .q-claim { min-width: 82px; padding: 8px 10px; }
 .quest .q-done { color: #8fe3a8; font-size: 13px; min-width: 82px; text-align: center; }
+
+/* стикеры: коллекция */
+.stk-grid { width: 100%; max-width: 640px; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; padding-bottom: 16px; }
+.stk-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.stk-card img { width: 84px; height: 84px; }
+.stk-card.locked img { filter: grayscale(.85) brightness(.7); }
+.stk-card .stk-tag { font-size: 12px; color: #8fe3a8; padding: 6px 0; }
+.stk-card .buy { width: 100%; padding: 6px 8px; font-size: 13px; color: #1b1630; background: var(--gold); border-color: var(--gold); }
+.stk-card .buy:disabled { color: var(--muted); border-color: var(--line); background: var(--panel2); }
+/* стикеры: в бою */
+.stick-pick { position: absolute; z-index: 30; top: calc(48px + var(--sat)); right: calc(8px + var(--sar)); width: min(300px, 80vw); display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  background: rgba(23,20,42,.94); border: 1px solid var(--line); border-radius: 14px; padding: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.stick-pick[hidden] { display: none; }
+.stick-pick .stk { background: none; border: 0; padding: 2px; border-radius: 10px; cursor: pointer; }
+.stick-pick .stk:active { background: var(--panel2); }
+.stick-pick .stk img { width: 100%; aspect-ratio: 1; display: block; }
+.stick-pick .stk-more { grid-column: 1 / -1; margin: 0; text-align: center; font-size: 11px; color: var(--muted); }
+.stick-pick .stk-mute { grid-column: 1 / -1; padding: 6px; font-size: 12px; }
+.stick-bubble { position: absolute; z-index: 25; top: calc(40px + var(--sat)); width: 92px; height: 92px; pointer-events: none; opacity: 0; transform: scale(.4); }
+.stick-bubble img { width: 100%; height: 100%; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
+.stick-bubble.mine { left: calc(var(--mini) + 30px + var(--sal)); }
+.stick-bubble.foe { right: calc(300px + var(--sar)); }
+.stick-bubble.show { animation: stickPop 2.6s ease forwards; }
+@keyframes stickPop {
+  0% { opacity: 0; transform: scale(.4) rotate(-12deg); }
+  10% { opacity: 1; transform: scale(1.15) rotate(4deg); }
+  18% { transform: scale(1) rotate(0); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(.9) translateY(-10px); }
+}
+@media (max-width: 760px) { .stick-bubble.foe { right: calc(12px + var(--sar)); top: calc(96px + var(--sat)); } .stick-bubble.mine { top: calc(96px + var(--sat)); } }
+/* поверх остальных панелей боя (общее правило .battle > * ставит z-index: 2) */
+.battle > #stickPick { z-index: 4; }
+.battle > #stickMine, .battle > #stickFoe { z-index: 3; }

@@ -838,3 +838,174 @@ export function drawBeastFigure(c: Ctx, kind: string) {
     c.beginPath(); c.moveTo(-3, -17); c.lineTo(-1, -16); c.lineTo(1, -17); c.lineTo(3, -16); c.stroke();
   }
 }
+
+// ---------- стикеры ----------
+
+export interface StickerDef { id: string; name: string; price: number }
+/** Стикеры: первые три бесплатные, остальные покупаются за кристаллы (цены сверяются с сервером). */
+export const STICKERS: StickerDef[] = [
+  { id: 'hi', name: 'Привет!', price: 0 },
+  { id: 'gg', name: 'GG', price: 0 },
+  { id: 'lol', name: 'Ха-ха', price: 0 },
+  { id: 'wow', name: 'Ого!', price: 150 },
+  { id: 'angry', name: 'Грр!', price: 150 },
+  { id: 'cry', name: 'Эх…', price: 150 },
+  { id: 'thumb', name: 'Класс!', price: 150 },
+  { id: 'cool', name: 'Круто', price: 200 },
+  { id: 'love', name: 'Мир!', price: 200 },
+  { id: 'sleep', name: 'Скучно', price: 200 },
+  { id: 'skull', name: 'Конец тебе', price: 250 },
+  { id: 'crown', name: 'Я король', price: 300 },
+];
+
+/** Стикер в квадрате size×size: рожица или значок + подпись. */
+export function drawSticker(c: Ctx, id: string, size: number) {
+  const s = size / 100;
+  c.save();
+  c.scale(s, s);
+  c.lineJoin = 'round';
+  c.lineCap = 'round';
+  const ink = '#14121c';
+  const face = (top: string, bot: string) => {
+    const g = c.createLinearGradient(0, 8, 0, 82);
+    g.addColorStop(0, top);
+    g.addColorStop(1, bot);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(50, 45, 36, 0, Math.PI * 2); c.fill();
+    c.lineWidth = 4; c.strokeStyle = ink; c.stroke();
+    c.fillStyle = 'rgba(255,255,255,.35)';
+    c.beginPath(); c.ellipse(38, 26, 12, 6, -0.5, 0, Math.PI * 2); c.fill();
+  };
+  const yellow = () => face('#ffe27a', '#f0a63a');
+  const eyes = (y = 40, r = 4.5) => { c.fillStyle = ink; for (const x of [37, 63]) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); } };
+  const line = (pts: number[], w = 4, col = ink) => {
+    c.strokeStyle = col; c.lineWidth = w;
+    c.beginPath(); c.moveTo(pts[0], pts[1]);
+    for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]);
+    c.stroke();
+  };
+  const caption = (text: string, col = '#f3ead6') => {
+    c.font = `800 ${text.length > 7 ? 13 : 16}px system-ui, sans-serif`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.lineWidth = 5; c.strokeStyle = ink;
+    c.strokeText(text, 50, 91);
+    c.fillStyle = col;
+    c.fillText(text, 50, 91);
+  };
+  const def = STICKERS.find((x) => x.id === id);
+  switch (id) {
+    case 'hi': {
+      yellow(); eyes();
+      c.lineWidth = 4; c.strokeStyle = ink; c.beginPath(); c.arc(50, 50, 15, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+      // машущая ладонь
+      c.fillStyle = '#ffd36b';
+      c.beginPath(); c.ellipse(84, 30, 9, 11, 0.3, 0, Math.PI * 2); c.fill(); c.lineWidth = 3; c.stroke();
+      for (const [x, y] of [[78, 16], [85, 15], [91, 19]]) { c.beginPath(); c.ellipse(x, y, 3, 6, 0.2, 0, Math.PI * 2); c.fill(); c.stroke(); }
+      line([72, 12, 68, 8], 2.5, '#fff'); line([96, 26, 100, 24], 2.5, '#fff');
+      break;
+    }
+    case 'gg': {
+      // щит с надписью
+      const g = c.createLinearGradient(0, 10, 0, 80);
+      g.addColorStop(0, '#7fe0d0'); g.addColorStop(1, '#1f6f68');
+      c.fillStyle = g;
+      c.beginPath(); c.moveTo(50, 8); c.lineTo(84, 18); c.lineTo(80, 52); c.quadraticCurveTo(70, 72, 50, 80); c.quadraticCurveTo(30, 72, 20, 52); c.lineTo(16, 18); c.closePath(); c.fill();
+      c.lineWidth = 4; c.strokeStyle = ink; c.stroke();
+      c.font = '900 34px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineWidth = 6; c.strokeStyle = ink; c.strokeText('GG', 50, 44);
+      c.fillStyle = '#fff6d8'; c.fillText('GG', 50, 44);
+      break;
+    }
+    case 'lol': {
+      yellow();
+      line([31, 38, 39, 34, 44, 39]); line([56, 39, 61, 34, 69, 38]);
+      c.fillStyle = '#7a2230'; c.beginPath(); c.moveTo(30, 50); c.quadraticCurveTo(50, 80, 70, 50); c.closePath(); c.fill(); c.lineWidth = 4; c.strokeStyle = ink; c.stroke();
+      c.fillStyle = '#ff8fa0'; c.beginPath(); c.ellipse(50, 62, 9, 5, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#7cc8f0'; for (const x of [22, 78]) { c.beginPath(); c.ellipse(x, 46, 4, 7, 0, 0, Math.PI * 2); c.fill(); }
+      break;
+    }
+    case 'wow': {
+      yellow();
+      c.fillStyle = '#fff'; for (const x of [37, 63]) { c.beginPath(); c.arc(x, 38, 8, 0, Math.PI * 2); c.fill(); c.lineWidth = 3; c.strokeStyle = ink; c.stroke(); }
+      eyes(39, 3.5);
+      c.fillStyle = '#7a2230'; c.beginPath(); c.ellipse(50, 61, 7, 9, 0, 0, Math.PI * 2); c.fill(); c.lineWidth = 3.5; c.stroke();
+      line([30, 24, 42, 22], 3.5); line([58, 22, 70, 24], 3.5);
+      break;
+    }
+    case 'angry': {
+      face('#ff9a7a', '#d9473e');
+      line([28, 30, 44, 37]); line([56, 37, 72, 30]); eyes(42, 4);
+      line([36, 64, 50, 57, 64, 64]);
+      c.fillStyle = 'rgba(255,255,255,.8)';
+      for (const [x, y] of [[80, 14], [88, 20]]) { c.beginPath(); c.ellipse(x, y, 6, 3, 0.6, 0, Math.PI * 2); c.fill(); }
+      break;
+    }
+    case 'cry': {
+      face('#bfe0ff', '#6f9cff');
+      line([30, 41, 42, 35]); line([58, 35, 70, 41]); eyes(45, 3.5);
+      c.lineWidth = 4; c.strokeStyle = ink; c.beginPath(); c.arc(50, 70, 11, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke();
+      c.fillStyle = '#4fb3ff';
+      for (const x of [34, 66]) { c.beginPath(); c.moveTo(x, 48); c.quadraticCurveTo(x - 6, 62, x, 66); c.quadraticCurveTo(x + 6, 62, x, 48); c.fill(); }
+      break;
+    }
+    case 'thumb': {
+      // большой палец
+      c.fillStyle = '#ffd36b'; c.strokeStyle = ink; c.lineWidth = 4;
+      c.beginPath(); c.moveTo(30, 44); c.lineTo(46, 44); c.lineTo(52, 14); c.quadraticCurveTo(62, 12, 62, 24); c.lineTo(60, 40); c.lineTo(76, 40);
+      c.quadraticCurveTo(84, 42, 80, 50); c.quadraticCurveTo(84, 56, 78, 60); c.quadraticCurveTo(82, 66, 75, 70); c.quadraticCurveTo(76, 78, 66, 78); c.lineTo(30, 78); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#5fd4c4'; c.beginPath(); c.rect(14, 42, 16, 38); c.fill(); c.stroke();
+      line([80, 50, 66, 50], 3); line([78, 60, 66, 60], 3); line([75, 70, 66, 70], 3);
+      break;
+    }
+    case 'cool': {
+      yellow();
+      c.fillStyle = ink;
+      c.beginPath(); c.moveTo(20, 34); c.lineTo(80, 34); c.lineTo(76, 46); c.quadraticCurveTo(66, 52, 56, 44); c.lineTo(44, 44); c.quadraticCurveTo(34, 52, 24, 46); c.closePath(); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.moveTo(28, 38); c.lineTo(34, 38); c.lineTo(30, 44); c.fill();
+      c.lineWidth = 4; c.strokeStyle = ink; c.beginPath(); c.moveTo(38, 62); c.quadraticCurveTo(54, 70, 64, 58); c.stroke();
+      break;
+    }
+    case 'love': {
+      // сердце
+      const g = c.createLinearGradient(0, 12, 0, 80);
+      g.addColorStop(0, '#ff8fa8'); g.addColorStop(1, '#d9365a');
+      c.fillStyle = g; c.strokeStyle = ink; c.lineWidth = 4;
+      c.beginPath(); c.moveTo(50, 78); c.bezierCurveTo(10, 52, 14, 14, 36, 16); c.quadraticCurveTo(46, 17, 50, 28); c.quadraticCurveTo(54, 17, 64, 16); c.bezierCurveTo(86, 14, 90, 52, 50, 78); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.ellipse(34, 28, 7, 4, -0.6, 0, Math.PI * 2); c.fill();
+      break;
+    }
+    case 'sleep': {
+      face('#d6cfff', '#9a7bd8');
+      line([30, 42, 42, 42]); line([58, 42, 70, 42]);
+      c.fillStyle = ink; c.beginPath(); c.ellipse(50, 62, 5, 4, 0, 0, Math.PI * 2); c.fill();
+      c.font = '900 16px system-ui, sans-serif'; c.fillStyle = '#fff'; c.strokeStyle = ink; c.lineWidth = 4; c.textAlign = 'center';
+      for (const [t, x, y, f] of [['z', 74, 26, 13], ['Z', 85, 17, 18]] as const) { c.font = `900 ${f}px system-ui, sans-serif`; c.strokeText(t, x, y); c.fillText(t, x, y); }
+      break;
+    }
+    case 'skull': {
+      c.fillStyle = '#efe6d0'; c.strokeStyle = ink; c.lineWidth = 4;
+      c.beginPath(); c.arc(50, 40, 30, Math.PI, 0); c.lineTo(80, 52); c.quadraticCurveTo(80, 62, 68, 62); c.lineTo(66, 74); c.lineTo(34, 74); c.lineTo(32, 62); c.quadraticCurveTo(20, 62, 20, 52); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = ink;
+      for (const x of [37, 63]) { c.beginPath(); c.ellipse(x, 45, 8, 9, 0, 0, Math.PI * 2); c.fill(); }
+      c.beginPath(); c.moveTo(50, 52); c.lineTo(46, 60); c.lineTo(54, 60); c.closePath(); c.fill();
+      for (const x of [42, 50, 58]) line([x, 66, x, 74], 3);
+      c.fillStyle = '#ff5a5a'; for (const x of [37, 63]) { c.beginPath(); c.arc(x, 46, 2.5, 0, Math.PI * 2); c.fill(); }
+      break;
+    }
+    case 'crown': {
+      yellow(); eyes(46, 4);
+      c.lineWidth = 4; c.strokeStyle = ink; c.beginPath(); c.moveTo(38, 60); c.quadraticCurveTo(50, 68, 62, 60); c.stroke();
+      c.fillStyle = '#f3c85a'; c.lineWidth = 3.5;
+      c.beginPath(); c.moveTo(26, 26); c.lineTo(28, 6); c.lineTo(39, 17); c.lineTo(50, 3); c.lineTo(61, 17); c.lineTo(72, 6); c.lineTo(74, 26); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#e0566b'; for (const x of [38, 50, 62]) { c.beginPath(); c.arc(x, 20, 3, 0, Math.PI * 2); c.fill(); }
+      break;
+    }
+  }
+  if (def) caption(def.name, id === 'gg' ? '#7fe0d0' : '#f3ead6');
+  c.restore();
+}
+
+export function stickerURL(id: string, px = 96): string {
+  return render('st:' + id + ':' + px, px, (c) => drawSticker(c, id, px));
+}

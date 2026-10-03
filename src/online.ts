@@ -16,6 +16,7 @@ export interface Profile {
   owned: string[];
   stars?: Record<string, number>; // нет у старого сервера
   daily?: Daily; // нет у старого сервера
+  stickers?: string[]; // купленные стикеры
   hasPass: boolean;
 }
 

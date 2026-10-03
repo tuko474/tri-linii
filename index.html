@@ -37,11 +37,22 @@
     <div class="menu-row small">
       <button type="button" class="btn ghost" id="toHeroes">Герои</button>
       <button type="button" class="btn ghost" id="toRaces">Расы</button>
+      <button type="button" class="btn ghost" id="toStickers">Стикеры</button>
       <button type="button" class="btn ghost daily-btn" id="toDaily">Задания<i class="dot" id="dailyDot" hidden></i></button>
       <button type="button" class="btn ghost" id="howBtn">Как играть</button>
     </div>
     <a class="update-bar" id="updateBar" hidden></a>
     <p class="version" id="version"></p>
+  </section>
+
+  <section class="screen scroll" id="stickers" hidden>
+    <header class="bar">
+      <button type="button" class="btn icon" id="stickersBack" aria-label="Назад">‹</button>
+      <h2>Стикеры</h2>
+      <span class="crystals" id="crystalsStickers"></span>
+    </header>
+    <p class="hint">Отправляй стикеры сопернику прямо в бою: кнопка 😊 вверху экрана. Три стикера бесплатные, остальные открываются за кристаллы.</p>
+    <div class="stk-grid" id="stickerGrid"></div>
   </section>
 
   <section class="screen scroll" id="daily" hidden>
@@ -163,12 +174,16 @@
       </div>
     </header>
     <div class="hud-btns">
+      <button type="button" class="btn chip" id="stickBtn" aria-label="Стикеры">😊</button>
       <button type="button" class="btn chip" id="overviewBtn" aria-label="Вся карта">⤢</button>
       <button type="button" class="btn chip" id="soundBtn" aria-label="Звук">♪</button>
       <button type="button" class="btn chip" id="autoBtn" aria-pressed="false">Авто</button>
       <button type="button" class="btn chip" id="speedBtn">×1</button>
       <button type="button" class="btn chip" id="pauseBtn" aria-label="Пауза">❚❚</button>
     </div>
+    <div class="stick-pick" id="stickPick" hidden></div>
+    <div class="stick-bubble mine" id="stickMine" aria-hidden="true"></div>
+    <div class="stick-bubble foe" id="stickFoe" aria-hidden="true"></div>
     <div class="toasts" id="toasts" aria-live="polite"></div>
 
     <div class="bosses" id="bosses"></div>

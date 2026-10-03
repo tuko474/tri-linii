@@ -3,7 +3,7 @@
 // Запуск: node server.mjs  (порт — PORT, по умолчанию 8080; база — DB, по умолчанию ./arena.db)
 // Снаружи его прикрывает Caddy: он даёт https/wss и сам получает сертификат.
 
-import { HERO_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
+import { HERO_PRICE, STICKER_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -51,6 +51,11 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'stars')) {
   db.exec(`ALTER TABLE users ADD COLUMN stars TEXT NOT NULL DEFAULT '{}'`);
 }
+// купленные стикеры (JSON-массив id)
+if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'stickers')) {
+  db.exec(`ALTER TABLE users ADD COLUMN stickers TEXT NOT NULL DEFAULT '[]'`);
+}
+
 // ежедневное: задания дня и цепочка входов (JSON в users.daily)
 if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'daily')) {
   db.exec(`ALTER TABLE users ADD COLUMN daily TEXT NOT NULL DEFAULT '{}'`);
@@ -96,6 +101,7 @@ const q = {
   save: db.prepare('UPDATE users SET crystals = ?, owned = ?, stars = ? WHERE id = ?'),
   give: db.prepare('UPDATE users SET crystals = crystals + ? WHERE id = ?'),
   daily: db.prepare('UPDATE users SET daily = ? WHERE id = ?'),
+  stickers: db.prepare('UPDATE users SET stickers = ?, crystals = crystals - ? WHERE id = ? AND crystals >= ?'),
   promo: db.prepare('SELECT * FROM promos WHERE code = ?'),
   promoUsed: db.prepare('SELECT 1 FROM promo_uses WHERE code = ? AND user = ?'),
   promoUse: db.prepare('INSERT INTO promo_uses (code, user, at) VALUES (?, ?, ?)'),
@@ -176,7 +182,7 @@ function questProgress(userId, won, st) {
 function profile(u) {
   return {
     t: 'me', id: u.id, token: u.token, name: u.name, rating: u.rating, wins: u.wins, losses: u.losses,
-    crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass, daily: dailyView(u),
+    crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass, daily: dailyView(u), stickers: JSON.parse(u.stickers || '[]'),
   };
 }
 
@@ -352,6 +358,15 @@ class Client {
       case 'buy': {
         // покупка за кристаллы: открыть героя или звезду. Цена — только серверная.
         const id = String(m.id ?? '');
+        if (m.what === 'sticker') {
+          this.refresh();
+          const have = JSON.parse(this.user.stickers || '[]');
+          const price = STICKER_PRICE[id];
+          if (!price || have.includes(id)) break; // нет такого, бесплатный или уже куплен
+          if (this.user.crystals < price) { this.send({ t: 'error', where: 'buy', text: 'Не хватает кристаллов' }); break; }
+          q.stickers.run(JSON.stringify([...have, id]), price, this.user.id, price);
+          break;
+        }
         if (!(id in HERO_PRICE)) break;
         this.refresh(); // свежие цифры из базы (кристаллы могли начислить, пока игрок в сети)
         const me = this.user;

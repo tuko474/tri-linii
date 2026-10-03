@@ -36,6 +36,9 @@ export const HERO_PRICE = {
   soul: 500,
 };
 
+/** Стикеры: цена (0 — бесплатный). Должно совпадать с STICKERS в src/render/art.ts. */
+export const STICKER_PRICE = { hi: 0, gg: 0, lol: 0, wow: 150, angry: 150, cry: 150, thumb: 150, cool: 200, love: 200, sleep: 200, skull: 250, crown: 300 };
+
 /** Цена звезды: STAR_COST[i] — переход на (i+1)★. */
 export const STAR_COST = [100, 200, 350, 550, 800];
 export const MAX_STARS = 5;

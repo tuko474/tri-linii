@@ -2,7 +2,7 @@
 import { BAL, Difficulty, WORLD } from './data/config';
 import { HEROES, HeroDef, STARTER_IDS, heroById } from './data/heroes';
 import { RACES, RACE_IDS, RaceId, tierIndex } from './data/races';
-import { portraitURL, raceURL, skillURL, skill2URL, drawCastleFigure } from './render/art';
+import { portraitURL, raceURL, skillURL, skill2URL, drawCastleFigure, STICKERS, stickerURL } from './render/art';
 import { Sound } from './audio';
 import { Renderer, clock } from './render/renderer';
 import { Bot } from './sim/bot';
@@ -14,7 +14,7 @@ import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
 import { BUILD, Daily, Ended, Online } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const SCREENS = ['menu', 'how', 'daily', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
+const SCREENS = ['menu', 'how', 'stickers', 'daily', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
 function show(id: string) {
   for (const s of SCREENS) $(s).hidden = s !== id;
 }
@@ -43,7 +43,11 @@ const meta = {
   /** Звёзды героев 0..5 (прокачка за кристаллы). */
   stars: cleanStars(parseJSON(store.get('tl-stars'))),
   starsOf(id: string): number { return this.stars[id] ?? 0; },
+  /** Купленные стикеры (бесплатные доступны всегда). */
+  stickers: new Set<string>((store.get('tl-stickers') || '').split(',').filter((id) => STICKERS.some((x) => x.id === id))),
+  hasSticker(id: string): boolean { return this.stickers.has(id) || STICKERS.find((x) => x.id === id)?.price === 0; },
   save() {
+    store.set('tl-stickers', [...this.stickers].join(','));
     store.set('tl-crystals', String(this.crystals));
     store.set('tl-owned', [...this.owned].join(','));
     store.set('tl-stars', JSON.stringify(this.stars));
@@ -95,6 +99,31 @@ $('toLobby').onclick = () => {
   show('lobby');
 };
 $('howBtn').onclick = () => show('how');
+$('toStickers').onclick = () => { renderStickerShop(); show('stickers'); };
+$('stickersBack').onclick = () => { syncCrystals(); show('menu'); };
+
+// ---------- стикеры: коллекция и покупка ----------
+function renderStickerShop() {
+  $('crystalsStickers').textContent = crystalsText();
+  const el = $('stickerGrid');
+  el.innerHTML = '';
+  for (const st of STICKERS) {
+    const have = meta.hasSticker(st.id);
+    const card = document.createElement('div');
+    card.className = 'stk-card' + (have ? '' : ' locked');
+    card.innerHTML = `<img src="${stickerURL(st.id, 112)}" alt="${st.name}">`
+      + (have ? `<span class="stk-tag">${st.price ? 'Куплен' : 'Бесплатно'}</span>`
+        : `<button type="button" class="btn buy" ${meta.crystals < st.price ? 'disabled' : ''}>✦ ${st.price}</button>`);
+    card.querySelector('.buy')?.addEventListener('click', () => {
+      if (!purchase('sticker', st.id, st.price, () => meta.stickers.add(st.id))) { sound.play('deny'); return; }
+      sound.play('levelUp');
+      toast(`Стикер «${st.name}» теперь твой`, 'good');
+      renderStickerShop();
+    });
+    el.appendChild(card);
+  }
+}
+
 $('toDaily').onclick = () => { renderDaily(); show('daily'); };
 $('dailyBack').onclick = () => show('menu');
 
@@ -243,7 +272,7 @@ function renderRaces() {
 
 // ---------- коллекция героев (просмотр и покупка) ----------
 /** Покупка за кристаллы. С аккаунтом — через сервер (он проверит цену и пришлёт свежий профиль), без — в телефоне. */
-function purchase(what: 'hero' | 'star', id: string, cost: number, apply: () => void): boolean {
+function purchase(what: 'hero' | 'star' | 'sticker', id: string, cost: number, apply: () => void): boolean {
   if (meta.crystals < cost) return false;
   if (online.me && !online.ready) { toast('Нет связи с сервером — покупка не прошла', 'bad'); return false; }
   meta.crystals -= cost; // сразу показываем, сервер потом пришлёт точные цифры
@@ -741,6 +770,7 @@ function applyCmd(side: Side, cmd: any): boolean {
     case 'recallHero': { const h = hero(cmd.uid); if (h) g.recallHero(h); return !!h; }
     case 'auto': g.autoCast[side] = !!cmd.on; return true;
     case 'surrender': if (g.winner === null) g.winner = (1 - side) as Side; return true;
+    case 'sticker': showSticker(side, String(cmd.id)); return true; // на бой не влияет — только картинка
   }
   return false;
 }
@@ -846,9 +876,75 @@ function toast(text: string, cls: string) {
   setTimeout(() => t.remove(), 3500);
 }
 
+// ---------- стикеры в бою ----------
+const STICKER_GAP = 3500; // не чаще одного стикера в 3,5 с от стороны
+const stickerAt: [number, number] = [0, 0];
+let foeMuted = false;
+
+/** Показать стикер стороны side над её троном (в верхней панели). */
+function showSticker(side: Side, id: string) {
+  if (!STICKERS.some((x) => x.id === id)) return;
+  const now = performance.now();
+  if (now - stickerAt[side] < STICKER_GAP - 300) return;
+  stickerAt[side] = now;
+  if (side !== me && foeMuted) return;
+  const el = $(side === me ? 'stickMine' : 'stickFoe');
+  el.innerHTML = `<img src="${stickerURL(id, 112)}" alt="">`;
+  el.classList.remove('show');
+  void el.offsetWidth; // перезапуск анимации
+  el.classList.add('show');
+  clearTimeout(Number(el.dataset.t));
+  el.dataset.t = String(window.setTimeout(() => el.classList.remove('show'), 2600));
+  if (side !== me) sound.play('tap');
+}
+
+function renderStickerPicker() {
+  const el = $('stickPick');
+  const mine = STICKERS.filter((x) => meta.hasSticker(x.id));
+  const net = mode !== 'bot';
+  el.innerHTML = mine.map((x) => `<button type="button" class="stk" data-id="${x.id}" aria-label="${x.name}"><img src="${stickerURL(x.id, 96)}" alt=""></button>`).join('')
+    + `<p class="stk-more">Ещё ${STICKERS.length - mine.length} — в меню «Стикеры»</p>`
+    + (net ? `<button type="button" class="btn ghost stk-mute">${foeMuted ? 'Включить стикеры соперника' : 'Заглушить соперника'}</button>` : '');
+  el.querySelectorAll<HTMLButtonElement>('.stk').forEach((b) => b.addEventListener('click', () => {
+    el.hidden = true;
+    if (performance.now() - stickerAt[me] < STICKER_GAP) { toast('Не так часто 🙂', 'info'); return; }
+    act({ c: 'sticker', id: b.dataset.id });
+  }));
+  el.querySelector('.stk-mute')?.addEventListener('click', () => { foeMuted = !foeMuted; el.hidden = true; toast(foeMuted ? 'Стикеры соперника скрыты' : 'Стикеры соперника снова видны', 'info'); });
+}
+// касание мимо окна стикеров — закрыть его
+document.addEventListener('pointerdown', (e) => {
+  const el = $('stickPick');
+  if (!el.hidden && !el.contains(e.target as Node) && e.target !== $('stickBtn')) el.hidden = true;
+});
+$('stickBtn').onclick = () => {
+  const el = $('stickPick');
+  if (el.hidden) renderStickerPicker();
+  el.hidden = !el.hidden;
+};
+
+/** Бот иногда отвечает стикером: когда продавил позицию или потерял её. */
+let botBanter = { pushes: 0, lost: 0, t: 0 };
+function botStickers(g: Game) {
+  if (mode !== 'bot') return;
+  const f = foe();
+  const pushes = g.stats.pushes[f], lost = g.stats.pushes[me];
+  if (g.t < 1) botBanter = { pushes, lost, t: 0 };
+  let pick: string | null = null;
+  if (pushes > botBanter.pushes) pick = ['lol', 'gg', 'hi'][Math.floor(Math.random() * 3)];
+  else if (lost > botBanter.lost) pick = Math.random() < 0.5 ? 'gg' : null;
+  botBanter.pushes = pushes;
+  botBanter.lost = lost;
+  if (pick && Math.random() < 0.45 && g.t - botBanter.t > 40) {
+    botBanter.t = g.t;
+    window.setTimeout(() => game === g && showSticker(f, pick!), 600 + Math.random() * 900);
+  }
+}
+
 function syncPanel() {
   const g = game!;
   $('gold').textContent = String(Math.floor(g.gold[me]));
+  botStickers(g);
   $('myHp').style.width = (100 * g.throne[me]) / BAL.throneHp + '%';
   $('foeHp').style.width = (100 * g.throne[foe()]) / BAL.throneHp + '%';
   $('clock').textContent = clock(g.t);
@@ -1435,9 +1531,11 @@ function applyServerProgress() {
   meta.crystals = p.crystals;
   meta.owned = new Set([...STARTER_IDS, ...p.owned.filter((id) => HEROES.some((h) => h.id === id))]);
   meta.stars = cleanStars(p.stars ?? {});
+  if (p.stickers) meta.stickers = new Set(p.stickers.filter((id) => STICKERS.some((x) => x.id === id)));
   meta.save();
   syncCrystals();
   if (!$('pick').hidden) { const y = $('pick').scrollTop; renderCards(); $('pick').scrollTop = y; }
+  if (!$('stickers').hidden) renderStickerShop();
 }
 
 function openAccount(msg = '') {
@@ -1808,4 +1906,4 @@ requestAnimationFrame(frame);
 show('menu');
 
 // для автотестов: доступ к бою из консоли при адресе с #debug
-if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure, __Sound: Sound });
+if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure, __Sound: Sound, __stickerURL: stickerURL });
