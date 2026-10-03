@@ -1481,7 +1481,7 @@ function lsOnLog(m: { f: number; n: number; c: Record<number, [Side, any][]>; g:
   lsRtt(m.e, m.d);
   // запас: чтобы обычные паузы между сообщениями не останавливали бой
   const worst = Math.max(SEND_EVERY, ...L.gaps.slice(-20));
-  L.buffer = Math.min(10, Math.max(2, Math.ceil(worst / 200) + 1));
+  L.buffer = Math.min(10, Math.max(1, Math.ceil(worst / 200)));
 }
 
 /** Хост получил подтверждение и команды гостя. */
