@@ -1733,4 +1733,4 @@ requestAnimationFrame(frame);
 show('menu');
 
 // для автотестов: доступ к бою из консоли при адресе с #debug
-if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure });
+if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure, __Sound: Sound });

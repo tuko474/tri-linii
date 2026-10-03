@@ -271,6 +271,8 @@ class Client {
         // покупка за кристаллы: открыть героя или звезду. Цена — только серверная.
         const id = String(m.id ?? '');
         if (!(id in HERO_PRICE)) break;
+        this.refresh(); // свежие цифры из базы (кристаллы могли начислить, пока игрок в сети)
+        const me = this.user;
         const owned = JSON.parse(me.owned);
         const stars = JSON.parse(me.stars || '{}');
         let cost;
