@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#17142a">
+<!-- номер версии подставляет сборка в GitHub Actions; при локальной сборке остаётся «dev» -->
+<meta name="app-version" content="dev">
 <title>Arena of Defense</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Philosopher:wght@700&family=PT+Sans:wght@400;700&display=swap">
@@ -34,8 +36,20 @@
     </div>
     <div class="menu-row small">
       <button type="button" class="btn ghost" id="toHeroes">Герои</button>
+      <button type="button" class="btn ghost" id="toRaces">Расы</button>
       <button type="button" class="btn ghost" id="howBtn">Как играть</button>
     </div>
+    <p class="version" id="version"></p>
+  </section>
+
+  <section class="screen scroll" id="races" hidden>
+    <header class="bar">
+      <button type="button" class="btn icon" id="racesBack" aria-label="Назад">‹</button>
+      <h2>Расы</h2>
+      <span></span>
+    </header>
+    <p class="hint">Каждый герой принадлежит одной из шести рас. Возьми в команду 2 героя одной расы — включится первый бонус, 4 — второй, сильнее (он заменяет первый). Сфера с Лорда временно добавляет +1 к расе одного из твоих героев.</p>
+    <div class="race-list" id="raceList"></div>
   </section>
 
   <section class="screen scroll" id="how" hidden>

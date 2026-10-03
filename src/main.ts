@@ -14,7 +14,7 @@ import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
 import { Ended, Online } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const SCREENS = ['menu', 'how', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
+const SCREENS = ['menu', 'how', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
 function show(id: string) {
   for (const s of SCREENS) $(s).hidden = s !== id;
 }
@@ -82,6 +82,12 @@ $('toLobby').onclick = () => {
   show('lobby');
 };
 $('howBtn').onclick = () => show('how');
+$('toRaces').onclick = () => { renderRaces(); show('races'); };
+$('racesBack').onclick = () => show('menu');
+
+/** Версия игры: в APK её вписывает сборка (meta app-version). */
+const APP_VERSION = document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content || 'dev';
+$('version').textContent = `Версия ${APP_VERSION === 'dev' ? 'для разработки' : APP_VERSION}`;
 $('howBack').onclick = () => show('menu');
 
 // ---------- общие куски интерфейса ----------
@@ -111,13 +117,55 @@ function countsOf(ids: string[]): Partial<Record<RaceId, number>> {
   return c;
 }
 
+// ---------- расы: описание бонусов ----------
+/** Бонусы расы списком: «2 героя: …», «4 героя: …». */
+function raceTiersHTML(r: RaceId): string {
+  return RACES[r].tiers.map((t) => `<li><b>${t.n} ${t.n < 5 ? 'героя' : 'героев'}:</b> ${t.text}</li>`).join('');
+}
+
+/** Что даст герой расе твоей команды в драфте — одна строка. */
+function raceHint(id: string, team: string[]): string {
+  const r = heroById(id).race;
+  const race = RACES[r];
+  const n = team.filter((x) => heroById(x).race === r).length + (team.includes(id) ? 0 : 1);
+  const tier = race.tiers.find((t) => t.n === n);
+  const next = race.tiers.find((t) => t.n > n);
+  const head = `<span class="race-line" style="color:${race.color}">${race.name}</span>`;
+  if (tier) return `${head}: с ним будет ${n} — включится: ${tier.text}.`;
+  if (next) return `${head}: с ним ${n} из ${next.n} — бонус: ${next.text}.`;
+  return `${head}: с ним ${n} — максимальный бонус уже действует.`;
+}
+
+function renderRaces() {
+  const el = $('raceList');
+  el.innerHTML = RACE_IDS.map((r) => {
+    const race = RACES[r];
+    const heroes = HEROES.filter((h) => h.race === r).map((h) =>
+      `<span class="rh${meta.owned.has(h.id) ? '' : ' locked'}"><img src="${portraitURL(h, 64)}" alt="">${h.name}</span>`).join('');
+    return `<div class="race-card" style="--rc:${race.color}">
+      <h3><img src="${raceURL(r, 48)}" alt="">${race.name}</h3>
+      <ul class="race-tiers">${raceTiersHTML(r)}</ul>
+      <div class="race-heroes">${heroes}</div>
+    </div>`;
+  }).join('');
+}
+
 // ---------- коллекция героев (просмотр и покупка) ----------
 function renderCards() {
   syncCrystals();
   const el = $('cards');
   el.innerHTML = '';
   const order = [...HEROES].sort((a, b) => RACE_IDS.indexOf(a.race) - RACE_IDS.indexOf(b.race) || Number(meta.owned.has(b.id)) - Number(meta.owned.has(a.id)));
+  let lastRace: RaceId | null = null;
   for (const h of order) {
+    if (h.race !== lastRace) {
+      lastRace = h.race;
+      const hd = document.createElement('div');
+      hd.className = 'race-head';
+      hd.style.setProperty('--rc', RACES[h.race].color);
+      hd.innerHTML = `<h3><img src="${raceURL(h.race, 40)}" alt="">${RACES[h.race].name}</h3><ul class="race-tiers">${raceTiersHTML(h.race)}</ul>`;
+      el.appendChild(hd);
+    }
     const owned = meta.owned.has(h.id);
     const b = document.createElement('div');
     b.className = 'card' + (owned ? '' : ' locked');
@@ -361,7 +409,7 @@ function renderDraft() {
     const race = RACES[sel.race];
     const trial = !meta.owned.has(sel.id) && noOwnedFree(meta.owned);
     const note = d.taken(sel.id) ? ' · уже выбран' : trial ? ' · пробный на этот бой' : !meta.owned.has(sel.id) ? ' · не открыт (открой в «Героях»)' : '';
-    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b> · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}. HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.</span>`;
+    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b> · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}. HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
   } else {
     $('draftInfo').textContent = turn === me && noOwnedFree(meta.owned)
       ? 'Свободных открытых героев не осталось — можно взять любого как пробного на этот бой.'

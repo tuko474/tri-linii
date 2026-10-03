@@ -36,7 +36,11 @@ jobs:
           cp node_modules/peerjs/dist/peerjs.min.js public/vendor/peerjs.min.js
 
       - name: Собрать игру
-        run: npm run build
+        run: |
+          # номер версии для главного экрана игры
+          sed -i 's|<meta name="app-version" content="dev">|<meta name="app-version" content="0.1.${{ github.run_number }}">|' index.html
+          grep -q 'content="0.1.${{ github.run_number }}"' index.html
+          npm run build
 
       - name: Создать Android-проект
         run: |
