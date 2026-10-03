@@ -2,7 +2,7 @@
 import { BAL, Difficulty, WORLD } from './data/config';
 import { HEROES, HeroDef, STARTER_IDS, heroById } from './data/heroes';
 import { RACES, RACE_IDS, RaceId, tierIndex } from './data/races';
-import { portraitURL, raceURL, skillURL } from './render/art';
+import { portraitURL, raceURL, skillURL, drawCastleFigure } from './render/art';
 import { Sound } from './audio';
 import { Renderer, clock } from './render/renderer';
 import { Bot } from './sim/bot';
@@ -1613,4 +1613,4 @@ requestAnimationFrame(frame);
 show('menu');
 
 // для автотестов: доступ к бою из консоли при адресе с #debug
-if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online });
+if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure });

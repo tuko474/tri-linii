@@ -555,3 +555,137 @@ export function skillURL(def: HeroDef, px = 112): string {
 export function raceURL(race: RaceId, px = 64): string {
   return render('r:' + race + ':' + px, px, (c) => drawRaceIcon(c, race, px));
 }
+
+// ---------- замок (трон) ----------
+
+/**
+ * Замок-трон, вид спереди, как у бараков. Единица = единица мира: ширина ≈ 200, земля на y = 44,
+ * флаг на верхушке ≈ y = −172. Центр (0,0) совпадает с точкой трона.
+ * col/deep — цвет команды (светлый/тёмный); dmg — разрушения 0..2; white — белый силуэт для вспышки.
+ */
+export function drawCastleFigure(c: Ctx, col: string, deep: string, dmg = 0, white = false) {
+  const W = (s: string) => (white ? '#ffffff' : s);
+  const ink = W('#14121c');
+  const stoneL = W('#9a8f7c'), stone = W('#7b715f'), stoneD = W('#564e42');
+  const glow = W('#f3d27a');
+  c.lineJoin = 'round';
+  c.lineCap = 'round';
+  c.lineWidth = 3;
+  c.strokeStyle = ink;
+
+  // зубцы стены: от x0 до x1 по верху y
+  const merlons = (x0: number, x1: number, y: number, broken = -1) => {
+    const n = Math.max(2, Math.round((x1 - x0) / 13));
+    const w = (x1 - x0) / (n * 2 - 1);
+    for (let i = 0; i < n; i++) {
+      if (i === broken) continue;
+      const x = x0 + i * w * 2;
+      c.fillStyle = stoneL;
+      c.beginPath(); c.rect(x, y - 9, w, 9); c.fill(); c.stroke();
+    }
+  };
+  // каменный блок с тенью справа и рядами кладки
+  const block = (x0: number, y0: number, x1: number, y1: number) => {
+    c.fillStyle = stone;
+    c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.fill();
+    c.fillStyle = stoneD;
+    c.fillRect(x1 - (x1 - x0) * 0.28, y0, (x1 - x0) * 0.28, y1 - y0);
+    if (!white) {
+      c.strokeStyle = 'rgba(20,18,28,.28)';
+      c.lineWidth = 1.5;
+      let row = 0;
+      for (let y = y0 + 12; y < y1 - 3; y += 12, row++) {
+        c.beginPath(); c.moveTo(x0 + 2, y); c.lineTo(x1 - 2, y); c.stroke();
+        for (let x = x0 + (row % 2 ? 10 : 18); x < x1 - 4; x += 18) {
+          c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 12 > y1 ? y1 : y + 12); c.stroke();
+        }
+      }
+      c.strokeStyle = ink;
+      c.lineWidth = 3;
+    }
+    c.beginPath(); c.rect(x0, y0, x1 - x0, y1 - y0); c.stroke();
+  };
+  // остроконечная крыша: левая грань светлая, правая тёмная
+  const roof = (cx: number, base: number, half: number, top: number) => {
+    c.fillStyle = W(col);
+    c.beginPath(); c.moveTo(cx - half, base); c.lineTo(cx, top); c.lineTo(cx, base); c.closePath(); c.fill();
+    c.fillStyle = W(deep);
+    c.beginPath(); c.moveTo(cx, base); c.lineTo(cx, top); c.lineTo(cx + half, base); c.closePath(); c.fill();
+    c.beginPath(); c.moveTo(cx - half, base); c.lineTo(cx, top); c.lineTo(cx + half, base); c.closePath(); c.stroke();
+  };
+  const flag = (x: number, y: number, len: number, size: number) => {
+    c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - len); c.stroke();
+    c.fillStyle = W(col);
+    c.beginPath(); c.moveTo(x, y - len); c.lineTo(x + size * 1.6, y - len + size * 0.45); c.lineTo(x, y - len + size); c.closePath(); c.fill(); c.stroke();
+    c.lineWidth = 3;
+  };
+  const archWin = (x: number, y: number, w: number, h: number) => {
+    c.fillStyle = dmg >= 2 ? W('#2a2230') : glow;
+    c.beginPath(); c.moveTo(x - w / 2, y + h); c.lineTo(x - w / 2, y + w / 2); c.arc(x, y + w / 2, w / 2, Math.PI, 0); c.lineTo(x + w / 2, y + h); c.closePath(); c.fill();
+    c.lineWidth = 2; c.stroke(); c.lineWidth = 3;
+  };
+
+  // донжон позади стены
+  block(-34, -84, 34, 0);
+  merlons(-38, 38, -84);
+  roof(0, -92, 44, -150);
+  flag(0, -150, 24, 13);
+  archWin(-13, -66, 10, 20);
+  archWin(13, -66, 10, 20);
+  // стена с зубцами
+  block(-50, -14, 50, 44);
+  merlons(-50, 50, -14);
+  // башни по бокам
+  for (const sx of [-1, 1]) {
+    const x0 = sx < 0 ? -84 : 48, x1 = x0 + 36;
+    block(x0, -60, x1, 44);
+    merlons(x0 - 4, x1 + 4, -60, dmg >= 2 && sx > 0 ? 1 : -1);
+    roof(x0 + 18, -68, 26, -112);
+    flag(x0 + 18, -112, 16, 9);
+    // бойница
+    c.fillStyle = ink;
+    c.fillRect(x0 + 15, -36, 6, 18);
+    // знамя команды
+    c.fillStyle = W(col);
+    c.beginPath(); c.moveTo(x0 + 10, -4); c.lineTo(x0 + 26, -4); c.lineTo(x0 + 26, 22); c.lineTo(x0 + 18, 15); c.lineTo(x0 + 10, 22); c.closePath(); c.fill();
+    c.lineWidth = 2; c.stroke(); c.lineWidth = 3;
+  }
+  // ворота с решёткой
+  c.fillStyle = ink;
+  c.beginPath(); c.moveTo(-18, 44); c.lineTo(-18, 14); c.arc(0, 14, 18, Math.PI, 0); c.lineTo(18, 44); c.closePath(); c.fill();
+  c.save();
+  c.clip();
+  c.strokeStyle = W('#4a4350');
+  c.lineWidth = 2.5;
+  for (let x = -12; x <= 12; x += 8) { c.beginPath(); c.moveTo(x, -6); c.lineTo(x, 44); c.stroke(); }
+  for (let y = 10; y <= 40; y += 10) { c.beginPath(); c.moveTo(-18, y); c.lineTo(18, y); c.stroke(); }
+  c.restore();
+  c.strokeStyle = ink;
+  c.lineWidth = 3;
+  c.beginPath(); c.moveTo(-18, 44); c.lineTo(-18, 14); c.arc(0, 14, 18, Math.PI, 0); c.lineTo(18, 44); c.stroke();
+  // замковый камень с гербом-короной
+  c.fillStyle = glow;
+  c.beginPath(); c.moveTo(-9, -2); c.lineTo(-9, -8); c.lineTo(-4.5, -4); c.lineTo(0, -10); c.lineTo(4.5, -4); c.lineTo(9, -8); c.lineTo(9, -2); c.closePath(); c.fill();
+  c.lineWidth = 1.5; c.stroke(); c.lineWidth = 3;
+
+  // трещины
+  if (dmg >= 1 && !white) {
+    c.strokeStyle = 'rgba(15,12,20,.85)';
+    c.lineWidth = 2.5;
+    const crack = (pts: number[]) => { c.beginPath(); c.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]); c.stroke(); };
+    crack([-40, -14, -34, 0, -40, 10, -32, 24]);
+    crack([22, -84, 18, -70, 25, -58, 20, -44]);
+    if (dmg >= 2) {
+      crack([60, -60, 66, -44, 58, -30, 64, -14, 60, 4]);
+      crack([-76, 44, -70, 30, -78, 18]);
+      crack([30, -14, 36, 0, 30, 14]);
+      // выбитые камни
+      c.fillStyle = '#2a2230';
+      c.fillRect(-28, -40, 9, 7);
+      c.fillRect(54, 10, 8, 6);
+    }
+    c.strokeStyle = ink;
+    c.lineWidth = 3;
+  }
+}

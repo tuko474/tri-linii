@@ -3,7 +3,7 @@ import { BAL, WORLD } from '../data/config';
 import type { Game } from '../sim/game';
 import { ALTAR_POS, CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, barracksPos, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
-import { drawHeroFigure } from './art';
+import { drawCastleFigure, drawHeroFigure } from './art';
 
 const C = {
   grass: '#2f4a33',
@@ -892,45 +892,79 @@ export class Renderer {
         if (Math.hypot(p.x - wx, p.y - wy + 10) < 62) return { kind: 'barracks', side, lane: l };
       }
       const t = THRONE_POS[side];
-      if (Math.hypot(t.x - wx, t.y - wy) < 95) return { kind: 'throne', side };
+      if (Math.abs(wx - t.x) < 100 && wy - t.y > -165 && wy - t.y < 80) return { kind: 'throne', side };
     }
     return null;
+  }
+
+  /** Готовые картинки замка: сторона × разрушения × белый силуэт (для вспышки). */
+  private castleSprites = new Map<string, HTMLCanvasElement>();
+
+  private castleSprite(rel: 0 | 1, dmg: number, white: boolean): HTMLCanvasElement {
+    const key = rel + ':' + dmg + ':' + white;
+    let cv = this.castleSprites.get(key);
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.width = CASTLE_BOX.w * 2; // рисуем вдвое крупнее — на приближении чётко
+      cv.height = CASTLE_BOX.h * 2;
+      const x = cv.getContext('2d')!;
+      x.scale(2, 2);
+      x.translate(-CASTLE_BOX.x, -CASTLE_BOX.y);
+      drawCastleFigure(x, C.side[rel], C.sideDeep[rel], dmg, white);
+      this.castleSprites.set(key, cv);
+    }
+    return cv;
   }
 
   private drawThrone(side: Side) {
     const { ctx, g } = this;
     const p = THRONE_POS[side];
+    const rel = this.rel(side);
     const hit = g.throneUnderAttack(side);
+    const k = Math.max(0, g.throne[side] / BAL.throneHp);
+    const dmg = k > 0.66 ? 0 : k > 0.33 ? 1 : 2;
+    const now = performance.now();
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.fillStyle = C.dark;
-    hex(ctx, 74);
-    ctx.fill();
-    ctx.fillStyle = C.sideDeep[this.rel(side)];
-    hex(ctx, 62);
-    ctx.fill();
-    ctx.fillStyle = hit ? '#fff1d6' : C.side[this.rel(side)];
-    ctx.beginPath();
-    ctx.moveTo(-26, 18);
-    ctx.lineTo(-26, -10);
-    ctx.lineTo(-13, 2);
-    ctx.lineTo(0, -24);
-    ctx.lineTo(13, 2);
-    ctx.lineTo(26, -10);
-    ctx.lineTo(26, 18);
-    ctx.closePath();
-    ctx.fill();
-    // кольцо прочности
-    const k = g.throne[side] / BAL.throneHp;
-    ctx.lineWidth = 9;
-    ctx.strokeStyle = 'rgba(0,0,0,.45)';
-    ctx.beginPath();
-    ctx.arc(0, 0, 86, 0, 7);
-    ctx.stroke();
-    ctx.strokeStyle = k > 0.35 ? C.side[this.rel(side)] : '#ffb347';
-    ctx.beginPath();
-    ctx.arc(0, 0, 86, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k);
-    ctx.stroke();
+    // тень и кольцо прочности на земле: убывает с боков к переду
+    ctx.fillStyle = 'rgba(0,0,0,.32)';
+    ctx.beginPath(); ctx.ellipse(0, 46, 108, 30, 0, 0, 7); ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(0,0,0,.5)';
+    ctx.beginPath(); ctx.ellipse(0, 46, 112, 34, 0, 0, 7); ctx.stroke();
+    if (k > 0) {
+      ctx.strokeStyle = k > 0.35 ? C.side[rel] : '#ffb347';
+      ctx.beginPath(); ctx.ellipse(0, 46, 112, 34, 0, Math.PI / 2 - Math.PI * k, Math.PI / 2 + Math.PI * k); ctx.stroke();
+    }
+    // лёгкая дрожь под ударами
+    const shake = hit ? Math.sin(now / 35) * 1.2 : 0;
+    const bx = CASTLE_BOX.x + shake, by = CASTLE_BOX.y;
+    ctx.drawImage(this.castleSprite(rel, dmg, false), bx, by, CASTLE_BOX.w, CASTLE_BOX.h);
+    if (hit) {
+      ctx.globalAlpha = 0.18 + 0.22 * Math.max(0, Math.sin(now / 90));
+      ctx.drawImage(this.castleSprite(rel, dmg, true), bx, by, CASTLE_BOX.w, CASTLE_BOX.h);
+      ctx.globalAlpha = 1;
+    }
+    // пожар и дым на сильно побитом замке
+    if (dmg >= 1) {
+      const smokes = dmg >= 2 ? [[66, -96], [-66, -96], [0, -120]] : [[66, -96]];
+      for (const [fx, fy] of smokes) {
+        for (let i = 0; i < 4; i++) {
+          const t = (now / 1400 + i / 4 + fx * 0.01) % 1;
+          ctx.fillStyle = `rgba(60,55,62,${0.5 * (1 - t)})`;
+          ctx.beginPath(); ctx.arc(fx + Math.sin(t * 6 + i) * 6 + t * 12, fy - t * 70, 7 + t * 14, 0, 7); ctx.fill();
+        }
+      }
+      if (dmg >= 2) {
+        for (const [fx, fy] of [[-32, -22], [34, -22], [-66, -20]]) {
+          const f = 1 + Math.sin(now / 70 + fx) * 0.18;
+          ctx.fillStyle = '#ff8a3d';
+          ctx.beginPath(); ctx.moveTo(fx - 9, fy); ctx.quadraticCurveTo(fx - 8, fy - 14 * f, fx, fy - 22 * f); ctx.quadraticCurveTo(fx + 8, fy - 14 * f, fx + 9, fy); ctx.closePath(); ctx.fill();
+          ctx.fillStyle = '#ffd36b';
+          ctx.beginPath(); ctx.moveTo(fx - 4, fy); ctx.quadraticCurveTo(fx - 4, fy - 8 * f, fx, fy - 12 * f); ctx.quadraticCurveTo(fx + 4, fy - 8 * f, fx + 4, fy); ctx.closePath(); ctx.fill();
+        }
+      }
+    }
     ctx.restore();
   }
 
@@ -1127,6 +1161,9 @@ export class Renderer {
     return best;
   }
 }
+
+/** Рамка картинки замка в координатах мира относительно точки трона. */
+const CASTLE_BOX = { x: -96, y: -180, w: 192, h: 230 };
 
 function hex(ctx: CanvasRenderingContext2D, r: number) {
   ctx.beginPath();
