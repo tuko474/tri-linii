@@ -1105,6 +1105,17 @@ $('foeSynergy').addEventListener('click', (e) => raceToast(foe(), e));
 let tripNid = -1;
 let tripPick = new Set<Hero>();
 
+// Окна, открытые касанием карты: на телефоне после pointerup браузер ещё шлёт «клик» в ту же точку,
+// и он попадал в кнопку, только что появившуюся под пальцем (выбирал героя / нажимал покупку).
+// Один такой клик в первые 350 мс после открытия внутри окна гасим.
+let modalOpenedAt = -1e9;
+const GHOST_MS = 350;
+document.addEventListener('click', (e) => {
+  if (performance.now() - modalOpenedAt > GHOST_MS) return;
+  const t = e.target as Element | null;
+  if (t?.closest('#tripModal, #shopModal, #moveModal')) { modalOpenedAt = -1e9; e.stopPropagation(); e.preventDefault(); }
+}, true);
+
 function openTrip(nid: number) {
   const g = game;
   if (!g) return;
@@ -1121,6 +1132,7 @@ function openTrip(nid: number) {
     $<HTMLButtonElement>('tripGo').disabled = true;
     $('tripRecall').hidden = mineOut.length === 0;
     $('tripModal').hidden = false;
+    modalOpenedAt = performance.now();
     modalPause = true;
     return;
   }
@@ -1137,6 +1149,7 @@ function openTrip(nid: number) {
   renderTripHeroes();
   $('tripRecall').hidden = mineOut.length === 0;
   $('tripModal').hidden = false;
+  modalOpenedAt = performance.now();
   modalPause = true;
 }
 
@@ -1202,6 +1215,7 @@ function openShop(what: ShopWhat) {
   delete $('shopRows').dataset.h; // иначе при том же содержимом кнопки не перерисуются (окно открывалось пустым)
   renderShop();
   $('shopModal').hidden = false;
+  modalOpenedAt = performance.now();
   modalPause = true;
 }
 
@@ -1298,6 +1312,7 @@ function openMove(h: Hero) {
   moveKey = '';
   renderMove();
   $('moveModal').hidden = false;
+  modalOpenedAt = performance.now();
   modalPause = true;
 }
 
