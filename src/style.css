@@ -548,3 +548,6 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 /* поверх остальных панелей боя (общее правило .battle > * ставит z-index: 2) */
 .battle > #stickPick { z-index: 4; }
 .battle > #stickMine, .battle > #stickFoe { z-index: 3; }
+
+.q-bot { max-width: 460px; display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; }
+.q-bot[hidden] { display: none; }

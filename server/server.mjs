@@ -3,7 +3,7 @@
 // Запуск: node server.mjs  (порт — PORT, по умолчанию 8080; база — DB, по умолчанию ./arena.db)
 // Снаружи его прикрывает Caddy: он даёт https/wss и сам получает сертификат.
 
-import { HERO_PRICE, STICKER_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
+import { BOT_REWARD, BOT_DAILY, BOT_AFTER_MS, HERO_PRICE, STICKER_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -447,6 +447,41 @@ class Client {
         this.send({ t: 'queued', size: queue.size });
         matchmake();
         return;
+      case 'botMatch': {
+        // в очереди долго никого — бой с ботом. Только тем, кто действительно ждал
+        const qe = queue.get(me.id);
+        if (!qe || Date.now() - qe.since < BOT_AFTER_MS - 3000 || this.match) { this.send({ t: 'error', where: 'botMatch', text: 'Ещё ищем соперника' }); return; }
+        queue.delete(me.id);
+        const left = Math.max(0, BOT_DAILY - (dailyOf(this.user).bot ?? 0));
+        this.botGame = { id: rid(9), started: Date.now() };
+        this.send({ t: 'botMatch', id: this.botGame.id, left });
+        return;
+      }
+      case 'botResult': {
+        // итог боя с ботом. Сам бой идёт в телефоне, поэтому строгие рамки: ≥3 мин, без сдачи, лимит в день
+        const bg = this.botGame;
+        if (!bg || bg.id !== m.id) return;
+        this.botGame = null;
+        this.refresh();
+        const d = dailyOf(this.user);
+        const used = d.bot ?? 0;
+        let gain = 0, why = '';
+        if (Date.now() - bg.started < MIN_REWARD_MS) why = 'short';
+        else if (m.surrender) why = 'surrender';
+        else if (used >= BOT_DAILY) why = 'limit';
+        else {
+          gain = m.win ? BOT_REWARD.win : BOT_REWARD.loss;
+          d.bot = used + 1;
+          q.daily.run(JSON.stringify(d), me.id);
+          q.give.run(gain, me.id);
+          // задания: статистика своей стороны (бой не проверить, но его награда ограничена лимитом в день)
+          const st = cleanMatchStats(m.stats && Object.fromEntries(Object.entries(m.stats).map(([k, v]) => [k, [v, 0]])));
+          questProgress(me.id, !!m.win, st ? Object.fromEntries(Object.entries(st).map(([k, v]) => [k, v[0]])) : null);
+        }
+        this.refresh();
+        this.send({ t: 'botEnded', crystals: gain, why, left: Math.max(0, BOT_DAILY - (dailyOf(this.user).bot ?? 0)) });
+        break; // ниже — свежий профиль
+      }
       case 'unqueue':
         queue.delete(me.id);
         return;

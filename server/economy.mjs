@@ -45,6 +45,11 @@ export const MAX_STARS = 5;
 
 /** Кристаллы только за рейтинговые бои. */
 export const REWARD = { win: 75, loss: 30 };
+/** Бой с ботом, когда в рейтинге не нашёлся соперник: награда вдвое меньше, не больше BOT_DAILY наградных боёв в день. */
+export const BOT_REWARD = { win: 38, loss: 15 };
+export const BOT_DAILY = 5;
+/** Сколько надо прождать в очереди, чтобы сервер разрешил бой с ботом (мс). */
+export const BOT_AFTER_MS = 40 * 1000;
 /** Матч короче этого (мс) кристаллов не даёт — против договорных сдач. */
 export const MIN_REWARD_MS = Number(process.env.MIN_REWARD_MS ?? 3 * 60 * 1000);
 

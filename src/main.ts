@@ -25,6 +25,8 @@ const store = {
 };
 
 let difficulty: Difficulty = (store.get('tl-diff') as Difficulty) || 'normal';
+/** Сложность бота в этом бою: вместо соперника из рейтинга — всегда обычная. */
+const gameDiff = (): Difficulty => (botRanked ? 'normal' : difficulty);
 // ---------- прогресс игрока: кристаллы и открытые герои ----------
 function parseJSON(v: string | null): unknown { try { return v ? JSON.parse(v) : null; } catch { return null; } }
 /** Звёзды из хранилища или с сервера: только известные герои, целые 1..5. */
@@ -87,6 +89,7 @@ function renderDiff() {
 renderDiff();
 syncCrystals();
 $('toPick').onclick = () => {
+  botRanked = null;
   mode = 'bot';
   me = 0;
   startDraft(Math.random() < 0.5 ? 0 : 1);
@@ -606,7 +609,8 @@ let foePlacement: Pick[] | null = null;
 /** Звёзды героев бота — по силе твоей пятёрки: на лёгком на звезду меньше, на сложном на звезду больше. */
 function botStars(): number {
   const avg = placement.reduce((a, p) => a + (p.stars ?? 0), 0) / Math.max(1, placement.length);
-  const shift = difficulty === 'easy' ? -1 : difficulty === 'hard' ? 1 : 0;
+  const d = gameDiff();
+  const shift = d === 'easy' ? -1 : d === 'hard' ? 1 : 0;
   return Math.max(0, Math.min(BAL.stars.max, Math.round(avg) + shift));
 }
 let myPlacementSent = false;
@@ -719,14 +723,15 @@ let startMsg: unknown = null;
 const cv = $<HTMLCanvasElement>('cv');
 
 function startBattle(picks: [Pick[], Pick[]], seed?: number) {
-  game = new Game([picks[0].map((p) => ({ ...p })), picks[1].map((p) => ({ ...p }))], mode === 'bot' ? difficulty : 'normal', seed);
+  iSurrendered = false;
+  game = new Game([picks[0].map((p) => ({ ...p })), picks[1].map((p) => ({ ...p }))], mode === 'bot' ? gameDiff() : 'normal', seed);
   if (mode !== 'bot') game.incomeMul = [1, 1];
   game.autoCast = [false, false];
   myAuto = store.get('tl-auto') === '1';
   ls = null;
   if (mode === 'bot') { game.autoCast[me] = myAuto; game.autoCast[foe()] = true; }
   else { lsInit(); if (myAuto) lsCmd({ c: 'auto', on: true }); }
-  bot = mode === 'bot' ? new Bot(foe(), 'normal', difficulty) : null;
+  bot = mode === 'bot' ? new Bot(foe(), 'normal', gameDiff()) : null;
   renderer = new Renderer(cv, game, me);
   paused = false;
   modalPause = false;
@@ -1414,7 +1419,8 @@ $('autoBtn').onclick = () => {
 $('speedBtn').onclick = () => { speed = speed === 1 ? 2 : 1; $('speedBtn').textContent = '×' + speed; };
 $('pauseBtn').onclick = () => { paused = true; $('pauseModal').hidden = false; };
 $('resume').onclick = () => { paused = false; $('pauseModal').hidden = true; };
-$('surrender').onclick = () => { act({ c: 'surrender' }); $('pauseModal').hidden = true; paused = false; };
+$('surrender').onclick = () => {
+  iSurrendered = true; act({ c: 'surrender' }); $('pauseModal').hidden = true; paused = false; };
 document.addEventListener('visibilitychange', () => {
   sound.suspend(document.hidden);
   if (document.hidden && game && game.winner === null && !$('battle').hidden) { paused = true; $('pauseModal').hidden = false; }
@@ -1491,12 +1497,17 @@ function finish(aborted = false) {
   // кристаллы дают только за рейтинговые бои, и начисляет их сервер (придёт в 'ended')
   $('resReward').textContent = lastRanked && link?.via === 'server'
     ? 'Кристаллы — после того как сервер подтвердит итог…'
-    : 'Кристаллы дают только за рейтинговые бои.';
+    : botRanked ? 'Кристаллы за бой с ботом — ждём подтверждения сервера…' : 'Кристаллы дают только за рейтинговые бои.';
+  if (botRanked && mode === 'bot') {
+    const st = g.stats;
+    online.send({ t: 'botResult', id: botRanked.id, win, surrender: iSurrendered, stats: { kills: st.kills[me], lords: st.lords[me], turtles: st.turtles[me], camps: st.camps[me], pushes: st.pushes[me] } });
+  }
   renderRewardLine();
   game = null;
   show('result');
 }
 $('again').onclick = () => {
+  if (botRanked) { startQueue(); return; } // бой с ботом из рейтинга — снова ищем живого соперника
   if (mode === 'bot') { startDraft(Math.random() < 0.5 ? 0 : 1); return; }
   if (lastRanked) { link = null; startQueue(); return; }
   link?.close();
@@ -1514,6 +1525,12 @@ let last = performance.now();
 let lastEnded: Ended | null = null;
 let lastRanked = false;
 let queueSince = 0;
+/** Рейтинговый поиск не нашёл соперника — бой с ботом (награда ×½, лимит в день; итог проверяет сервер). */
+let botRanked: { id: string; left: number } | null = null;
+let iSurrendered = false;
+const BOT_OFFER_S = 40; // через сколько секунд поиска предложить бота
+const BOT_AUTO_S = 50; // а через сколько начать его автоматически
+let botOfferAt = BOT_OFFER_S;
 
 /** Играть через свой сервер: он настроен, на связи и есть аккаунт. */
 const useServer = () => online.configured && online.ready && !!online.me;
@@ -1574,6 +1591,9 @@ function startQueue() {
   }
   lastEnded = null;
   queueSince = performance.now();
+  botOfferAt = BOT_OFFER_S;
+  botRanked = null;
+  $('qBot').hidden = true;
   $('qRating').textContent = `★ ${online.me!.rating}`;
   $('qStatus').textContent = 'Ищем соперника примерно твоей силы…';
   show('queue');
@@ -1642,6 +1662,35 @@ const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '
 $('profileBtn').onclick = () => openAccount();
 $('rankedBtn').onclick = startQueue;
 $('accBack').onclick = () => { renderProfileChip(); show('menu'); };
+let botAsked = 0;
+function askBot() {
+  if (performance.now() - botAsked < 4000) return;
+  botAsked = performance.now();
+  online.send({ t: 'botMatch' });
+}
+$('qBotGo').onclick = askBot;
+$('qWait').onclick = () => { botOfferAt = Math.floor((performance.now() - queueSince) / 1000) + 60; $('qBot').hidden = true; };
+online.on('botMatch', (m: { id: string; left: number }) => {
+  if ($('queue').hidden) return;
+  botRanked = { id: m.id, left: m.left };
+  lastRanked = false;
+  link = null;
+  mode = 'bot';
+  me = 0;
+  toast(m.left > 0 ? `Соперник не найден — бой с ботом. Награда ×½ (сегодня ещё ${m.left} из 5)` : 'Соперник не найден — бой с ботом. Лимит наград с ботом на сегодня исчерпан', 'info');
+  startDraft(Math.random() < 0.5 ? 0 : 1);
+});
+online.on('botEnded', (m: { crystals: number; why: string; left: number }) => {
+  if ($('result').hidden) return;
+  const why: Record<string, string> = {
+    short: 'Бой короче 3 минут — без кристаллов.',
+    surrender: 'Сдача — без кристаллов.',
+    limit: 'Лимит наград за бои с ботом на сегодня исчерпан (5 в день).',
+  };
+  $('resReward').textContent = m.crystals > 0
+    ? `+✦ ${m.crystals} кристаллов за бой с ботом (награда ×½) · сегодня ещё ${m.left} из 5.`
+    : why[m.why] ?? 'Этот бой кристаллов не дал.';
+});
 $('qCancel').onclick = () => { online.send({ t: 'unqueue' }); show('menu'); };
 $('regBtn').onclick = () => {
   const name = $<HTMLInputElement>('regName').value.trim();
@@ -1677,6 +1726,13 @@ setInterval(() => {
   if (!$('queue').hidden) {
     const t = Math.floor((performance.now() - queueSince) / 1000);
     $('qTimer').textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    // долго никого — честно предлагаем бота, а через несколько секунд запускаем сами
+    if (t >= botOfferAt && online.ready) {
+      const auto = botOfferAt + (BOT_AUTO_S - BOT_OFFER_S);
+      $('qBot').hidden = false;
+      $('qBotText').textContent = `Соперник пока не найден. Через ${Math.max(0, auto - t)} с начнётся бой с ботом — награда за него вдвое меньше. Рейтинг не меняется.`;
+      if (t >= auto) askBot();
+    }
   }
 }, 500);
 renderProfileChip();
