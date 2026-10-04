@@ -72,13 +72,8 @@ h2 { font-size: 22px; }
 /* ---------- меню ---------- */
 .logo { font-size: clamp(40px, 13vw, 64px); letter-spacing: .01em; color: var(--gold); text-shadow: 0 3px 0 #000; }
 .tagline { color: var(--muted); margin: 0 0 8px; text-align: center; max-width: 30ch; }
-.menu-art { position: relative; width: 150px; height: 190px; margin-bottom: 4px; }
-.menu-art .lane { position: absolute; left: 50%; top: 22px; bottom: 22px; width: 10px; margin-left: -5px; background: #8a7550; border-radius: 6px; }
-.menu-art .l1 { transform: translateX(-52px); border-radius: 30px 0 0 30px; }
-.menu-art .l3 { transform: translateX(42px); }
-.menu-art .throne { position: absolute; left: 50%; width: 40px; height: 40px; margin-left: -20px; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
-.menu-art .t-top { top: 0; background: var(--dark); }
-.menu-art .t-bot { bottom: 0; background: var(--light); }
+.menu-art { width: 170px; height: 150px; margin-bottom: 2px; }
+.menu-art img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 6px 14px rgba(0,0,0,.5)); }
 .seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px; }
 .seg button { font: 700 14px var(--body); background: transparent; border: 0; color: var(--muted); padding: 8px 14px; border-radius: 9px; cursor: pointer; }
 .seg button[aria-checked="true"] { background: var(--panel2); color: var(--parch); box-shadow: inset 0 0 0 1px var(--gold); }

@@ -182,6 +182,21 @@ online.on('claimed', (m: { what: string; day?: number; crystals: number }) => {
   sound.play('coins');
 });
 
+// замок на главном экране — тот же рисунок, что трон в бою
+{
+  const cv = document.createElement('canvas');
+  cv.width = 340; cv.height = 300;
+  const x = cv.getContext('2d')!;
+  const glow = x.createRadialGradient(170, 150, 10, 170, 150, 150);
+  glow.addColorStop(0, 'rgba(243,210,122,.35)');
+  glow.addColorStop(1, 'rgba(243,210,122,0)');
+  x.fillStyle = glow; x.fillRect(0, 0, 340, 300);
+  x.translate(170, 210); x.scale(1.45, 1.45);
+  x.fillStyle = '#2f4a33'; x.strokeStyle = '#14121c'; x.lineWidth = 3;
+  x.beginPath(); x.ellipse(0, 46, 110, 20, 0, 0, 7); x.fill(); x.stroke();
+  drawCastleFigure(x, '#5fd4c4', '#1f6f68', 0, false);
+  $<HTMLImageElement>('menuCastle').src = cv.toDataURL();
+}
 $('toRaces').onclick = () => { renderRaces(); show('races'); };
 $('racesBack').onclick = () => show('menu');
 
