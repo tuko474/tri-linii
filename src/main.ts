@@ -785,7 +785,7 @@ function applyCmd(side: Side, cmd: any): boolean {
     case 'creep': return g.upgradeCreeps(cmd.lane, side);
     case 'send': return g.sendParty(side, cmd.nid, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recall': g.recall(side, cmd.nid ?? undefined); return true;
-    case 'upg': return ['armor', 'fury', 'mana', 'gun'].includes(cmd.k) && g.buyUpg(side, cmd.k);
+    case 'upg': return ['armor', 'fury', 'mana', 'gun', 'walls', 'thorns'].includes(cmd.k) && g.buyUpg(side, cmd.k);
     case 'barr': return g.buyBarracks(cmd.lane, side);
     case 'glyph': return g.glyph(side);
     case 'move': { const h = hero(cmd.uid); return !!h && h.side === side && g.moveHero(h, cmd.lane); }
@@ -988,6 +988,9 @@ function syncPanel() {
   botStickers(g);
   $('myHp').style.width = (100 * g.throne[me]) / BAL.throneHp + '%';
   $('foeHp').style.width = (100 * g.throne[foe()]) / BAL.throneHp + '%';
+  const hpTxt = (v: number) => String(Math.max(0, Math.ceil(v)));
+  if ($('myHpN').textContent !== hpTxt(g.throne[me])) $('myHpN').textContent = hpTxt(g.throne[me]);
+  if ($('foeHpN').textContent !== hpTxt(g.throne[foe()])) $('foeHpN').textContent = hpTxt(g.throne[foe()]);
   $('clock').textContent = clock(g.t);
   const ping = ls && ls.rtt ? ` · ${Math.round(ls.rtt)} мс` : '';
   $('waveInfo').textContent = lsWaiting ? (mode === 'guest' ? 'ждём хоста…' : 'ждём соперника…') + ping : `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с${ping}`;
@@ -1055,9 +1058,9 @@ function syncPanel() {
     orbEl.innerHTML = `<img src="${raceURL(r)}" alt="">Сфера: ${RACES[r].name} · ${clock(orbT)}`;
   }
   {
-    const cheapest = (ks: ('armor' | 'fury' | 'mana' | 'gun')[]) => Math.min(...ks.map((k) => g.upgCost(me, k) ?? Infinity));
+    const cheapest = (ks: ('armor' | 'fury' | 'mana' | 'gun' | 'walls' | 'thorns')[]) => Math.min(...ks.map((k) => g.upgCost(me, k) ?? Infinity));
     $('altarBtn').classList.toggle('can', g.gold[me] >= cheapest(['armor', 'fury', 'mana']));
-    $('throneBtn').classList.toggle('can', g.gold[me] >= cheapest(['gun']) || g.canGlyph(me));
+    $('throneBtn').classList.toggle('can', g.gold[me] >= cheapest(['gun', 'walls', 'thorns']) || g.canGlyph(me));
     if (!$('shopModal').hidden) renderShop();
   }
   $('recallAll').hidden = !g.heroes.some((h) => h.side === me && h.trip && h.trip.phase !== 'back');
@@ -1239,9 +1242,14 @@ function renderShop() {
     }
   } else if (shop.kind === 'throne') {
     title = 'Трон';
-    text = 'Пушка трона отстреливает вражеских крипов у базы. Глиф спасает линии и трон в беде.';
+    text = `Прочность: ${Math.ceil(g.throne[me])} из ${BAL.throneHp}. Пушка отстреливает крипов у базы, стены и шипы защищают трон, глиф спасает в беде.`;
     const c = g.upgCost(me, 'gun');
     rows += shopRow(BAL.gunUp.icon, BAL.gunUp.name, BAL.gunUp.text, g.upg[me].gun, BAL.upgCost.length, buy(c), 'upg:gun', c !== null && gold >= c);
+    for (const k of ['walls', 'thorns'] as const) {
+      const u = BAL.throneUp[k];
+      const ck = g.upgCost(me, k);
+      rows += shopRow(u.icon, u.name, u.text, g.upg[me][k], BAL.upgCost.length, buy(ck), 'upg:' + k, ck !== null && gold >= ck);
+    }
     const gl = g.glyphT[me] > 0 ? `действует ${Math.ceil(g.glyphT[me])} с` : g.glyphCd[me] > 0 ? `через ${Math.ceil(g.glyphCd[me])} с` : `◆ ${BAL.glyph.cost}`;
     rows += shopRow('✺', 'Глиф', `Все герои на линиях и трон ${BAL.glyph.dur} с не получают урона. Перезарядка ${BAL.glyph.cd} с.`, 0, 0, gl, 'glyph', g.canGlyph(me));
   } else {

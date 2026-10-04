@@ -8,7 +8,7 @@ import { BARRACKS_S, CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRON
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx, Side, Target, Ward } from './types';
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
-export type UpgKey = 'armor' | 'fury' | 'mana' | 'gun';
+export type UpgKey = 'armor' | 'fury' | 'mana' | 'gun' | 'walls' | 'thorns';
 
 export class Game {
   t = 0;
@@ -52,7 +52,7 @@ export class Game {
   private throneAtkFx = [0, 0];
   private throneCd = [0, 0];
   /** Улучшения алтаря и пушки трона по сторонам. */
-  upg: [Record<UpgKey, number>, Record<UpgKey, number>] = [{ armor: 0, fury: 0, mana: 0, gun: 0 }, { armor: 0, fury: 0, mana: 0, gun: 0 }];
+  upg: [Record<UpgKey, number>, Record<UpgKey, number>] = [{ armor: 0, fury: 0, mana: 0, gun: 0, walls: 0, thorns: 0 }, { armor: 0, fury: 0, mana: 0, gun: 0, walls: 0, thorns: 0 }];
   /** Уровень барака: barracks[lane][side]. */
   barracks: [number, number][] = [[0, 0], [0, 0], [0, 0]];
   /** Глиф: сколько ещё действует и перезарядка. */
@@ -110,7 +110,7 @@ export class Game {
     const add = (v: number) => { h = (Math.imul(h, 31) + Math.round(v * 10)) | 0; };
     add(this.t); add(this.gold[0]); add(this.gold[1]); add(this.throne[0]); add(this.throne[1]); add(this.rs);
     for (const x of this.heroes) { add(x.hp); add(x.mana); add(x.lvl); add(x.lane); add(x.stars); add(x.cd2); }
-    for (const s of [0, 1] as Side[]) { add(this.upg[s].armor + this.upg[s].fury * 7 + this.upg[s].mana * 49 + this.upg[s].gun * 343); add(this.glyphCd[s]); }
+    for (const s of [0, 1] as Side[]) { add(this.upg[s].armor + this.upg[s].fury * 7 + this.upg[s].mana * 49 + this.upg[s].gun * 343 + this.upg[s].walls * 2401 + this.upg[s].thorns * 16807); add(this.glyphCd[s]); }
     add(this.creeps.length);
     for (const c of this.creeps) { add(c.hp); add(c.s); }
     for (const n of this.neutrals) add(n.hp);
@@ -619,7 +619,7 @@ export class Game {
     this.upg[side][k]++;
     this.refreshStats(side);
     this.say(side, 'creepUp');
-    const name = k === 'gun' ? BAL.gunUp.name : BAL.altar[k].name;
+    const name = k === 'gun' ? BAL.gunUp.name : k === 'walls' || k === 'thorns' ? BAL.throneUp[k].name : BAL.altar[k].name;
     this.tell(side, `${name}: уровень ${this.upg[side][k]}`, 'good');
     return true;
   }
@@ -1191,6 +1191,15 @@ export class Game {
       if (target) {
         if (c.atkCd <= 0) {
           c.atkCd = c.rate;
+          // шипы: крип, атакующий трон, сразу получает часть своего урона в ответ
+          if (target.kind === 'throne') {
+            const th = this.upg[target.side].thorns;
+            if (th > 0) {
+              this.hitCreep(c, c.dmg * BAL.throneUp.thorns.per * th);
+              if (this.rand() < 0.35) { const p = this.creepPos(c); this.fx.push({ kind: 'ring', x: p.x, y: p.y, r: 22, color: '#f3d27a', t: 0, life: 0.3 }); }
+              if (c.dead) continue;
+            }
+          }
           if (c.range < 100) this.applyHit(target, c.dmg);
           else {
             const p = this.creepPos(c);
@@ -1239,7 +1248,7 @@ export class Game {
       if (this.winner !== null) return;
       this.throneAtkFx[t.side] = 1.2;
       if (this.glyphT[t.side] > 0) return; // глиф: трон тоже под щитом
-      this.throne[t.side] -= dmg;
+      this.throne[t.side] -= dmg * Math.max(0, 1 - BAL.throneUp.walls.per * this.upg[t.side].walls); // стены
       this.say(t.side, 'throne');
     }
   }

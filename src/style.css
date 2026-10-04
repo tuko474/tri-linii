@@ -558,3 +558,5 @@ a.privacy-link.hint { text-align: center; font-size: 13px; }
 .synergy.foe::before { content: 'Враг'; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 /* звёзды героя на кнопке в бою */
 .hb .hb-stars { position: absolute; right: -4px; top: 18px; z-index: 2; pointer-events: none; font-size: 10px; font-weight: 800; color: #1b1630; background: var(--gold); border-radius: 8px; padding: 0 4px; line-height: 15px; }
+
+.throne-bar em { font-style: normal; color: var(--parch); font-variant-numeric: tabular-nums; letter-spacing: 0; }

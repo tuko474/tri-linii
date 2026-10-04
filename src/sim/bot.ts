@@ -93,7 +93,7 @@ export class Bot {
     const reserve = g.glyphCd[me] <= 0 ? 0 : 200;
     const opts: (() => boolean)[] = [];
     const costs: number[] = [];
-    for (const k of ['armor', 'fury', 'mana', 'gun'] as const) {
+    for (const k of ['armor', 'fury', 'mana', 'gun', 'walls', 'thorns'] as const) {
       const c = g.upgCost(me, k);
       if (c !== null) { opts.push(() => g.buyUpg(me, k)); costs.push(c); }
     }

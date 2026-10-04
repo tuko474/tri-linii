@@ -898,6 +898,16 @@ export class Renderer {
       ctx.strokeStyle = k > 0.35 ? C.side[rel] : '#ffb347';
       ctx.beginPath(); ctx.ellipse(0, 46, 112, 34, 0, Math.PI / 2 - Math.PI * k, Math.PI / 2 + Math.PI * k); ctx.stroke();
     }
+    // прочность числом под замком
+    ctx.font = '800 22px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = C.dark;
+    const hpT = `${Math.max(0, Math.ceil(g.throne[side]))} / ${BAL.throneHp}`;
+    ctx.strokeText(hpT, 0, 98);
+    ctx.fillStyle = k > 0.35 ? C.ink : '#ffb347';
+    ctx.fillText(hpT, 0, 98);
     // лёгкая дрожь под ударами
     const shake = hit && g.glyphT[side] <= 0 ? Math.sin(now / 35) * 1.2 : 0;
     const bx = CASTLE_BOX.x + shake, by = CASTLE_BOX.y;
