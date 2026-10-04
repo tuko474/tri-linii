@@ -50,7 +50,11 @@ const kv = {
 };
 
 /** Номер сборки игры (0.1.N → N); для сервера. Локальная сборка — «dev», считаем свежей. */
-export const BUILD = Number(document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content.split('.')[2]) || 9999;
+/** Версия протокола игры: поднимаем, когда меняются сообщения с сервером (сервер не пускает в бои ниже своего MIN_BUILD). */
+export const PROTO = 40;
+/** Что сообщаем серверу: протокол, а у тестовых сборок 0.1.N — номер сборки, если он больше. Локально — «dev», считаем свежей. */
+const verMeta = document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content ?? 'dev';
+export const BUILD = verMeta === 'dev' ? 9999 : Math.max(PROTO, verMeta.startsWith('0.1.') ? Number(verMeta.split('.')[2]) || 0 : 0);
 
 export function serverUrl(): string {
   return (kv.get('tl-server') || SERVER_URL).trim();

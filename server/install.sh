@@ -73,6 +73,13 @@ systemctl daemon-reload
 systemctl enable -q arena
 systemctl restart arena
 
+say "Резервные копии базы (каждую ночь в 04:10, хранятся 14 дней в $DATA/backups)"
+cat > /etc/cron.d/arena-backup <<CRON
+10 4 * * * arena DB=$DATA/arena.db $(command -v node) --no-warnings $APP/server/admin.mjs backup $DATA/backups 14 >> $DATA/backup.log 2>&1
+CRON
+chmod 644 /etc/cron.d/arena-backup
+runuser -u arena -- env DB=$DATA/arena.db $(command -v node) --no-warnings $APP/server/admin.mjs backup $DATA/backups 14 || echo "Первая копия не получилась — попробуй: node $APP/server/admin.mjs backup"
+
 say "Адрес сервера"
 IP=$(curl -fsS -4 --max-time 5 https://api.ipify.org 2>/dev/null || curl -fsS -4 --max-time 5 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
 HOST="${DOMAIN:-$(echo "$IP" | tr . -).sslip.io}"
@@ -97,6 +104,6 @@ echo " Готово! Адрес сервера для игры:"
 echo
 echo "     wss://$HOST"
 echo
-echo " Пришли этот адрес — его впишут в игру."
+echo " Адрес уже вписан в игру. Политика конфиденциальности: https://$HOST/privacy"
 echo " Проверка в браузере: https://$HOST/health"
 echo "============================================================"

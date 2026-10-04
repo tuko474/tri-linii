@@ -11,7 +11,7 @@ import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
 import type { Hero, Pick, Side } from './sim/types';
 import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
-import { BUILD, Daily, Ended, Online } from './online';
+import { BUILD, Daily, Ended, Online, serverUrl } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const SCREENS = ['menu', 'how', 'stickers', 'daily', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
@@ -190,7 +190,10 @@ const APP_VERSION = document.querySelector<HTMLMetaElement>('meta[name="app-vers
 $('version').textContent = `Версия ${APP_VERSION === 'dev' ? 'для разработки' : APP_VERSION}`;
 
 /** Есть ли на GitHub сборка новее установленной — тогда на главном экране плашка со ссылкой на APK. */
+/** Сборка для магазина: обновления приходят через магазин, а не с GitHub (правило RuStore). */
+const STORE = document.querySelector<HTMLMetaElement>('meta[name="app-store"]')?.content || '';
 async function checkUpdate() {
+  if (STORE) return;
   const cur = Number(APP_VERSION.split('.')[2]);
   if (!cur) return; // версия для разработки
   try {
@@ -1737,6 +1740,31 @@ online.on('promoOk', (m: { code: string; crystals: number }) => {
   $('accStatus').textContent = `Промокод ${m.code} активирован: +✦ ${m.crystals}!`;
   toast(`Промокод: +✦ ${m.crystals} кристаллов`, 'good');
   sound.play('coins');
+});
+// политика конфиденциальности — на нашем сервере (тот же адрес, что у игры, но https)
+const privacyUrl = () => serverUrl().replace(/^ws(s?):/, 'http$1:').replace(/\/ws\/?$/, '') + '/privacy';
+document.querySelectorAll<HTMLAnchorElement>('.privacy-link').forEach((a) => { a.href = privacyUrl(); });
+$('deleteAccBtn').onclick = () => {
+  if (!online.me) return;
+  const name = online.me.name;
+  if (!window.confirm(`Удалить аккаунт «${name}» навсегда? Кристаллы, герои, звёзды, стикеры и рейтинг пропадут, вернуть их будет нельзя.`)) return;
+  if (!online.ready) { $('accStatus').textContent = 'Нет связи с сервером'; return; }
+  online.send({ t: 'deleteAccount' });
+  $('accStatus').textContent = 'Удаляем…';
+};
+online.on('deleted', () => {
+  online.logout();
+  // прогресс в телефоне — как у нового игрока
+  meta.crystals = 300;
+  meta.owned = new Set(STARTER_IDS);
+  meta.stars = {};
+  meta.stickers = new Set();
+  meta.save();
+  syncCrystals();
+  renderAccount();
+  renderProfileChip();
+  online.start();
+  $('accStatus').textContent = 'Аккаунт удалён.';
 });
 $('logoutBtn').onclick = () => { online.logout(); renderAccount(); renderProfileChip(); online.start(); };
 setInterval(() => {

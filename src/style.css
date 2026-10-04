@@ -551,3 +551,8 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 
 .q-bot { max-width: 460px; display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; }
 .q-bot[hidden] { display: none; }
+
+.hint.legal { font-size: 12px; text-align: center; }
+.privacy-link { color: #7fe0d0; }
+a.privacy-link.hint { text-align: center; font-size: 13px; }
+.btn.danger { color: #ff8a8a; border-color: rgba(255,120,120,.4); }

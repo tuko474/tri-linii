@@ -5,6 +5,8 @@
 
 import { BOT_REWARD, BOT_DAILY, BOT_AFTER_MS, HERO_PRICE, STICKER_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -357,6 +359,18 @@ class Client {
       case 'save':
         // старые версии игры присылали свой прогресс — теперь его ведёт только сервер
         return;
+      case 'deleteAccount': {
+        // удаление аккаунта по просьбе игрока: профиль, прогресс, активации промокодов. Матчи остаются без имени (только id)
+        if (this.match) { this.send({ t: 'error', where: 'deleteAccount', text: 'Сначала закончи бой' }); return; }
+        queue.delete(me.id);
+        for (const [code, h] of rooms) if (h === this) rooms.delete(code);
+        db.prepare('DELETE FROM promo_uses WHERE user = ?').run(me.id);
+        db.prepare('DELETE FROM users WHERE id = ?').run(me.id);
+        online.delete(me.id);
+        this.user = null;
+        this.send({ t: 'deleted' });
+        return;
+      }
       case 'buy': {
         // покупка за кристаллы: открыть героя или звезду. Цена — только серверная.
         const id = String(m.id ?? '');
@@ -703,6 +717,16 @@ setInterval(() => {
 
 // ---------- http ----------
 const srv = http.createServer((req, res) => {
+  if (req.url === '/privacy' || req.url === '/privacy/') {
+    // политика конфиденциальности (ссылка для RuStore и для игры). Оператор — из файла рядом с базой или OPERATOR
+    let html = '';
+    try { html = fs.readFileSync(new URL('./privacy.html', import.meta.url), 'utf8'); } catch { /* */ }
+    let op = process.env.OPERATOR || '';
+    try { op = fs.readFileSync(path.join(path.dirname(DB_PATH), 'operator.txt'), 'utf8').trim() || op; } catch { /* */ }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(html.replace('{{OPERATOR}}', (op || 'ИП Шахназарян Владимир Рафикович, ИНН 233911764956').replace(/[<>&]/g, '')));
+    return;
+  }
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
     res.end(JSON.stringify({ ok: true, v: SERVER_V, online: online.size, queue: queue.size, matches: matches.size, players: q.count.get().n }));

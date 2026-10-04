@@ -1,0 +1,136 @@
+# Сборка для RuStore: свой appId (ru.arenaofdefense.game), боевой ключ подписи, без самообновления с GitHub.
+# Запускается при каждой загрузке в main. Готовый файл — в Releases: arena-rustore-1.0.N.apk.
+# Нужен секрет STORE_KEY_PASS (Settings → Secrets and variables → Actions). Без него сборка пропускается.
+
+name: Сборка для RuStore
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  store:
+    runs-on: ubuntu-latest
+    env:
+      STORE_KEY_PASS: ${{ secrets.STORE_KEY_PASS }}
+      APP_ID: ru.arenaofdefense.game
+      VER: 1.0.${{ github.run_number }}
+    steps:
+      - name: Есть ли ключ
+        id: key
+        run: |
+          if [ -z "$STORE_KEY_PASS" ]; then
+            echo "::warning::Нет секрета STORE_KEY_PASS — магазинная сборка пропущена"
+            echo "ok=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == '1'
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.ok == '1'
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        if: steps.key.outputs.ok == '1'
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Магазинные настройки
+        if: steps.key.outputs.ok == '1'
+        run: |
+          sed -i "s|appId: 'com.trilinii.game'|appId: '$APP_ID'|" capacitor.config.ts
+          grep -q "$APP_ID" capacitor.config.ts
+          sed -i "s|<meta name=\"app-version\" content=\"dev\">|<meta name=\"app-version\" content=\"$VER\">|" index.html
+          sed -i 's|<meta name="app-store" content="">|<meta name="app-store" content="rustore">|' index.html
+          grep -q 'content="rustore"' index.html
+
+      - name: Собрать игру
+        if: steps.key.outputs.ok == '1'
+        run: |
+          npm install --no-audit --no-fund
+          mkdir -p public/vendor && cp node_modules/peerjs/dist/peerjs.min.js public/vendor/peerjs.min.js
+          npm run build
+          npx cap add android
+          npx cap sync android
+
+      - name: Горизонталь, полный экран, иконка
+        if: steps.key.outputs.ok == '1'
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's/ *android:screenOrientation="[a-zA-Z]*"//' "$M"
+          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity"\n            android:screenOrientation="sensorLandscape"/' "$M"
+          D=android/app/src/main/java/$(echo "$APP_ID" | tr . /)
+          sed "s/^package com.trilinii.game;/package $APP_ID;/" tools/android/MainActivity.java > "$D/MainActivity.java"
+          npx --yes @capacitor/assets@3 generate --android --iconBackgroundColor '#17142a' --splashBackgroundColor '#17142a' || echo "::warning::иконки не сгенерированы"
+
+      - name: Версия и подпись
+        if: steps.key.outputs.ok == '1'
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in tools/android/arena-release.p12.enc -out android/app/arena-release.p12 -pass env:STORE_KEY_PASS
+          python3 - <<'PY'
+          import os, re
+          p = 'android/app/build.gradle'
+          s = open(p).read()
+          run = os.environ['GITHUB_RUN_NUMBER']
+          s = re.sub(r'versionCode \d+', 'versionCode ' + run, s)
+          s = re.sub(r'versionName "[^"]*"', 'versionName "' + os.environ['VER'] + '"', s)
+          sign = '''android {
+              signingConfigs {
+                  release {
+                      storeFile file("arena-release.p12")
+                      storeType "pkcs12"
+                      storePassword System.getenv("STORE_KEY_PASS")
+                      keyAlias "arena"
+                      keyPassword System.getenv("STORE_KEY_PASS")
+                  }
+              }'''
+          s = s.replace('android {', sign, 1)
+          s, n = re.subn(r'(buildTypes\s*\{\s*release\s*\{)', r'\1\n            signingConfig signingConfigs.release', s, count=1)
+          assert n == 1, 'не нашёл buildTypes.release'
+          open(p, 'w').write(s)
+          PY
+          grep -n -A3 "signingConfig" android/app/build.gradle
+
+      - name: Собрать APK
+        if: steps.key.outputs.ok == '1'
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../arena-rustore-$VER.apk
+
+      - name: Проверить подпись
+        if: steps.key.outputs.ok == '1'
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/apksigner verify --print-certs arena-rustore-$VER.apk | tee cert.txt
+          grep -q "CN=Arena of Defense, O=Arena of Defense" cert.txt
+          $BT/aapt dump badging arena-rustore-$VER.apk | grep -E "package:|targetSdkVersion|application-debuggable" || true
+          if $BT/aapt dump badging arena-rustore-$VER.apk | grep -q application-debuggable; then echo "::error::сборка отладочная"; exit 1; fi
+
+      - name: Сохранить в Actions
+        if: steps.key.outputs.ok == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: arena-rustore
+          path: arena-rustore-*.apk
+
+      - name: Опубликовать в Releases
+        if: steps.key.outputs.ok == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rustore-${{ github.run_number }}
+          name: RuStore 1.0.${{ github.run_number }}
+          body: Сборка для загрузки в RuStore (appId ru.arenaofdefense.game, боевой ключ). Не для установки поверх тестовой.
+          files: arena-rustore-*.apk
+          prerelease: true
+          make_latest: false

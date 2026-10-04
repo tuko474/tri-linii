@@ -6,6 +6,7 @@
 //   node /opt/arena/server/admin.mjs list                                — все аккаунты
 //   node /opt/arena/server/admin.mjs promo add <КОД> <кристаллы> [лимит] — промокод (лимит активаций, 0 — без лимита)
 //   node /opt/arena/server/admin.mjs promo list | promo del <КОД>
+//   node /opt/arena/server/admin.mjs backup [папка] [дней]                — копия базы (по умолчанию /var/lib/arena/backups, хранить 14 дней)
 //
 // База — как у службы: /var/lib/arena/arena.db (или переменная DB).
 // Пароли сюда, в репозиторий, не пишем: он публичный. Пароль передаётся только в команде на сервере.
@@ -86,7 +87,27 @@ switch (cmd) {
     }
     process.exit(0);
   }
+  case 'backup': {
+    // целостная копия базы, даже пока сервер работает (VACUUM INTO), и удаление копий старше N дней
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const dir = name || path.join(path.dirname(DB_PATH), 'backups');
+    const keep = Math.max(1, Math.floor(Number(a3 ?? 14)));
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+    const file = path.join(dir, `arena-${stamp}.db`);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+    db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+    let removed = 0;
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^arena-\d+\.db$/.test(f)) continue;
+      const full = path.join(dir, f);
+      if (Date.now() - fs.statSync(full).mtimeMs > keep * 86400000) { fs.unlinkSync(full); removed++; }
+    }
+    console.log(`Копия: ${file} (${Math.round(fs.statSync(file).size / 1024)} КБ), удалено старых: ${removed}`);
+    process.exit(0);
+  }
   default:
-    console.log('Команды: create <имя> <пароль> [кристаллы] · give <имя> <кристаллы> · reset <имя> [all] · list · promo add <КОД> <кристаллы> [лимит] · promo list · promo del <КОД>');
+    console.log('Команды: create <имя> <пароль> [кристаллы] · give <имя> <кристаллы> · reset <имя> [all] · list · promo add <КОД> <кристаллы> [лимит] · promo list · promo del <КОД> · backup [папка] [дней]');
 }
 console.log('Если игрок сейчас в игре — изменения он увидит после перезахода в аккаунт.');
