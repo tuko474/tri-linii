@@ -781,7 +781,7 @@ function applyCmd(side: Side, cmd: any): boolean {
   const g = game!;
   const hero = (uid: number) => g.heroes.find((h) => h.uid === uid && h.side === side);
   switch (cmd.c) {
-    case 'cast': { const h = hero(cmd.uid); return !!h && g.cast(h); }
+    case 'cast': { const h = hero(cmd.uid); return !!h && g.cast(h, false, false, !!cmd.force); }
     case 'creep': return g.upgradeCreeps(cmd.lane, side);
     case 'send': return g.sendParty(side, cmd.nid, (cmd.uids as number[]).map(hero).filter((h): h is Hero => !!h)) > 0;
     case 'recall': g.recall(side, cmd.nid ?? undefined); return true;
@@ -818,11 +818,21 @@ function buildPanel() {
     cast.className = 'hb-cast';
     cast.setAttribute('aria-label', `${h.def.name}: ${h.def.skill.name}`);
     cast.innerHTML = `<img class="skill-ico" src="${skillURL(h.def)}" alt=""><img class="mini-portrait" src="${portraitURL(h.def, 64)}" alt=""><span class="cdv" hidden></span><span class="mana"></span><span class="badge" hidden></span>`;
+    // одно нажатие — к герою и способность, если рядом есть цель; двойное — применить в любом случае (например, подлечить)
+    let lastTap = 0;
     cast.onclick = () => {
       selected = h;
       const hp = g.heroPos(h);
       renderer?.focus(hp.x, hp.y);
-      if (!g.canCast(h) || !act({ c: 'cast', uid: h.uid })) { pulse(cast); sound.play('deny'); }
+      const now = performance.now();
+      const second = now - lastTap < 380;
+      lastTap = second ? 0 : now;
+      if (!g.canCast(h)) { if (!second) { pulse(cast); sound.play('deny'); } return; }
+      if (second) { act({ c: 'cast', uid: h.uid, force: true }); sound.play('tap'); return; }
+      if (!act({ c: 'cast', uid: h.uid })) {
+        pulse(cast);
+        if (!forceHintShown) { forceHintShown = true; toast('Рядом нет цели. Нажми дважды — способность сработает всё равно', 'info'); }
+      }
     };
     // уровень и полоска опыта (уровни растут сами)
     const up = document.createElement('div');
@@ -836,6 +846,12 @@ function buildPanel() {
     back.hidden = true;
     back.onclick = () => { act({ c: 'recallHero', uid: h.uid }); sound.play('tap'); };
     wrap.append(lname, cast, up, back);
+    if (h.stars > 0) {
+      const st = document.createElement('span');
+      st.className = 'hb-stars';
+      st.textContent = `${h.stars}★`;
+      wrap.appendChild(st);
+    }
     if (h.stars >= BAL.stars.max) {
       // значок второй способности (5★): светится, когда готова
       const s2 = document.createElement('img');
@@ -964,6 +980,8 @@ function botStickers(g: Game) {
   }
 }
 
+let forceHintShown = false;
+
 function syncPanel() {
   const g = game!;
   $('gold').textContent = String(Math.floor(g.gold[me]));
@@ -1044,10 +1062,12 @@ function syncPanel() {
   }
   $('recallAll').hidden = !g.heroes.some((h) => h.side === me && h.trip && h.trip.phase !== 'back');
   const counts = g.raceCounts(me);
-  const key = JSON.stringify(counts);
+  const fc = g.raceCounts(foe());
+  const key = JSON.stringify([counts, fc]);
   if (key !== synKey) {
     synKey = key;
     $('synergy').innerHTML = synergyHTML(counts, true);
+    $('foeSynergy').innerHTML = synergyHTML(fc, true);
   }
   // события: у гостя — пришедшие от хоста, у остальных — свои из симуляции
   const evs = g.events.filter((e) => e.to === null || e.to === me);
@@ -1063,16 +1083,20 @@ function syncPanel() {
   for (const x of sfx) sound.play(x.name);
 }
 
-$('synergy').addEventListener('click', (e) => {
+/** Нажатие на плашку расы — подсказка о бонусе (своей стороны или соперника). */
+function raceToast(side: Side, e: Event) {
   const el = (e.target as HTMLElement).closest('.syn') as HTMLElement | null;
   if (!el || !game) return;
   const r = el.dataset.race as RaceId;
-  const n = game.raceCounts(me)[r];
+  const n = game.raceCounts(side)[r];
   const ti = tierIndex(r, n);
   const next = RACES[r].tiers[ti + 1];
-  const orbs = game.orbs[me][r] ?? 0;
-  toast(`${RACES[r].name} ${n}${orbs ? ` (сфер: ${orbs})` : ''}: ${ti >= 0 ? RACES[r].tiers[ti].text : 'бонуса пока нет'}${next ? `. С ${next.n}: ${next.text}` : ''}`, 'info');
-});
+  const orbs = game.orbs[side][r] ?? 0;
+  const who = side === me ? '' : 'У врага: ';
+  toast(`${who}${RACES[r].name} ${n}${orbs ? ` (сфер: ${orbs})` : ''}: ${ti >= 0 ? RACES[r].tiers[ti].text : 'бонуса пока нет'}${next ? `. С ${next.n}: ${next.text}` : ''}`, side === me ? 'info' : 'bad');
+}
+$('synergy').addEventListener('click', (e) => raceToast(me, e));
+$('foeSynergy').addEventListener('click', (e) => raceToast(foe(), e));
 
 // ---------- окно похода ----------
 let tripNid = -1;
@@ -1182,6 +1206,7 @@ function openShop(what: ShopWhat) {
   sound.play('tap');
   shop = what;
   $('shopRows').innerHTML = '';
+  delete $('shopRows').dataset.h; // иначе при том же содержимом кнопки не перерисуются (окно открывалось пустым)
   renderShop();
   $('shopModal').hidden = false;
   modalPause = true;

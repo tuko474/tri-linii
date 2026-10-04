@@ -1082,13 +1082,24 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(h.lvl), R + 4, R * 0.55 + 1);
+    // звёзды героя (прокачка вне боя) — видны и у соперника
+    if (h.stars > 0) {
+      ctx.font = '900 15px system-ui, sans-serif';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.dark;
+      const t = h.stars >= 5 ? '★5' : '★'.repeat(h.stars);
+      ctx.strokeText(t, 0, -R * 1.75 - 24);
+      ctx.fillStyle = h.stars >= 5 ? '#ffd36b' : '#f3d27a';
+      ctx.fillText(t, 0, -R * 1.75 - 24);
+    }
     // полоски HP и маны
     bar(ctx, -36, -R * 1.75 - 14, 72, 8, h.hp / h.maxHp, this.rel(h.side) === 0 ? '#7ee07a' : '#ff6f7f');
     bar(ctx, -36, -R * 1.75 - 4, 72, 5, h.mana / h.maxMana, '#6fa8ff');
     if (g.canCast(h) && h.side === this.me) {
       ctx.fillStyle = '#f3d27a';
       ctx.beginPath();
-      ctx.moveTo(-6, -R * 1.75 - 30); ctx.lineTo(6, -R * 1.75 - 30); ctx.lineTo(0, -R * 1.75 - 20); ctx.closePath();
+      const ay = h.stars > 0 ? 16 : 0;
+      ctx.moveTo(-6, -R * 1.75 - 30 - ay); ctx.lineTo(6, -R * 1.75 - 30 - ay); ctx.lineTo(0, -R * 1.75 - 20 - ay); ctx.closePath();
       ctx.fill();
     }
     ctx.restore();

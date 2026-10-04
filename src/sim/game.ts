@@ -429,9 +429,9 @@ export class Game {
   }
 
   /** Применить способность (second — вторую, 5★). strict=true — только если эффект стоящий (для автокаста). */
-  cast(h: Hero, strict = false, second = false): boolean {
+  cast(h: Hero, strict = false, second = false, force = false): boolean {
     if (!this.ready(h, second)) return false;
-    if (h.trip) return h.trip.phase === 'fight' ? this.castTrip(h, second) : false;
+    if (h.trip) return h.trip.phase === 'fight' ? this.castTrip(h, second, force) : false;
     const sk = second ? h.def.skill2 : h.def.skill;
     const mods = this.heroMods(h);
     const pow = this.skillPow(h, sk);
@@ -517,7 +517,7 @@ export class Game {
         if (inRange.length < need) break;
         for (const c of inRange) hit(c, pow);
         const heal = inRange.length * pow * 0.25;
-        for (const a of this.heroesOn(h.lane, h.side)) if (!a.dead && !a.trip) this.healHero(a, heal);
+        for (const a of this.healTargets(h, range)) this.healHero(a, heal);
         this.fxRingAtHero(h, h.def.color, range);
         ok = true;
         break;
@@ -546,12 +546,12 @@ export class Game {
         break;
       }
       case 'heal': {
-        const allies = this.heroesOn(h.lane, h.side).filter((a) => !a.dead && !a.trip);
-        const hurt = allies.some((a) => a.hp < a.maxHp * 0.75);
         const R = sk.radius ?? 140;
+        const allies = this.healTargets(h, R);
+        const hurt = allies.some((a) => a.hp < a.maxHp * 0.75);
         const near = enemies.filter((e) => Math.abs(e.s - h.s) <= R);
-        if (strict && !hurt && near.length < 3) break;
-        if (!strict && !hurt && near.length === 0 && allies.every((a) => a.hp >= a.maxHp)) break;
+        if (!force && strict && !hurt && near.length < 3) break;
+        if (!force && !strict && !hurt && near.length === 0 && allies.every((a) => a.hp >= a.maxHp)) break;
         for (const a of allies) this.healHero(a, pow);
         for (const e of near) hit(e, pow * 0.35);
         this.fxRingAtHero(h, h.def.color, R);
@@ -560,6 +560,11 @@ export class Game {
       }
     }
 
+    // ручное применение двойным нажатием: даже без цели (урон уйдёт в пустоту, мана потратится)
+    if (!ok && force) {
+      this.fxRingAtHero(h, h.def.color, sk.radius ?? 120);
+      ok = true;
+    }
     if (ok) {
       this.dealt(h, dealtSum);
       this.spent(h, sk, second, mods.cdMul);
@@ -778,14 +783,23 @@ export class Game {
   }
 
   /** Способность в походе: бьёт текущую цель, лекари лечат свой отряд. */
-  private castTrip(h: Hero, second = false): boolean {
+  /** Кого лечит способность героя: живые союзники на его линии и все союзные герои в радиусе (например, у трона с других линий). */
+  private healTargets(h: Hero, R: number): Hero[] {
+    const p = this.heroPos(h);
+    return this.heroes.filter((a) => a.side === h.side && !a.dead && !a.trip && (a.lane === h.lane || (() => {
+      const q = this.heroPos(a);
+      return Math.hypot(q.x - p.x, q.y - p.y) <= R;
+    })()));
+  }
+
+  private castTrip(h: Hero, second = false, force = false): boolean {
     if (!this.ready(h, second)) return false;
     const sk = second ? h.def.skill2 : h.def.skill;
     const mods = this.heroMods(h);
     const pow = this.skillPow(h, sk);
     const mates = this.party(h.trip!.nid, h.side, 'fight');
     if (sk.kind === 'heal') {
-      if (!mates.some((m) => m.hp < m.maxHp * 0.8)) return false;
+      if (!force && !mates.some((m) => m.hp < m.maxHp * 0.8)) return false;
       for (const m of mates) this.healHero(m, pow);
     } else {
       const tg = this.tripTarget(h);
