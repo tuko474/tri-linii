@@ -183,16 +183,16 @@ canvas { display: block; }
 @keyframes toast { 0% { opacity: 0; transform: translateY(-6px); } 8%, 82% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 
 /* боссы — правый край по центру */
-.bosses { right: calc(8px + var(--sar)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; }
+.bosses { right: calc(8px + var(--sar)); top: calc(86px + var(--sat)); display: flex; flex-direction: column; gap: 6px; }
 .boss {
-  width: 74px; padding: 6px 4px; border-radius: 14px;
+  width: 60px; padding: 4px 3px; border-radius: 12px;
   background: rgba(23,20,42,.88); border: 1px solid var(--line); color: var(--parch);
-  display: flex; flex-direction: column; align-items: center; gap: 2px; font: 700 12px var(--body); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; font: 700 11px var(--body); cursor: pointer;
 }
-.boss i { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 15px; color: #17142a; }
+.boss i { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 12px; color: #17142a; }
 .boss.lord i { background: #a982f0; }
 .boss.turtle i { background: #7fd68a; }
-.boss small { color: var(--muted); font-weight: 400; font-size: 10px; text-align: center; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.boss small { color: var(--muted); font-weight: 400; font-size: 9px; text-align: center; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .boss.alive { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
 .boss.fight { border-color: var(--dark); }
 .boss:disabled { opacity: .55; }
@@ -553,9 +553,10 @@ a.privacy-link.hint { text-align: center; font-size: 13px; }
 .btn.danger { color: #ff8a8a; border-color: rgba(255,120,120,.4); }
 
 /* расы соперника — справа вверху, под кнопками */
-.battle > .synergy.foe { left: auto; right: calc(8px + var(--sar)); top: calc(48px + var(--sat)); align-items: flex-end; }
+.battle > .synergy.foe { left: auto; right: calc(8px + var(--sar)); top: calc(46px + var(--sat)); flex-direction: row-reverse; align-items: center; gap: 4px; }
 .synergy.foe .syn { flex-direction: row-reverse; padding: 3px 3px 3px 7px; outline: 1px solid rgba(224,86,107,.35); }
-.synergy.foe::before { content: 'Враг'; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.synergy.foe::after { content: 'Враг'; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+.synergy.foe:empty { display: none; }
 /* звёзды героя на кнопке в бою */
 .hb .hb-stars { position: absolute; right: -4px; top: 18px; z-index: 2; pointer-events: none; font-size: 10px; font-weight: 800; color: #1b1630; background: var(--gold); border-radius: 8px; padding: 0 4px; line-height: 15px; }
 
