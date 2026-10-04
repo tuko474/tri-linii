@@ -1594,6 +1594,8 @@ function startQueue() {
   botOfferAt = BOT_OFFER_S;
   botRanked = null;
   $('qBot').hidden = true;
+  $('qBotGo').textContent = 'Бой с ботом';
+  $('qBotGo').onclick = askBot;
   $('qRating').textContent = `★ ${online.me!.rating}`;
   $('qStatus').textContent = 'Ищем соперника примерно твоей силы…';
   show('queue');
@@ -1615,6 +1617,7 @@ online.on('me', () => {
   if (!$('result').hidden) renderRatingLine();
 });
 online.on('error', (m: { where: string; text: string }) => {
+  if (m.where === 'botMatch') { clearTimeout(botWait); botAsked = 0; $('qBotText').textContent = m.text; return; }
   if (!$('account').hidden) $('accStatus').textContent = m.text;
   else if (!$('lobby').hidden) {
     lobbyStatus(m.text, true);
@@ -1663,14 +1666,28 @@ $('profileBtn').onclick = () => openAccount();
 $('rankedBtn').onclick = startQueue;
 $('accBack').onclick = () => { renderProfileChip(); show('menu'); };
 let botAsked = 0;
+let botWait = 0;
 function askBot() {
   if (performance.now() - botAsked < 4000) return;
+  // старый сервер боя с ботом не умеет — не ждём впустую, а говорим как есть
+  if ((online.me?.sv ?? 0) < 2) { botUnavailable(); return; }
   botAsked = performance.now();
   online.send({ t: 'botMatch' });
+  clearTimeout(botWait);
+  botWait = window.setTimeout(() => { if (!$('queue').hidden) botUnavailable(); }, 6000);
+}
+/** Сервер не дал бой с ботом: предлагаем обычный бой с ботом (без награды) или ждать дальше. */
+function botUnavailable() {
+  botOfferAt = Number.POSITIVE_INFINITY; // больше не предлагаем сами
+  $('qBot').hidden = false;
+  $('qBotText').textContent = 'Сервер сейчас не может выдать бой с ботом за награду (нужно обновить сервер). Можно сыграть обычный бой с ботом — без кристаллов — или подождать живого соперника.';
+  $('qBotGo').textContent = 'Обычный бой с ботом';
+  $('qBotGo').onclick = () => { online.send({ t: 'unqueue' }); $('toPick').click(); };
 }
 $('qBotGo').onclick = askBot;
 $('qWait').onclick = () => { botOfferAt = Math.floor((performance.now() - queueSince) / 1000) + 60; $('qBot').hidden = true; };
 online.on('botMatch', (m: { id: string; left: number }) => {
+  clearTimeout(botWait);
   if ($('queue').hidden) return;
   botRanked = { id: m.id, left: m.left };
   lastRanked = false;

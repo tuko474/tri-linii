@@ -16,6 +16,8 @@ const REJOIN_MS = 45000; // сколько ждём вернувшегося п�
 const START_CRYSTALS = 300;
 /** Минимальная сборка игры для боёв по сети: старые сами начисляли кристаллы и звёзды. */
 const MIN_BUILD = 33;
+/** Версия протокола сервера: по ней игра понимает, что умеет сервер (в /health и в профиле). 2 — бой с ботом вместо соперника. */
+const SERVER_V = 2;
 const STARTERS = Object.keys(HERO_PRICE).filter((id) => HERO_PRICE[id] === 0);
 
 // ---------- база ----------
@@ -182,7 +184,7 @@ function questProgress(userId, won, st) {
 function profile(u) {
   return {
     t: 'me', id: u.id, token: u.token, name: u.name, rating: u.rating, wins: u.wins, losses: u.losses,
-    crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass, daily: dailyView(u), stickers: JSON.parse(u.stickers || '[]'),
+    sv: SERVER_V, crystals: u.crystals, owned: JSON.parse(u.owned), stars: JSON.parse(u.stars || '{}'), hasPass: !!u.pass, daily: dailyView(u), stickers: JSON.parse(u.stickers || '[]'),
   };
 }
 
@@ -703,7 +705,7 @@ setInterval(() => {
 const srv = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-    res.end(JSON.stringify({ ok: true, online: online.size, queue: queue.size, matches: matches.size, players: q.count.get().n }));
+    res.end(JSON.stringify({ ok: true, v: SERVER_V, online: online.size, queue: queue.size, matches: matches.size, players: q.count.get().n }));
     return;
   }
   res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
