@@ -373,7 +373,7 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .text-input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .rating-big { margin: 0; font: 700 26px var(--display); color: var(--gold); }
 .rating-line { margin: 0; font: 700 18px var(--display); color: var(--gold); }
-.top-list { margin: 0; padding-left: 26px; text-align: left; width: 100%; max-height: 200px; overflow-y: auto; font-variant-numeric: tabular-nums; }
+.top-list { margin: 0; padding-left: 0; list-style: none; text-align: left; width: 100%; max-height: 200px; overflow-y: auto; font-variant-numeric: tabular-nums; }
 .top-list li { padding: 2px 0; }
 .top-list li span { float: right; color: var(--gold); }
 .top-list li.me { color: var(--gold); }
@@ -561,3 +561,19 @@ a.privacy-link.hint { text-align: center; font-size: 13px; }
 .hb .hb-stars { position: absolute; right: -4px; top: 18px; z-index: 2; pointer-events: none; font-size: 10px; font-weight: 800; color: #1b1630; background: var(--gold); border-radius: 8px; padding: 0 4px; line-height: 15px; }
 
 .throne-bar em { font-style: normal; color: var(--parch); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+
+/* ранги */
+.rank-badge { vertical-align: -4px; margin-right: 4px; flex: none; }
+#profileBtn { display: inline-flex; align-items: center; }
+.rating-big { display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap; }
+.rating-big small, .rating-line small { font: 400 13px var(--body); color: var(--muted); }
+.rank-up { color: #8fe3a8; font-size: 16px; }
+.rank-down { color: #ff8a8a; font-size: 16px; }
+.top-list li { border-left: 3px solid var(--rk, transparent); padding: 3px 6px; display: flex; align-items: center; gap: 6px; }
+.top-list li i { font-style: normal; color: var(--muted); min-width: 22px; text-align: right; font-size: 12px; }
+.top-list li span { margin-left: auto; float: none; color: var(--rk, var(--gold)); }
+.top-list li.rank-head { border-left: 0; margin-top: 6px; color: var(--rk); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.top-list li.rank-head small { color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }
+.top-list li.me { background: rgba(243,210,122,.08); }
+.rank-next { display: block; width: 100%; text-align: center; }
+.rating-line .rank-next { display: inline; margin-left: 6px; }

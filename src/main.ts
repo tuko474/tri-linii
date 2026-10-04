@@ -1586,10 +1586,39 @@ let botOfferAt = BOT_OFFER_S;
 /** Играть через свой сервер: он настроен, на связи и есть аккаунт. */
 const useServer = () => online.configured && online.ready && !!online.me;
 
+// ---------- ранги по рейтингу ----------
+/** Лиги: от какого рейтинга, название и цвет. Старт — 1000 (Серебро). */
+const RANKS = [
+  { from: 0, name: 'Бронза', color: '#c9824a' },
+  { from: 900, name: 'Серебро', color: '#c3cad6' },
+  { from: 1100, name: 'Золото', color: '#f3d27a' },
+  { from: 1300, name: 'Платина', color: '#5fd4c4' },
+  { from: 1500, name: 'Алмаз', color: '#7cc8f0' },
+  { from: 1700, name: 'Мастер', color: '#b48cff' },
+  { from: 1900, name: 'Легенда', color: '#ff6b6b' },
+];
+const rankIndex = (r: number) => { let i = 0; while (i + 1 < RANKS.length && r >= RANKS[i + 1].from) i++; return i; };
+const rankOf = (r: number) => RANKS[rankIndex(r)];
+/** Значок ранга — щит цвета лиги (у Мастера и Легенды с короной). */
+function rankBadge(r: number, size = 18): string {
+  const i = rankIndex(r);
+  const c = RANKS[i].color;
+  const crown = i >= 5 ? '<path d="M6 7 L8 3 L10 6 L12 2 L14 6 L16 3 L18 7 Z" fill="#fff6d8" stroke="#14121c" stroke-width="1"/>' : '';
+  const pips = Array.from({ length: Math.min(i, 4) }, (_, k) => `<circle cx="${12 - (Math.min(i, 4) - 1) * 2 + k * 4}" cy="19" r="1.3" fill="#14121c"/>`).join('');
+  return `<svg class="rank-badge" width="${size}" height="${size}" viewBox="0 0 24 26" aria-hidden="true"><path d="M12 5 L21 8 L20 16 Q17 22 12 24 Q7 22 4 16 L3 8 Z" fill="${c}" stroke="#14121c" stroke-width="1.6"/><path d="M12 8 L17 9.6 L16.5 15 Q15 18.5 12 20 Z" fill="rgba(255,255,255,.35)"/>${pips}${crown}</svg>`;
+}
+/** «Золото · 1180 · до Платины 120» */
+function rankLine(r: number, size = 30): string {
+  const i = rankIndex(r);
+  const next = RANKS[i + 1];
+  return `${rankBadge(r, size)}<span style="color:${RANKS[i].color}">${RANKS[i].name}</span> · ★ ${r}${next ? `<small class="rank-next">до ранга «${next.name}» ещё ${next.from - r}</small>` : '<small class="rank-next">высший ранг</small>'}`;
+}
+
 function renderProfileChip() {
   const b = $<HTMLButtonElement>('profileBtn');
   b.hidden = !online.configured;
-  b.textContent = online.me ? `${online.me.name} · ★ ${online.me.rating}` : online.ready ? 'Войти' : 'Сервер недоступен';
+  if (online.me) b.innerHTML = `${rankBadge(online.me.rating, 16)}${escapeHtml(online.me.name)} · ★ ${online.me.rating}`;
+  else b.textContent = online.ready ? 'Войти' : 'Сервер недоступен';
   $('rankedBtn').hidden = !online.configured;
 }
 
@@ -1620,7 +1649,7 @@ function renderAccount() {
   if (!online.ready) $('accStatus').textContent = 'Нет связи с сервером. Проверь интернет — подключимся сами.';
   if (!p) return;
   $('accName').textContent = p.name;
-  $('accRating').textContent = `★ ${p.rating}`;
+  $('accRating').innerHTML = rankLine(p.rating);
   const games = p.wins + p.losses;
   $('accStats').textContent = games ? `Побед: ${p.wins} · поражений: ${p.losses} · ${Math.round((100 * p.wins) / games)}%` : 'Рейтинговых боёв пока не было';
   $('passBtn').textContent = p.hasPass ? 'Сменить пароль' : 'Задать пароль';
@@ -1630,8 +1659,13 @@ function renderRatingLine() {
   const el = $('resRating');
   if (!lastEnded || !lastEnded.ranked || !online.me) { el.hidden = true; return; }
   const d = lastEnded.delta;
+  const now = online.me.rating;
+  const was = now - d;
   el.hidden = false;
-  el.textContent = `Рейтинг: ★ ${online.me.rating} (${d >= 0 ? '+' : ''}${d})`;
+  const up = rankIndex(now) > rankIndex(was), down = rankIndex(now) < rankIndex(was);
+  el.innerHTML = `${rankLine(now)} <b>(${d >= 0 ? '+' : ''}${d})</b>`
+    + (up ? `<br><span class="rank-up">Новый ранг: ${rankOf(now).name}!</span>` : down ? `<br><span class="rank-down">Ранг понижен: ${rankOf(now).name}</span>` : '');
+  if (up && el.dataset.shown !== String(now)) { el.dataset.shown = String(now); sound.play('levelUp'); }
 }
 
 function startQueue() {
@@ -1647,7 +1681,7 @@ function startQueue() {
   $('qBot').hidden = true;
   $('qBotGo').textContent = 'Бой с ботом';
   $('qBotGo').onclick = askBot;
-  $('qRating').textContent = `★ ${online.me!.rating}`;
+  $('qRating').innerHTML = rankLine(online.me!.rating);
   $('qStatus').textContent = 'Ищем соперника примерно твоей силы…';
   show('queue');
   online.send({ t: 'queue' });
@@ -1688,7 +1722,7 @@ online.on('match', (m: { ranked: boolean; role: 'host' | 'guest'; foe: { name: s
   lastEnded = null;
   const l = online.matchLink();
   if (!l) return;
-  toast(`Соперник: ${m.foe.name} (★ ${m.foe.rating})`, 'info');
+  toast(`Соперник: ${m.foe.name} — ${rankOf(m.foe.rating).name}, ★ ${m.foe.rating}`, 'info');
   onConnected(l, m.role);
 });
 online.on('ended', (m: Ended) => {
@@ -1706,12 +1740,18 @@ function renderRewardLine() {
 }
 online.on('top', (m: { list: { name: string; rating: number; wins: number; losses: number }[]; players: number; online: number }) => {
   $('topList').innerHTML = m.list.length
-    ? m.list.map((x) => `<li class="${x.name === online.me?.name ? 'me' : ''}">${escapeHtml(x.name)}<span>★ ${x.rating}</span></li>`).join('')
+    ? m.list.map((x, i) => {
+      const prev = i > 0 ? rankIndex(m.list[i - 1].rating) : -1;
+      const ri = rankIndex(x.rating);
+      // заголовок лиги перед первым игроком этой лиги
+      const head = ri !== prev ? `<li class="rank-head" style="--rk:${RANKS[ri].color}">${rankBadge(x.rating, 22)}${RANKS[ri].name}<small> от ★ ${RANKS[ri].from}</small></li>` : '';
+      return `${head}<li class="${x.name === online.me?.name ? 'me' : ''}" style="--rk:${RANKS[ri].color}"><i>${i + 1}</i>${escapeHtml(x.name)}<span>★ ${x.rating}</span></li>`;
+    }).join('')
     : '<li>Пока никого — сыграй первый рейтинговый бой!</li>';
   $('topInfo').textContent = `Игроков: ${m.players} · сейчас в сети: ${m.online}`;
 });
 
-const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+function escapeHtml(s: string) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!); }
 
 $('profileBtn').onclick = () => openAccount();
 $('rankedBtn').onclick = startQueue;
