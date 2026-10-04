@@ -4,6 +4,7 @@ import type { Game } from '../sim/game';
 import { ALTAR_POS, CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, barracksPos, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
 import { drawBeastFigure, drawCastleFigure, drawHeroFigure } from './art';
+import type { HeroPose } from './art';
 
 const C = {
   grass: '#2f4a33',
@@ -598,10 +599,12 @@ export class Renderer {
     const sw = Math.min(WORLD.W - sx, Math.ceil(this.vw / cam.z) + 4);
     const sh = Math.min(WORLD.H - sy, Math.ceil(this.vh / cam.z) + 4);
     if (sw > 0 && sh > 0) ctx.drawImage(this.bg, sx * BG_SCALE, sy * BG_SCALE, sw * BG_SCALE, sh * BG_SCALE, sx, sy, sw, sh);
+    this.view = { x0: sx - 150, y0: sy - 150, x1: sx + sw + 150, y1: sy + sh + 150 };
 
     this.drawWater();
     this.drawPads();
     for (const s of [0, 1] as Side[]) { this.drawThrone(s); this.drawBase(s); }
+    this.drawLairs();
     for (const n of g.neutrals) this.drawNeutral(n);
     this.drawTripPaths();
     for (const w of g.wards) {
@@ -717,22 +720,31 @@ export class Renderer {
       return;
     }
     if (n.kind === 'guard') { this.drawGuard(n); return; }
-    // звери «дышат» и чуть покачиваются, у каждого своя фаза
+    // звери живые: дышат, моргают, шевелят хвостами и лапами; при ударе бросаются вперёд.
+    // Удары видны только вне тумана — иначе по анимации можно понять, что кто-то бьёт босса.
     const now = performance.now() / 1000;
-    const beast = (kind: string, x: number, y: number, size: number, flip: boolean, ph: number) => {
-      const br = Math.sin(now * 2.2 + ph);
+    const atk = g.visible(this.me, n.x, n.y, 60) ? this.beastAttack(n, now) : 0;
+    const onScreen = this.inView(n.x, n.y, R * 3);
+    const beast = (kind: string, x: number, y: number, size: number, flip: boolean, ph: number, a: number) => {
+      if (!onScreen) return;
+      const k = size / 20; // фигура нарисована с радиусом ≈ 20
+      const hop = a > 0 ? Math.sin(Math.min(1, a / 0.6) * Math.PI) : 0;
       ctx.save();
-      ctx.translate(x, y + size * 0.6);
-      ctx.scale(flip ? -1 : 1, 1 + br * 0.025);
-      ctx.drawImage(this.beastSprite(kind), -size * 2, -size * 2 - size * 0.6, size * 4, size * 4);
+      ctx.translate(x + (flip ? -1 : 1) * hop * size * 0.35, y - hop * size * 0.15);
+      ctx.scale(flip ? -k : k, k);
+      drawBeastFigure(ctx, kind, now + ph, a);
       ctx.restore();
     };
-    if (n.kind === 'lord') beast('lord', n.x, n.y + 6, R * 1.05, false, 0);
-    else if (n.kind === 'turtle') beast('turtle', n.x, n.y, R * 1.05, n.x > WORLD.W / 2, 1);
+    if (n.kind === 'lord') {
+      // Лорд парит над логовом
+      beast('lord', n.x, n.y + 2 - Math.sin(now * 1.3) * 4, R * 1.05, false, 0, atk);
+    } else if (n.kind === 'turtle') beast('turtle', n.x, n.y, R * 1.05, n.x > WORLD.W / 2, 1, atk);
     else {
       const kind = ['wolf', 'boar', 'spider'][n.id % 3];
-      beast(kind, n.x + 26, n.y - 10, R * 0.9, true, n.id + 2);
-      beast(kind, n.x - 22, n.y + 10, R * 1.15, false, n.id);
+      // звери в лагере бьют по очереди
+      const a2 = atk > 0 ? Math.max(0, atk - 0.25) / 0.75 : 0;
+      beast(kind, n.x + 26, n.y - 10, R * 0.9, true, n.id * 1.7 + 2, a2);
+      beast(kind, n.x - 22, n.y + 10, R * 1.15, false, n.id * 1.3, atk);
     }
     // в тумане не видно, кто бьёт босса и сколько у него HP
     if (!g.visible(this.me, n.x, n.y, 60)) return;
@@ -999,22 +1011,115 @@ export class Renderer {
     return null;
   }
 
-  /** Готовые картинки лесных зверей и боссов (рамка ±40 единиц рисунка). */
-  private beastSprites = new Map<string, HTMLCanvasElement>();
+  /** Видимая часть мира (с запасом): то, что за экраном, не рисуем. */
+  private view = { x0: 0, y0: 0, x1: WORLD.W, y1: WORLD.H };
 
-  private beastSprite(kind: string): HTMLCanvasElement {
-    let cv = this.beastSprites.get(kind);
+  private inView(x: number, y: number, r = 0): boolean {
+    const v = this.view;
+    return x + r > v.x0 && x - r < v.x1 && y + r > v.y0 && y - r < v.y1;
+  }
+
+  /** Анимация героев: когда ударил, когда колдовал, где стоял в прошлом кадре. */
+  private heroAnim = new Map<number, { atkCd: number; casts: number; atkT: number; castT: number; x: number; y: number; walk: number }>();
+  /** Анимация нейтралов: счётчик ударов и время последнего. */
+  private beastAnim = new Map<number, { hits: number; atkT: number }>();
+
+  private glows = new Map<string, HTMLCanvasElement>();
+
+  /** Мягкое круглое свечение заданного цвета (кэш). */
+  private glowSprite(col: number[]): HTMLCanvasElement {
+    const key = col.join(',');
+    let cv = this.glows.get(key);
     if (!cv) {
-      const k = kind === 'lord' || kind === 'turtle' ? 8 : 4; // пикселей на единицу рисунка
       cv = document.createElement('canvas');
-      cv.width = cv.height = 80 * k;
+      cv.width = cv.height = 128;
       const x = cv.getContext('2d')!;
-      x.scale(k, k);
-      x.translate(40, 40);
-      drawBeastFigure(x, kind);
-      this.beastSprites.set(kind, cv);
+      const gr = x.createRadialGradient(64, 64, 8, 64, 64, 64);
+      gr.addColorStop(0, `rgba(${key},.26)`);
+      gr.addColorStop(1, `rgba(${key},0)`);
+      x.fillStyle = gr;
+      x.fillRect(0, 0, 128, 128);
+      this.glows.set(key, cv);
     }
     return cv;
+  }
+
+  /** Ход удара нейтрала 0..1 (0 — сейчас не бьёт). */
+  private beastAttack(n: Neutral, now: number): number {
+    let a = this.beastAnim.get(n.id);
+    if (!a) { a = { hits: n.hits, atkT: -9 }; this.beastAnim.set(n.id, a); }
+    if (n.hits !== a.hits) { if (n.hits > a.hits) a.atkT = now; a.hits = n.hits; }
+    const k = (now - a.atkT) / 0.55;
+    return k > 0 && k < 1 ? k : 0;
+  }
+
+  /** Логова и лесные лагеря оживают: руны светятся и кружат, над логовом поднимаются искры, у лагерей — светлячки. */
+  private drawLairs() {
+    const { ctx, g } = this;
+    const now = performance.now() / 1000;
+    ctx.save();
+    PITS.forEach((p, i) => {
+      if (!this.inView(p.x, p.y, 200)) return;
+      const boss = g.neutrals.find((n) => (n.kind === 'lord' || n.kind === 'turtle') && Math.hypot(n.x - p.x, n.y - p.y) < 10);
+      const alive = boss ? boss.alive : true;
+      const col = i === 0 ? [180, 140, 255] : [127, 214, 138];
+      const pow = alive ? 1 : 0.35;
+      // свечение дна логова (готовая картинка: градиент каждый кадр дорог для телефона)
+      const pulse = 0.5 + Math.sin(now * 1.4 + i) * 0.5;
+      ctx.globalAlpha = (0.6 + pulse * 0.4) * pow;
+      ctx.drawImage(this.glowSprite(col), p.x - 150, p.y - 150, 300, 300);
+      ctx.globalAlpha = 1;
+      // кольцо рун медленно вращается
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(now * 0.12 * (i ? -1 : 1));
+      ctx.strokeStyle = `rgba(243,210,122,${0.25 + pulse * 0.25 * pow})`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([18, 22]);
+      ctx.beginPath(); ctx.arc(0, 0, 128, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        const glow = (0.35 + 0.65 * Math.max(0, Math.sin(now * 2 - k * 0.8))) * pow;
+        ctx.save();
+        ctx.translate(Math.cos(a) * 112, Math.sin(a) * 112);
+        ctx.rotate(a + Math.PI / 2);
+        ctx.strokeStyle = `rgba(255,236,170,${glow})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        // простая руна: черта с засечками
+        ctx.moveTo(0, -9); ctx.lineTo(0, 9);
+        if (k % 2) { ctx.moveTo(-6, -4); ctx.lineTo(0, 2); ctx.lineTo(6, -4); } else { ctx.moveTo(-6, 6); ctx.lineTo(6, -6); }
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+      // искры поднимаются из логова
+      if (alive) for (let k = 0; k < 14; k++) {
+        const life = 3.2, ph = (now / life + k * 0.137) % 1;
+        const a = k * 2.39996;
+        const r = 30 + ((k * 53) % 100);
+        const x = p.x + Math.cos(a) * r + Math.sin(now * 1.5 + k) * 8;
+        const y = p.y + Math.sin(a) * r * 0.6 - ph * 120;
+        ctx.fillStyle = `rgba(${col[0] + 40},${col[1] + 30},${col[2]},${Math.sin(ph * Math.PI) * 0.8})`;
+        ctx.beginPath(); ctx.arc(x, y, 3.2 * (1 - ph * 0.5), 0, 7); ctx.fill();
+      }
+    });
+    // светлячки у живых лагерей
+    for (const n of g.neutrals) {
+      if (n.kind !== 'camp' || !n.alive || !this.inView(n.x, n.y, 100)) continue;
+      for (let k = 0; k < 4; k++) {
+        const s = n.id * 3.1 + k * 1.9;
+        const x = n.x + Math.sin(now * 0.6 + s) * 70 + Math.sin(now * 1.7 + s * 2) * 12;
+        const y = n.y - 30 + Math.cos(now * 0.5 + s * 1.3) * 45;
+        const a = 0.35 + 0.65 * Math.max(0, Math.sin(now * 3 + s * 5));
+        ctx.fillStyle = `rgba(255,240,150,${a * 0.25})`;
+        ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill();
+        ctx.fillStyle = `rgba(255,248,190,${a})`;
+        ctx.beginPath(); ctx.arc(x, y, 2.8, 0, 7); ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   /** Готовые картинки замка: сторона × разрушения × белый силуэт (для вспышки). */
@@ -1152,9 +1257,9 @@ export class Renderer {
       ctx.strokeStyle = col;
       ctx.lineWidth = 4;
       ctx.beginPath(); ctx.ellipse(0, R * 0.6, R * 1.1, R * 0.32, 0, 0, 7); ctx.stroke();
-      ctx.translate(0, R * 0.6 - Math.abs(step) * R * 0.06);
-      ctx.scale(1, 1 + step * 0.015);
-      ctx.drawImage(this.beastSprite('lord'), -R * 2, -R * 2 - R * 0.6, R * 4, R * 4);
+      ctx.translate(0, -Math.abs(step) * R * 0.06);
+      ctx.scale(R / 20, (R / 20) * (1 + step * 0.015));
+      drawBeastFigure(ctx, 'lord', performance.now() / 1000 * 1.4 + c.uid, 0);
       ctx.restore();
     } else {
       ctx.save();
@@ -1233,12 +1338,28 @@ export class Renderer {
     ctx.strokeStyle = C.side[this.rel(h.side)];
     ctx.lineWidth = 4;
     ctx.stroke();
-    // фигурка
+    // фигурка: дышит, при ударе делает выпад, при способности приподнимается; в походе идёт вприпрыжку
+    const pose = this.heroPose(h, p);
+    const dir = h.side === 1 ? -1 : 1;
+    const t = pose.t;
+    const lunge = pose.atk > 0 ? Math.max(0, Math.sin(Math.min(1, pose.atk / 0.6) * Math.PI)) : 0;
+    const rise = pose.cast > 0 ? Math.sin(pose.cast * Math.PI) : 0;
+    const hop = pose.walk > 0 ? Math.abs(Math.sin(t * 9)) * pose.walk : 0;
+    if (rise > 0) {
+      // круг силы под героем
+      ctx.strokeStyle = h.def.color;
+      ctx.globalAlpha = rise * 0.8;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(0, R * 0.85, R * (0.9 + rise * 0.5), R * (0.34 + rise * 0.18), 0, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     ctx.save();
-    ctx.translate(0, -R * 0.15);
-    ctx.scale(R * 1.15, R * 1.15);
+    ctx.translate(dir * lunge * R * 0.14, -R * 0.15 - rise * R * 0.12 - hop * R * 0.16 + Math.sin(t * 2.2) * R * 0.015);
+    if (hop > 0) ctx.rotate(Math.sin(t * 9) * 0.06 * pose.walk);
+    const br = 1 + Math.sin(t * 2.2) * 0.018;
+    ctx.scale(R * 1.15 * (2 - br), R * 1.15 * br);
     if (h.side === 1) ctx.scale(-1, 1); // верхняя команда смотрит в другую сторону
-    drawHeroFigure(ctx, h.def, h.flash > 0);
+    drawHeroFigure(ctx, h.def, h.flash > 0, pose);
     ctx.restore();
     // уровень
     ctx.fillStyle = '#f3d27a';
@@ -1271,6 +1392,24 @@ export class Renderer {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  /** Поза героя на этот кадр: замечаем новые удары и касты по счётчикам симуляции. */
+  private heroPose(h: Hero, p: { x: number; y: number }): HeroPose & { walk: number } {
+    const now = performance.now() / 1000;
+    let a = this.heroAnim.get(h.uid);
+    if (!a) { a = { atkCd: h.atkCd, casts: h.casts, atkT: -9, castT: -9, x: p.x, y: p.y, walk: 0 }; this.heroAnim.set(h.uid, a); }
+    if (h.atkCd > a.atkCd + 0.05) a.atkT = now;
+    if (h.casts > a.casts) a.castT = now;
+    a.atkCd = h.atkCd;
+    a.casts = h.casts;
+    // идёт ли герой (поход, переход): плавно включаем и выключаем шаг
+    const moved = Math.hypot(p.x - a.x, p.y - a.y);
+    a.x = p.x; a.y = p.y;
+    a.walk += ((moved > 0.4 && moved < 200 ? 1 : 0) - a.walk) * 0.2;
+    const atk = (now - a.atkT) / 0.4;
+    const cast = (now - a.castT) / 0.7;
+    return { t: now + h.uid * 1.37, atk: atk > 0 && atk < 1 ? atk : 0, cast: cast > 0 && cast < 1 ? cast : 0, walk: a.walk };
   }
 
   private drawFx() {

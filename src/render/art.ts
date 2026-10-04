@@ -30,255 +30,607 @@ function disc(c: Ctx, x: number, y: number, r: number, fill: string) {
 // ---------- герой ----------
 
 /**
+ * Поза героя для анимации. t — время в секундах (у каждого героя своя фаза),
+ * atk — ход удара 0..1 (0 — не бьёт), cast — ход способности 0..1 (0 — не колдует).
+ * Без позы герой рисуется спокойно стоящим (портреты в меню).
+ */
+export interface HeroPose { t: number; atk: number; cast: number }
+const STILL: HeroPose = { t: 0, atk: 0, cast: 0 };
+
+const BACK_WEAPONS = ['staff', 'scythe', 'banner', 'totem', 'bow'];
+const MELEE = ['axe', 'club', 'scythe', 'hammer'];
+const PUNCH = ['claws', 'fist'];
+/** Где рука держит оружие: вокруг этой точки оружие качается и бьёт. */
+const GRIP: Record<string, [number, number]> = {
+  staff: [0.55, 0.16], orb: [0.5, 0.22], axe: [0.47, 0.38], bow: [0.3, 0.05], rifle: [0.2, 0.18], club: [0.52, 0.48],
+  scythe: [0.54, 0.22], claws: [0.5, 0.15], hammer: [0.45, 0.46], banner: [0.55, 0.18], fist: [0.62, 0.15], totem: [0.55, 0.18],
+};
+
+const INK = 'rgba(10,8,16,.88)';
+
+/** Цвета героя на один кадр: обычные или белый силуэт для вспышки от удара. */
+interface Pal { main: string; dark: string; skin: string; trim: string; white: boolean }
+
+/** Объём: светлый край слева, тень справа (свет падает слева сверху, как у замка). */
+function vol(c: Ctx, P: Pal, col: string, x0: number, x1: number): string | CanvasGradient {
+  if (P.white) return '#ffffff';
+  const g = c.createLinearGradient(x0, 0, x1, 0);
+  g.addColorStop(0, shade(col, 0.22));
+  g.addColorStop(0.5, col);
+  g.addColorStop(1, shade(col, -0.32));
+  return g;
+}
+
+/** Блик металла сверху вниз. */
+function metal(c: Ctx, P: Pal, col: string, y0: number, y1: number): string | CanvasGradient {
+  if (P.white) return '#ffffff';
+  const g = c.createLinearGradient(0, y0, 0, y1);
+  g.addColorStop(0, shade(col, 0.45));
+  g.addColorStop(0.45, col);
+  g.addColorStop(1, shade(col, -0.35));
+  return g;
+}
+
+/** Плавная форма удара: замах назад, резкий удар вперёд, возврат. */
+function swing(a: number): number {
+  if (a <= 0) return 0;
+  if (a < 0.3) return -(a / 0.3) * 0.6;
+  if (a < 0.48) return -0.6 + ((a - 0.3) / 0.18) * 1.6;
+  return 1.0 * (1 - (a - 0.48) / 0.52);
+}
+
+/**
  * Рисует героя в координатах «единица = половина высоты фигуры», центр в (0,0).
  * Перед вызовом сделай ctx.translate(x, y) и ctx.scale(R, R), где R — радиус фигуры в пикселях.
  */
-export function drawHeroFigure(c: Ctx, def: HeroDef, white = false) {
+export function drawHeroFigure(c: Ctx, def: HeroDef, white = false, pose: HeroPose = STILL) {
   const L = def.look;
-  const main = white ? '#ffffff' : def.color;
-  const dark = white ? '#ffffff' : shade(def.color, -0.45);
-  const skin = white ? '#ffffff' : L.skin;
-  const trim = white ? '#ffffff' : L.trim;
+  const P: Pal = {
+    main: white ? '#ffffff' : def.color,
+    dark: white ? '#ffffff' : shade(def.color, -0.45),
+    skin: white ? '#ffffff' : L.skin,
+    trim: white ? '#ffffff' : L.trim,
+    white,
+  };
   c.lineJoin = 'round';
   c.lineCap = 'round';
-  // оружие за спиной рисуется до тела
-  if (['staff', 'scythe', 'banner', 'totem', 'bow'].includes(L.weapon)) weapon(c, L, main, trim, dark);
-  body(c, L, main, dark, skin, trim);
-  head(c, L, main, dark, skin, trim);
-  if (!['staff', 'scythe', 'banner', 'totem', 'bow'].includes(L.weapon)) weapon(c, L, main, trim, dark);
-}
+  const w = L.weapon;
+  const [gx0, gy0] = GRIP[w];
+  // удар: рукопашное оружие крутится вокруг хвата, когти и кулаки делают выпад
+  let ang = Math.sin(pose.t * 1.7) * 0.05;
+  let dx = 0, dy = 0;
+  if (MELEE.includes(w)) ang += swing(pose.atk);
+  else if (PUNCH.includes(w)) dx = Math.max(0, swing(pose.atk)) * 0.3;
+  else if (w === 'rifle') ang -= Math.sin(pose.atk * Math.PI) * 0.22;
+  else if (w === 'staff' || w === 'totem' || w === 'banner') ang += Math.sin(pose.atk * Math.PI) * 0.4;
+  if (pose.cast > 0 && w !== 'orb' && w !== 'bow' && !PUNCH.includes(w)) {
+    ang -= Math.sin(pose.cast * Math.PI) * 0.35;
+    dy -= Math.sin(pose.cast * Math.PI) * 0.12;
+  }
+  if (w === 'orb') dy += Math.sin(pose.t * 2.3) * 0.045 - Math.sin(pose.cast * Math.PI) * 0.15;
+  const gx = gx0 + dx, gy = gy0 + dy;
+  const inHand = (fn: () => void) => {
+    c.save();
+    c.translate(gx, gy);
+    c.rotate(ang);
+    c.translate(-gx0, -gy0);
+    fn();
+    c.restore();
+  };
 
-function body(c: Ctx, L: Look, main: string, dark: string, skin: string, trim: string) {
-  c.lineWidth = 0.06;
-  c.strokeStyle = 'rgba(10,8,16,.85)';
-  switch (L.body) {
-    case 'robe':
-      poly(c, [-0.3, -0.2, 0.3, -0.2, 0.55, 0.85, -0.55, 0.85]);
-      c.fillStyle = main; c.fill(); c.stroke();
-      c.fillStyle = dark;
-      poly(c, [-0.08, -0.2, 0.08, -0.2, 0.16, 0.85, -0.16, 0.85]); c.fill();
-      c.fillStyle = trim;
-      c.fillRect(-0.38, 0.28, 0.76, 0.08);
-      break;
-    case 'hood':
-      poly(c, [-0.32, -0.25, 0.32, -0.25, 0.48, 0.85, 0, 0.7, -0.48, 0.85]);
-      c.fillStyle = dark; c.fill(); c.stroke();
-      poly(c, [-0.2, -0.2, 0.2, -0.2, 0.26, 0.55, -0.26, 0.55]);
-      c.fillStyle = main; c.fill();
-      c.fillStyle = trim; c.fillRect(-0.27, 0.2, 0.54, 0.07);
-      break;
-    case 'armor':
-      c.fillStyle = dark;
-      c.fillRect(-0.3, 0.45, 0.22, 0.42); c.fillRect(0.08, 0.45, 0.22, 0.42);
-      poly(c, [-0.4, -0.22, 0.4, -0.22, 0.34, 0.55, -0.34, 0.55]);
-      c.fillStyle = main; c.fill(); c.stroke();
-      c.fillStyle = trim; c.fillRect(-0.36, 0.3, 0.72, 0.09);
-      disc(c, -0.42, -0.14, 0.17, trim); disc(c, 0.42, -0.14, 0.17, trim);
-      c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 0.04;
-      c.beginPath(); c.moveTo(0, -0.18); c.lineTo(0, 0.28); c.stroke();
-      break;
-    case 'beast':
-      c.fillStyle = dark;
-      c.beginPath(); c.ellipse(-0.2, 0.7, 0.16, 0.2, 0, 0, 7); c.ellipse(0.2, 0.7, 0.16, 0.2, 0, 0, 7); c.fill();
-      c.beginPath(); c.ellipse(0, 0.2, 0.52, 0.48, 0, 0, Math.PI * 2);
-      c.fillStyle = skin; c.fill(); c.stroke();
-      c.beginPath(); c.ellipse(0, 0.28, 0.3, 0.3, 0, 0, Math.PI * 2);
-      c.fillStyle = shade(skin.startsWith('#') ? skin : '#888888', 0.25); c.fill();
-      c.fillStyle = main; c.fillRect(-0.48, 0.12, 0.96, 0.1);
-      break;
-    case 'bones':
-      c.strokeStyle = skin; c.lineWidth = 0.09;
-      c.beginPath(); c.moveTo(0, -0.2); c.lineTo(0, 0.5); c.stroke();
-      for (let i = 0; i < 4; i++) {
-        const y = -0.1 + i * 0.13;
-        const w = 0.32 - i * 0.04;
-        c.beginPath(); c.moveTo(-w, y + 0.05); c.quadraticCurveTo(0, y - 0.06, w, y + 0.05); c.stroke();
-      }
-      c.beginPath(); c.moveTo(-0.18, 0.5); c.lineTo(-0.24, 0.88); c.moveTo(0.18, 0.5); c.lineTo(0.24, 0.88); c.stroke();
-      c.fillStyle = main; c.fillRect(-0.24, 0.45, 0.48, 0.1);
-      break;
-    case 'stone':
-      poly(c, [-0.55, -0.15, -0.2, -0.35, 0.3, -0.3, 0.6, -0.05, 0.55, 0.6, 0.15, 0.88, -0.35, 0.82, -0.62, 0.45]);
-      c.fillStyle = skin; c.fill(); c.stroke();
-      c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 0.04;
-      c.beginPath(); c.moveTo(-0.3, -0.1); c.lineTo(-0.05, 0.25); c.lineTo(-0.2, 0.55); c.moveTo(0.25, 0.05); c.lineTo(0.38, 0.4); c.stroke();
-      disc(c, 0.05, 0.1, 0.07, trim); disc(c, -0.3, 0.4, 0.05, trim); disc(c, 0.35, 0.55, 0.05, trim);
-      break;
+  if (L.body === 'armor') cape(c, P, pose);
+  if (BACK_WEAPONS.includes(w)) inHand(() => weapon(c, L, P, pose));
+  body(c, L, P, pose);
+  head(c, L, P, pose);
+  arms(c, L, P, gx, gy);
+  if (PUNCH.includes(w)) weapon(c, L, P, pose, -1); // дальняя лапа/кулак не делает выпад
+  if (!BACK_WEAPONS.includes(w)) inHand(() => weapon(c, L, P, pose, PUNCH.includes(w) ? 1 : 0));
+  if (!PUNCH.includes(w) && w !== 'orb') hand(c, P, gx, gy, L.body === 'bones' ? 0.07 : 0.085);
+  // способность: сияние вокруг оружия
+  if (pose.cast > 0 && !white) {
+    const k = Math.sin(pose.cast * Math.PI);
+    const tip = w === 'orb' ? [gx + 0.08, gy - 0.17] : w === 'bow' || PUNCH.includes(w) ? [gx, gy] : [gx + 0.1, gy - 0.95];
+    const gr = c.createRadialGradient(tip[0], tip[1], 0, tip[0], tip[1], 0.45 * k + 0.05);
+    gr.addColorStop(0, 'rgba(255,255,255,.95)');
+    gr.addColorStop(0.35, L.trim);
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    c.globalAlpha = k;
+    c.fillStyle = gr;
+    c.beginPath(); c.arc(tip[0], tip[1], 0.45 * k + 0.05, 0, Math.PI * 2); c.fill();
+    c.globalAlpha = 1;
   }
 }
 
-function head(c: Ctx, L: Look, main: string, dark: string, skin: string, trim: string) {
-  const hy = L.body === 'stone' ? -0.42 : -0.45;
+/** Плащ за спиной у героев в доспехах — колышется. */
+function cape(c: Ctx, P: Pal, p: HeroPose) {
+  const s = Math.sin(p.t * 1.9) * 0.05, s2 = Math.sin(p.t * 1.9 + 1.3) * 0.06;
+  c.beginPath();
+  c.moveTo(-0.34, -0.2);
+  c.lineTo(0.3, -0.2);
+  c.quadraticCurveTo(0.42 + s, 0.4, 0.3 + s2, 0.9);
+  c.quadraticCurveTo(0.05, 0.84 + s * 0.5, -0.12 + s, 0.94);
+  c.quadraticCurveTo(-0.32, 0.86, -0.5 + s2, 0.92);
+  c.quadraticCurveTo(-0.46 + s, 0.35, -0.34, -0.2);
+  c.closePath();
+  c.fillStyle = vol(c, P, P.white ? '#ffffff' : shade(P.main, -0.55), -0.5, 0.4);
+  c.fill();
+  c.lineWidth = 0.05; c.strokeStyle = INK; c.stroke();
+}
+
+function body(c: Ctx, L: Look, P: Pal, p: HeroPose) {
+  const { main, dark, skin, trim } = P;
+  const sway = Math.sin(p.t * 1.5) * 0.03;
+  c.lineWidth = 0.06;
+  c.strokeStyle = INK;
+  switch (L.body) {
+    case 'robe': {
+      c.beginPath();
+      c.moveTo(-0.3, -0.2); c.lineTo(0.3, -0.2);
+      c.quadraticCurveTo(0.42, 0.3, 0.56 + sway, 0.86);
+      c.quadraticCurveTo(0, 0.95, -0.56 + sway, 0.86);
+      c.quadraticCurveTo(-0.42, 0.3, -0.3, -0.2);
+      c.closePath();
+      c.fillStyle = vol(c, P, main, -0.56, 0.56); c.fill(); c.stroke();
+      // полоса по центру и складки
+      c.fillStyle = dark;
+      poly(c, [-0.08, -0.2, 0.08, -0.2, 0.15 + sway, 0.9, -0.15 + sway, 0.9]); c.fill();
+      if (!P.white) {
+        c.strokeStyle = 'rgba(0,0,0,.22)'; c.lineWidth = 0.03;
+        c.beginPath(); c.moveTo(-0.24, 0.42); c.lineTo(-0.34 + sway, 0.84); c.moveTo(0.26, 0.42); c.lineTo(0.36 + sway, 0.84); c.stroke();
+      }
+      // пояс с пряжкой
+      c.fillStyle = trim; c.fillRect(-0.36, 0.26, 0.72, 0.09);
+      disc(c, 0, 0.305, 0.065, P.white ? '#fff' : '#f3d27a');
+      // воротник
+      c.fillStyle = trim;
+      c.beginPath(); c.moveTo(-0.24, -0.22); c.quadraticCurveTo(0, -0.08, 0.24, -0.22); c.lineTo(0.18, -0.12); c.quadraticCurveTo(0, -0.02, -0.18, -0.12); c.closePath(); c.fill();
+      break;
+    }
+    case 'hood': {
+      c.beginPath();
+      c.moveTo(-0.32, -0.25); c.lineTo(0.32, -0.25);
+      c.lineTo(0.5 + sway, 0.86); c.lineTo(0.25 + sway, 0.74); c.lineTo(0, 0.88 + sway); c.lineTo(-0.25 + sway, 0.74); c.lineTo(-0.5 + sway, 0.86);
+      c.closePath();
+      c.fillStyle = vol(c, P, dark, -0.5, 0.5); c.fill(); c.stroke();
+      c.beginPath(); c.moveTo(-0.2, -0.2); c.lineTo(0.2, -0.2); c.lineTo(0.26, 0.56); c.lineTo(-0.26, 0.56); c.closePath();
+      c.fillStyle = vol(c, P, main, -0.26, 0.26); c.fill();
+      c.fillStyle = trim; c.fillRect(-0.27, 0.2, 0.54, 0.07);
+      // ремень через грудь
+      c.strokeStyle = P.white ? '#fff' : '#3a2a1c'; c.lineWidth = 0.06;
+      c.beginPath(); c.moveTo(-0.22, -0.16); c.lineTo(0.22, 0.2); c.stroke();
+      disc(c, 0, 0.02, 0.04, P.white ? '#fff' : '#c9cdd6');
+      break;
+    }
+    case 'armor': {
+      // ноги в поножах
+      c.fillStyle = vol(c, P, dark, -0.3, 0.3);
+      c.beginPath(); c.rect(-0.3, 0.45, 0.22, 0.42); c.rect(0.08, 0.45, 0.22, 0.42); c.fill(); c.stroke();
+      c.fillStyle = metal(c, P, '#9aa2ae', 0.75, 0.9);
+      c.beginPath(); c.rect(-0.32, 0.78, 0.26, 0.1); c.rect(0.06, 0.78, 0.26, 0.1); c.fill(); c.stroke();
+      // кираса
+      poly(c, [-0.4, -0.22, 0.4, -0.22, 0.34, 0.55, -0.34, 0.55]);
+      c.fillStyle = vol(c, P, main, -0.4, 0.4); c.fill(); c.stroke();
+      if (!P.white) {
+        c.fillStyle = 'rgba(255,255,255,.22)';
+        c.beginPath(); c.moveTo(-0.3, -0.16); c.lineTo(-0.12, -0.16); c.lineTo(-0.18, 0.2); c.lineTo(-0.28, 0.2); c.closePath(); c.fill();
+      }
+      c.fillStyle = trim; c.fillRect(-0.36, 0.3, 0.72, 0.09);
+      disc(c, 0, 0.345, 0.07, P.white ? '#fff' : '#f3d27a');
+      // наплечники
+      for (const sx of [-1, 1]) {
+        c.beginPath(); c.ellipse(sx * 0.4, -0.15, 0.19, 0.15, 0, Math.PI, 0); c.lineTo(sx * 0.4 + 0.19, -0.08); c.lineTo(sx * 0.4 - 0.19, -0.08); c.closePath();
+        c.fillStyle = metal(c, P, trim, -0.3, -0.06); c.fill(); c.lineWidth = 0.045; c.strokeStyle = INK; c.stroke();
+      }
+      c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 0.04;
+      c.beginPath(); c.moveTo(0, -0.18); c.lineTo(0, 0.28); c.stroke();
+      break;
+    }
+    case 'beast': {
+      c.fillStyle = vol(c, P, P.white ? '#fff' : shade(skin, -0.3), -0.36, 0.36);
+      c.beginPath(); c.ellipse(-0.2, 0.72, 0.16, 0.19, 0, 0, 7); c.fill(); c.stroke();
+      c.beginPath(); c.ellipse(0.2, 0.72, 0.16, 0.19, 0, 0, 7); c.fill(); c.stroke();
+      c.beginPath(); c.ellipse(0, 0.2, 0.52, 0.48 + Math.sin(p.t * 2.2) * 0.012, 0, 0, Math.PI * 2);
+      c.fillStyle = vol(c, P, skin, -0.52, 0.52); c.fill(); c.stroke();
+      c.beginPath(); c.ellipse(0, 0.3, 0.29, 0.29, 0, 0, Math.PI * 2);
+      c.fillStyle = P.white ? '#fff' : shade(skin, 0.3); c.fill();
+      // шерсть клочками по краю
+      if (!P.white) {
+        c.strokeStyle = shade(skin, -0.35); c.lineWidth = 0.035;
+        for (const [x, y] of [[-0.42, 0.0], [-0.47, 0.25], [0.44, 0.02], [0.48, 0.27], [-0.3, -0.18], [0.3, -0.18]]) {
+          c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.sign(x) * 0.08, y + 0.05); c.stroke();
+        }
+      }
+      c.fillStyle = main; c.fillRect(-0.48, 0.1, 0.96, 0.11);
+      disc(c, 0, 0.155, 0.06, trim);
+      break;
+    }
+    case 'bones': {
+      // тёмный дым-плащ, чтобы скелет читался на любом фоне
+      if (!P.white) {
+        c.fillStyle = 'rgba(30,20,40,.55)';
+        c.beginPath(); c.moveTo(-0.3, -0.2); c.quadraticCurveTo(-0.5, 0.5, -0.36 + sway, 0.9); c.lineTo(0.36 + sway, 0.9); c.quadraticCurveTo(0.5, 0.5, 0.3, -0.2); c.closePath(); c.fill();
+      }
+      c.strokeStyle = INK; c.lineWidth = 0.15;
+      const ribs = () => {
+        c.beginPath(); c.moveTo(0, -0.2); c.lineTo(0, 0.5);
+        for (let i = 0; i < 4; i++) {
+          const y = -0.1 + i * 0.13, wd = 0.32 - i * 0.04;
+          c.moveTo(-wd, y + 0.05); c.quadraticCurveTo(0, y - 0.06, wd, y + 0.05);
+        }
+        c.moveTo(-0.18, 0.5); c.lineTo(-0.24, 0.88); c.moveTo(0.18, 0.5); c.lineTo(0.24, 0.88);
+        c.stroke();
+      };
+      ribs();
+      c.strokeStyle = skin; c.lineWidth = 0.09; ribs();
+      c.fillStyle = main; c.fillRect(-0.24, 0.45, 0.48, 0.1);
+      // светящееся сердце
+      if (!P.white) {
+        const k = 0.6 + Math.sin(p.t * 3) * 0.3;
+        const gr = c.createRadialGradient(0, 0.1, 0, 0, 0.1, 0.16);
+        gr.addColorStop(0, trim); gr.addColorStop(1, 'rgba(0,0,0,0)');
+        c.globalAlpha = k; c.fillStyle = gr; c.beginPath(); c.arc(0, 0.1, 0.16, 0, 7); c.fill(); c.globalAlpha = 1;
+      }
+      break;
+    }
+    case 'stone': {
+      poly(c, [-0.55, -0.15, -0.2, -0.35, 0.3, -0.3, 0.6, -0.05, 0.55, 0.6, 0.15, 0.88, -0.35, 0.82, -0.62, 0.45]);
+      c.fillStyle = vol(c, P, skin, -0.6, 0.6); c.fill(); c.stroke();
+      if (!P.white) {
+        c.fillStyle = 'rgba(255,255,255,.14)';
+        poly(c, [-0.5, -0.12, -0.2, -0.3, -0.05, -0.2, -0.38, 0.1]); c.fill();
+      }
+      c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 0.04;
+      c.beginPath(); c.moveTo(-0.3, -0.1); c.lineTo(-0.05, 0.25); c.lineTo(-0.2, 0.55); c.moveTo(0.25, 0.05); c.lineTo(0.38, 0.4); c.stroke();
+      // светящиеся руны пульсируют
+      const k = P.white ? 1 : 0.65 + Math.sin(p.t * 2.6) * 0.35;
+      c.globalAlpha = k;
+      disc(c, 0.05, 0.1, 0.075, trim); disc(c, -0.3, 0.4, 0.05, trim); disc(c, 0.35, 0.55, 0.05, trim);
+      c.globalAlpha = 1;
+      break;
+    }
+  }
+}
+
+/** Глаза: тёмные с бликом; иногда моргают. */
+function eyes(c: Ctx, P: Pal, hy: number, col: string, r: number, t: number, gap = 0.075) {
+  const blink = (t + 2) % 4.6 < 0.13;
+  if (blink) {
+    c.strokeStyle = col; c.lineWidth = 0.025;
+    c.beginPath(); c.moveTo(-gap - r, hy); c.lineTo(-gap + r, hy); c.moveTo(gap - r, hy); c.lineTo(gap + r, hy); c.stroke();
+    return;
+  }
+  disc(c, -gap, hy, r, col); disc(c, gap, hy, r, col);
+  if (!P.white) { disc(c, -gap + r * 0.35, hy - r * 0.35, r * 0.38, 'rgba(255,255,255,.85)'); disc(c, gap + r * 0.35, hy - r * 0.35, r * 0.38, 'rgba(255,255,255,.85)'); }
+}
+
+function head(c: Ctx, L: Look, P: Pal, p: HeroPose) {
+  const { main, dark, skin, trim } = P;
+  // голова чуть покачивается отдельно от тела
+  const bob = Math.sin(p.t * 2.2 + 0.6) * 0.012;
+  const hy = (L.body === 'stone' ? -0.42 : -0.45) + bob;
   const hr = L.body === 'stone' ? 0.2 : 0.23;
   c.lineWidth = 0.05;
-  c.strokeStyle = 'rgba(10,8,16,.85)';
+  c.strokeStyle = INK;
   if (L.head === 'skull') {
-    c.beginPath(); c.arc(0, hy, hr, 0, Math.PI * 2); c.fillStyle = skin; c.fill(); c.stroke();
-    disc(c, -0.08, hy - 0.01, 0.06, '#1a1622'); disc(c, 0.08, hy - 0.01, 0.06, '#1a1622');
-    disc(c, -0.08, hy - 0.01, 0.025, trim); disc(c, 0.08, hy - 0.01, 0.025, trim);
-    c.fillStyle = '#1a1622'; c.fillRect(-0.07, hy + 0.1, 0.14, 0.04);
+    c.beginPath(); c.arc(0, hy, hr, 0, Math.PI * 2); c.fillStyle = vol(c, P, skin, -hr, hr); c.fill(); c.stroke();
+    c.beginPath(); c.rect(-0.1, hy + 0.12, 0.2, 0.1); c.fillStyle = P.white ? '#fff' : shade(skin, -0.1); c.fill(); c.stroke();
+    disc(c, -0.08, hy - 0.01, 0.065, P.white ? '#fff' : '#1a1622'); disc(c, 0.08, hy - 0.01, 0.065, P.white ? '#fff' : '#1a1622');
+    const k = P.white ? 1 : 0.7 + Math.sin(p.t * 3.1) * 0.3;
+    c.globalAlpha = k; disc(c, -0.08, hy - 0.01, 0.03, trim); disc(c, 0.08, hy - 0.01, 0.03, trim); c.globalAlpha = 1;
+    c.strokeStyle = P.white ? '#fff' : '#1a1622'; c.lineWidth = 0.02;
+    c.beginPath(); for (let i = -2; i <= 2; i++) { c.moveTo(i * 0.035, hy + 0.13); c.lineTo(i * 0.035, hy + 0.2); } c.stroke();
     return;
   }
   if (L.head === 'hood') {
     c.beginPath(); c.moveTo(-0.3, hy + 0.2); c.quadraticCurveTo(-0.3, hy - 0.38, 0, hy - 0.36); c.quadraticCurveTo(0.3, hy - 0.38, 0.3, hy + 0.2); c.closePath();
-    c.fillStyle = dark; c.fill(); c.stroke();
-    c.beginPath(); c.arc(0, hy + 0.02, 0.16, 0, Math.PI * 2); c.fillStyle = '#0d0b14'; c.fill();
-    disc(c, -0.06, hy, 0.035, '#bff7a0'); disc(c, 0.06, hy, 0.035, '#bff7a0');
+    c.fillStyle = vol(c, P, dark, -0.3, 0.3); c.fill(); c.stroke();
+    c.beginPath(); c.arc(0, hy + 0.02, 0.16, 0, Math.PI * 2); c.fillStyle = P.white ? '#fff' : '#0d0b14'; c.fill();
+    const k = P.white ? 1 : 0.75 + Math.sin(p.t * 2.4) * 0.25;
+    c.globalAlpha = k;
+    eyes(c, P, hy, P.white ? '#fff' : '#bff7a0', 0.035, p.t, 0.06);
+    c.globalAlpha = 1;
     return;
   }
   if (L.head === 'mane') {
-    c.beginPath(); c.arc(0, hy, hr + 0.12, 0, Math.PI * 2); c.fillStyle = dark; c.fill();
+    c.beginPath();
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      const r = (i % 2 ? hr + 0.08 : hr + 0.16) + Math.sin(p.t * 2 + i) * 0.01;
+      const x = Math.cos(a) * r, y = hy + Math.sin(a) * r;
+      if (i) c.lineTo(x, y); else c.moveTo(x, y);
+    }
+    c.closePath();
+    c.fillStyle = vol(c, P, dark, -hr - 0.16, hr + 0.16); c.fill(); c.lineWidth = 0.04; c.stroke(); c.lineWidth = 0.05;
   }
-  c.beginPath(); c.arc(0, hy, hr, 0, Math.PI * 2); c.fillStyle = skin; c.fill(); c.stroke();
-  // глаза
-  const eye = L.body === 'stone' ? trim : '#1a1622';
-  disc(c, -0.075, hy, 0.035, eye); disc(c, 0.075, hy, 0.035, eye);
+  c.beginPath(); c.arc(0, hy, hr, 0, Math.PI * 2); c.fillStyle = vol(c, P, skin, -hr, hr); c.fill(); c.stroke();
+  // румянец
+  if (!P.white && L.body !== 'stone' && L.head !== 'mask') {
+    c.fillStyle = 'rgba(230,90,80,.18)';
+    c.beginPath(); c.ellipse(-0.12, hy + 0.07, 0.05, 0.03, 0, 0, 7); c.ellipse(0.12, hy + 0.07, 0.05, 0.03, 0, 0, 7); c.fill();
+  }
+  if (L.head !== 'mask') {
+    const eye = L.body === 'stone' ? trim : P.white ? '#fff' : '#1a1622';
+    eyes(c, P, hy, eye, 0.038, p.t);
+    // брови: при ударе хмурятся
+    if (!P.white && L.body !== 'stone') {
+      const f = p.atk > 0 ? Math.sin(p.atk * Math.PI) * 0.03 : 0;
+      c.strokeStyle = 'rgba(20,15,20,.7)'; c.lineWidth = 0.025;
+      c.beginPath(); c.moveTo(-0.12, hy - 0.08 - f * 0.3); c.lineTo(-0.04, hy - 0.06 + f); c.moveTo(0.12, hy - 0.08 - f * 0.3); c.lineTo(0.04, hy - 0.06 + f); c.stroke();
+    }
+  }
+  c.strokeStyle = INK; c.lineWidth = 0.05;
   switch (L.head) {
-    case 'pointy':
-      poly(c, [-0.3, hy - 0.1, 0.3, hy - 0.1, 0.08, hy - 0.62]);
-      c.fillStyle = main; c.fill(); c.stroke();
-      c.fillStyle = trim; c.fillRect(-0.3, hy - 0.15, 0.6, 0.07);
-      disc(c, 0.08, hy - 0.62, 0.05, trim);
+    case 'pointy': {
+      const tip = 0.08 + Math.sin(p.t * 1.6) * 0.03;
+      c.beginPath(); c.moveTo(-0.32, hy - 0.1); c.lineTo(0.32, hy - 0.1); c.quadraticCurveTo(0.14, hy - 0.3, tip, hy - 0.62); c.quadraticCurveTo(-0.06, hy - 0.3, -0.32, hy - 0.1); c.closePath();
+      c.fillStyle = vol(c, P, main, -0.32, 0.32); c.fill(); c.stroke();
+      c.fillStyle = trim; c.fillRect(-0.32, hy - 0.16, 0.64, 0.07);
+      disc(c, tip, hy - 0.62, 0.055, P.white ? '#fff' : '#f3d27a');
       break;
+    }
     case 'crown':
       poly(c, [-0.22, hy - 0.14, -0.22, hy - 0.34, -0.11, hy - 0.22, 0, hy - 0.38, 0.11, hy - 0.22, 0.22, hy - 0.34, 0.22, hy - 0.14]);
-      c.fillStyle = '#f3d27a'; c.fill(); c.stroke();
+      c.fillStyle = metal(c, P, '#f3d27a', hy - 0.38, hy - 0.14); c.fill(); c.stroke();
+      disc(c, 0, hy - 0.2, 0.035, P.white ? '#fff' : '#e0455a');
       // борода
-      c.beginPath(); c.moveTo(-0.17, hy + 0.08); c.quadraticCurveTo(0, hy + 0.42, 0.17, hy + 0.08); c.fillStyle = '#f2f2f2'; c.fill();
+      c.beginPath(); c.moveTo(-0.18, hy + 0.06); c.quadraticCurveTo(-0.12, hy + 0.44, 0, hy + 0.46); c.quadraticCurveTo(0.12, hy + 0.44, 0.18, hy + 0.06); c.quadraticCurveTo(0, hy + 0.16, -0.18, hy + 0.06);
+      c.fillStyle = P.white ? '#fff' : '#f2f2f2'; c.fill(); c.lineWidth = 0.03; c.stroke();
       break;
     case 'horns':
-      c.fillStyle = trim; c.strokeStyle = 'rgba(10,8,16,.85)';
       for (const sx of [-1, 1]) {
         c.beginPath();
         c.moveTo(sx * 0.16, hy - 0.14);
-        c.quadraticCurveTo(sx * 0.42, hy - 0.2, sx * 0.4, hy - 0.48);
+        c.quadraticCurveTo(sx * 0.44, hy - 0.2, sx * 0.4, hy - 0.5);
         c.quadraticCurveTo(sx * 0.3, hy - 0.26, sx * 0.08, hy - 0.2);
-        c.closePath(); c.fill(); c.stroke();
+        c.closePath();
+        c.fillStyle = metal(c, P, trim, hy - 0.5, hy - 0.14); c.fill(); c.stroke();
       }
       break;
     case 'cap':
-      c.beginPath(); c.arc(0, hy - 0.06, hr, Math.PI, 0); c.fillStyle = dark; c.fill();
-      c.fillStyle = dark; c.fillRect(-0.02, hy - 0.08, 0.36, 0.06);
+      c.beginPath(); c.arc(0, hy - 0.06, hr + 0.01, Math.PI, 0); c.closePath(); c.fillStyle = vol(c, P, dark, -hr, hr); c.fill(); c.stroke();
+      c.fillStyle = dark; c.beginPath(); c.rect(-0.02, hy - 0.09, 0.38, 0.06); c.fill(); c.stroke();
       // монокль-прицел
       c.strokeStyle = trim; c.lineWidth = 0.04; c.beginPath(); c.arc(0.075, hy, 0.07, 0, Math.PI * 2); c.stroke();
+      // усы
+      if (!P.white) { c.strokeStyle = '#4a3020'; c.lineWidth = 0.04; c.beginPath(); c.moveTo(-0.1, hy + 0.11); c.quadraticCurveTo(0, hy + 0.07, 0.1, hy + 0.11); c.stroke(); }
       break;
     case 'mask':
-      c.beginPath(); c.ellipse(0, hy + 0.02, 0.2, 0.26, 0, 0, Math.PI * 2); c.fillStyle = trim; c.fill(); c.stroke();
-      disc(c, -0.075, hy - 0.02, 0.045, '#1a1622'); disc(c, 0.075, hy - 0.02, 0.045, '#1a1622');
-      c.strokeStyle = '#1a1622'; c.lineWidth = 0.03;
-      c.beginPath(); c.moveTo(-0.1, hy + 0.13); c.lineTo(0.1, hy + 0.13); c.stroke();
-      for (const sx of [-1, 1]) { c.fillStyle = main; poly(c, [sx * 0.16, hy - 0.2, sx * 0.3, hy - 0.5, sx * 0.24, hy - 0.16]); c.fill(); }
+      for (const sx of [-1, 1]) { c.fillStyle = main; poly(c, [sx * 0.16, hy - 0.2, sx * 0.3, hy - 0.52 + Math.sin(p.t * 2 + sx) * 0.02, sx * 0.24, hy - 0.16]); c.fill(); c.stroke(); }
+      c.beginPath(); c.ellipse(0, hy + 0.02, 0.2, 0.26, 0, 0, Math.PI * 2); c.fillStyle = vol(c, P, trim, -0.2, 0.2); c.fill(); c.stroke();
+      disc(c, -0.075, hy - 0.02, 0.048, P.white ? '#fff' : '#1a1622'); disc(c, 0.075, hy - 0.02, 0.048, P.white ? '#fff' : '#1a1622');
+      if (!P.white) {
+        const k = 0.5 + Math.sin(p.t * 2.8) * 0.5;
+        c.globalAlpha = k; disc(c, -0.075, hy - 0.02, 0.02, main); disc(c, 0.075, hy - 0.02, 0.02, main); c.globalAlpha = 1;
+        c.strokeStyle = main; c.lineWidth = 0.025;
+        c.beginPath(); c.moveTo(-0.13, hy + 0.06); c.lineTo(-0.05, hy + 0.08); c.moveTo(0.13, hy + 0.06); c.lineTo(0.05, hy + 0.08); c.stroke();
+      }
+      c.strokeStyle = P.white ? '#fff' : '#1a1622'; c.lineWidth = 0.03;
+      c.beginPath(); c.moveTo(-0.1, hy + 0.14); c.lineTo(0.1, hy + 0.14); c.stroke();
       break;
     case 'flame':
       for (let i = -2; i <= 2; i++) {
-        c.fillStyle = i % 2 ? '#ffd25a' : '#ff6a2a';
-        poly(c, [i * 0.09 - 0.07, hy - 0.12, i * 0.09 + 0.07, hy - 0.12, i * 0.11, hy - 0.42 - (2 - Math.abs(i)) * 0.06]);
-        c.fill();
+        const fl = Math.sin(p.t * 11 + i * 1.7) * 0.05 + Math.sin(p.t * 7.3 + i) * 0.03;
+        c.fillStyle = P.white ? '#fff' : i % 2 ? '#ffd25a' : '#ff6a2a';
+        c.beginPath();
+        c.moveTo(i * 0.09 - 0.08, hy - 0.1);
+        c.quadraticCurveTo(i * 0.11 - 0.05, hy - 0.3, i * 0.11 + fl, hy - 0.44 - (2 - Math.abs(i)) * 0.07 + fl * 0.5);
+        c.quadraticCurveTo(i * 0.11 + 0.06, hy - 0.28, i * 0.09 + 0.08, hy - 0.1);
+        c.closePath(); c.fill();
+      }
+      if (!P.white) {
+        c.fillStyle = 'rgba(255,240,180,.8)';
+        c.beginPath(); c.ellipse(0, hy - 0.2, 0.06, 0.1 + Math.sin(p.t * 9) * 0.02, 0, 0, 7); c.fill();
       }
       break;
     case 'helm':
-      c.beginPath(); c.arc(0, hy - 0.02, hr + 0.04, Math.PI, 0); c.lineTo(hr + 0.04, hy + 0.06); c.lineTo(-hr - 0.04, hy + 0.06); c.closePath();
-      c.fillStyle = '#b8bec8'; c.fill(); c.stroke();
-      c.fillStyle = '#1a1622'; c.fillRect(-0.15, hy - 0.04, 0.3, 0.05);
-      poly(c, [-0.03, hy - 0.26, 0.03, hy - 0.26, 0.0, hy - 0.5]); c.fillStyle = trim; c.fill();
+      c.beginPath(); c.arc(0, hy - 0.02, hr + 0.045, Math.PI, 0); c.lineTo(hr + 0.045, hy + 0.08); c.lineTo(-hr - 0.045, hy + 0.08); c.closePath();
+      c.fillStyle = metal(c, P, '#b8bec8', hy - 0.3, hy + 0.08); c.fill(); c.stroke();
+      c.fillStyle = P.white ? '#fff' : '#1a1622'; c.fillRect(-0.16, hy - 0.04, 0.32, 0.055);
+      c.strokeStyle = P.white ? '#fff' : 'rgba(0,0,0,.4)'; c.lineWidth = 0.03;
+      c.beginPath(); c.moveTo(0, hy - 0.27); c.lineTo(0, hy - 0.06); c.stroke();
+      // плюмаж колышется
+      c.beginPath(); c.moveTo(-0.02, hy - 0.26);
+      c.quadraticCurveTo(-0.22 + Math.sin(p.t * 2.5) * 0.04, hy - 0.62, -0.32 + Math.sin(p.t * 2.5 + 0.8) * 0.06, hy - 0.38);
+      c.quadraticCurveTo(-0.16, hy - 0.42, 0.04, hy - 0.24); c.closePath();
+      c.fillStyle = trim; c.fill(); c.lineWidth = 0.03; c.strokeStyle = INK; c.stroke();
       break;
     case 'mane':
-      c.fillStyle = trim; disc(c, -0.06, hy + 0.12, 0.03, trim); disc(c, 0.06, hy + 0.12, 0.03, trim);
-      disc(c, -0.2, hy - 0.2, 0.07, dark); disc(c, 0.2, hy - 0.2, 0.07, dark);
+      disc(c, -0.06, hy + 0.12, 0.03, trim); disc(c, 0.06, hy + 0.12, 0.03, trim);
+      // уши
+      for (const sx of [-1, 1]) { c.beginPath(); c.moveTo(sx * 0.12, hy - 0.18); c.lineTo(sx * 0.24, hy - 0.36 + Math.sin(p.t * 1.3 + sx) * 0.015); c.lineTo(sx * 0.24, hy - 0.14); c.closePath(); c.fillStyle = dark; c.fill(); c.lineWidth = 0.035; c.stroke(); }
+      // нос-морда
+      c.beginPath(); c.ellipse(0, hy + 0.08, 0.09, 0.06, 0, 0, 7); c.fillStyle = P.white ? '#fff' : shade(skin, 0.3); c.fill();
+      disc(c, 0, hy + 0.05, 0.03, P.white ? '#fff' : '#1a1622');
       break;
   }
 }
 
-function weapon(c: Ctx, L: Look, main: string, trim: string, dark: string) {
+/** Рука от плеча к хвату (у когтей и кулаков — обе руки). */
+function arms(c: Ctx, L: Look, P: Pal, gx: number, gy: number) {
+  const col = L.body === 'robe' || L.body === 'hood' || L.body === 'armor' ? P.main : P.skin;
+  const thick = L.body === 'bones' ? 0.06 : L.body === 'stone' ? 0.17 : 0.13;
+  const sh = L.body === 'stone' ? 0.42 : L.body === 'beast' ? 0.36 : 0.27;
+  const sy = L.body === 'beast' ? -0.02 : -0.13;
+  const two = PUNCH.includes(L.weapon);
+  const arm = (x0: number, y0: number, x1: number, y1: number) => {
+    const mx = (x0 + x1) / 2 + (x1 > 0 ? 0.04 : -0.04), my = Math.max(y0, y1) + 0.06;
+    c.beginPath(); c.moveTo(x0, y0); c.quadraticCurveTo(mx, my, x1, y1);
+    c.strokeStyle = INK; c.lineWidth = thick + 0.06; c.stroke();
+    c.strokeStyle = P.white ? '#fff' : shade(col.startsWith('#') ? col : '#888888', -0.08); c.lineWidth = thick; c.stroke();
+  };
+  if (two) arm(-sh, sy, -GRIP[L.weapon][0] + 0.02, GRIP[L.weapon][1] + 0.02);
+  arm(sh, sy, gx - 0.02, gy + 0.02);
+}
+
+function hand(c: Ctx, P: Pal, x: number, y: number, r: number) {
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
+  c.fillStyle = P.skin; c.fill();
+  c.lineWidth = 0.035; c.strokeStyle = INK; c.stroke();
+}
+
+function weapon(c: Ctx, L: Look, P: Pal, p: HeroPose, only = 0) {
+  const { main, trim, dark } = P;
   c.lineWidth = 0.08;
-  c.strokeStyle = 'rgba(10,8,16,.85)';
-  const wood = '#6b4a2a';
+  c.strokeStyle = INK;
+  const wood = P.white ? '#fff' : '#6b4a2a';
+  const shaft = (x0: number, y0: number, x1: number, y1: number, w = 0.08) => {
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1);
+    c.strokeStyle = INK; c.lineWidth = w + 0.05; c.stroke();
+    c.strokeStyle = wood; c.lineWidth = w; c.stroke();
+  };
   switch (L.weapon) {
-    case 'staff':
-      c.strokeStyle = wood; c.lineWidth = 0.08;
-      c.beginPath(); c.moveTo(0.55, 0.85); c.lineTo(0.55, -0.7); c.stroke();
-      c.fillStyle = trim;
-      poly(c, [0.55, -1.0, 0.68, -0.78, 0.55, -0.6, 0.42, -0.78]); c.fill();
-      c.strokeStyle = 'rgba(10,8,16,.6)'; c.lineWidth = 0.03; c.stroke();
+    case 'staff': {
+      shaft(0.55, 0.85, 0.55, -0.68);
+      // навершие-кристалл в оправе
+      c.fillStyle = P.white ? '#fff' : '#f3d27a';
+      c.beginPath(); c.moveTo(0.42, -0.7); c.quadraticCurveTo(0.55, -0.6, 0.68, -0.7); c.lineTo(0.62, -0.64); c.quadraticCurveTo(0.55, -0.58, 0.48, -0.64); c.closePath(); c.fill();
+      poly(c, [0.55, -1.02, 0.68, -0.8, 0.55, -0.62, 0.42, -0.8]);
+      c.fillStyle = metal(c, P, trim, -1.0, -0.62); c.fill();
+      c.strokeStyle = INK; c.lineWidth = 0.03; c.stroke();
+      if (!P.white) {
+        const k = 0.35 + Math.sin(p.t * 2.5) * 0.15;
+        const gr = c.createRadialGradient(0.55, -0.82, 0, 0.55, -0.82, 0.3);
+        gr.addColorStop(0, `rgba(255,255,255,${k})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = gr; c.beginPath(); c.arc(0.55, -0.82, 0.3, 0, 7); c.fill();
+      }
       break;
+    }
     case 'orb': {
-      const g = c.createRadialGradient(0.58, 0.05, 0.02, 0.58, 0.05, 0.24);
-      g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, trim); g.addColorStop(1, 'rgba(255,255,255,0)');
-      c.fillStyle = g; c.beginPath(); c.arc(0.58, 0.05, 0.26, 0, Math.PI * 2); c.fill();
-      disc(c, 0.58, 0.05, 0.1, main);
+      const glow = 0.26 + Math.sin(p.t * 3) * 0.03 + Math.sin(p.cast * Math.PI) * 0.15;
+      if (!P.white) {
+        const g = c.createRadialGradient(0.58, 0.05, 0.02, 0.58, 0.05, glow);
+        g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, trim); g.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g; c.beginPath(); c.arc(0.58, 0.05, glow, 0, Math.PI * 2); c.fill();
+      }
+      const g2 = P.white ? '#fff' : c.createRadialGradient(0.55, 0.02, 0, 0.58, 0.05, 0.11);
+      if (typeof g2 !== 'string') { g2.addColorStop(0, shade(main, 0.6)); g2.addColorStop(1, main); }
+      c.fillStyle = g2; c.beginPath(); c.arc(0.58, 0.05, 0.1, 0, 7); c.fill();
+      c.lineWidth = 0.025; c.strokeStyle = INK; c.stroke();
+      // искры кружат вокруг сферы
+      if (!P.white) for (let i = 0; i < 3; i++) {
+        const a = p.t * 2.2 + (i * Math.PI * 2) / 3;
+        disc(c, 0.58 + Math.cos(a) * 0.17, 0.05 + Math.sin(a) * 0.07, 0.022, trim);
+      }
       break;
     }
     case 'axe':
-      c.strokeStyle = wood; c.lineWidth = 0.08;
-      c.beginPath(); c.moveTo(0.35, 0.75); c.lineTo(0.7, -0.45); c.stroke();
+      shaft(0.35, 0.75, 0.7, -0.45);
       c.beginPath(); c.moveTo(0.62, -0.2); c.quadraticCurveTo(1.0, -0.35, 0.82, -0.72); c.quadraticCurveTo(0.72, -0.45, 0.6, -0.42); c.closePath();
-      c.fillStyle = trim; c.fill(); c.strokeStyle = 'rgba(10,8,16,.85)'; c.lineWidth = 0.04; c.stroke();
+      c.fillStyle = metal(c, P, trim, -0.72, -0.2); c.fill(); c.strokeStyle = INK; c.lineWidth = 0.04; c.stroke();
+      if (!P.white) { c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 0.025; c.beginPath(); c.moveTo(0.9, -0.3); c.quadraticCurveTo(0.95, -0.45, 0.85, -0.62); c.stroke(); }
       break;
-    case 'bow':
-      c.strokeStyle = wood; c.lineWidth = 0.07;
+    case 'bow': {
+      // тетива натягивается в начале удара; после выстрела стрелы нет, пока не наложит новую
+      const pull = p.atk > 0 && p.atk < 0.45 ? p.atk / 0.45 : 0;
+      const shot = p.atk >= 0.45;
+      const tx = 0.25 + Math.cos(1) * 0.62;
+      c.strokeStyle = INK; c.lineWidth = 0.11;
       c.beginPath(); c.arc(0.25, 0.05, 0.62, -1.0, 1.0); c.stroke();
-      c.strokeStyle = '#e8e8e8'; c.lineWidth = 0.02;
-      c.beginPath(); c.moveTo(0.25 + Math.cos(-1) * 0.62, 0.05 + Math.sin(-1) * 0.62); c.lineTo(0.25 + Math.cos(1) * 0.62, 0.05 + Math.sin(1) * 0.62); c.stroke();
-      c.strokeStyle = trim; c.lineWidth = 0.04;
-      c.beginPath(); c.moveTo(0.3, 0.05); c.lineTo(0.95, 0.05); c.stroke();
+      c.strokeStyle = wood; c.lineWidth = 0.07; c.stroke();
+      const sx = tx - pull * 0.3;
+      c.strokeStyle = P.white ? '#fff' : '#e8e8e8'; c.lineWidth = 0.02;
+      c.beginPath(); c.moveTo(tx, 0.05 - Math.sin(1) * 0.62); c.lineTo(sx, 0.05); c.lineTo(tx, 0.05 + Math.sin(1) * 0.62); c.stroke();
+      if (!shot) {
+        c.strokeStyle = trim; c.lineWidth = 0.04;
+        c.beginPath(); c.moveTo(sx - 0.02, 0.05); c.lineTo(sx + 0.62, 0.05); c.stroke();
+        c.fillStyle = P.white ? '#fff' : '#c9cdd6';
+        poly(c, [sx + 0.62, 0.0, sx + 0.74, 0.05, sx + 0.62, 0.1]); c.fill();
+      }
       break;
+    }
     case 'rifle':
       c.save(); c.translate(0.2, 0.15); c.rotate(-0.5);
-      c.fillStyle = wood; c.fillRect(-0.2, -0.06, 0.4, 0.14);
-      c.fillStyle = '#3a3a44'; c.fillRect(0.15, -0.04, 0.75, 0.07);
+      c.fillStyle = wood; c.beginPath(); c.rect(-0.2, -0.06, 0.4, 0.14); c.fill(); c.lineWidth = 0.03; c.strokeStyle = INK; c.stroke();
+      c.fillStyle = metal(c, P, '#5a5a66', -0.04, 0.03); c.beginPath(); c.rect(0.15, -0.04, 0.75, 0.07); c.fill(); c.stroke();
       c.fillStyle = trim; c.fillRect(0.3, -0.12, 0.18, 0.07);
+      // вспышка выстрела
+      if (p.atk > 0 && p.atk < 0.3 && !P.white) {
+        const k = 1 - p.atk / 0.3;
+        c.fillStyle = `rgba(255,220,120,${k})`;
+        c.beginPath();
+        for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; const r = i % 2 ? 0.08 : 0.22 * k + 0.08; c.lineTo(0.95 + Math.cos(a) * r, Math.sin(a) * r * 0.7); }
+        c.closePath(); c.fill();
+      }
       c.restore();
       break;
     case 'club':
       c.save(); c.translate(0.55, 0.2); c.rotate(0.35);
-      poly(c, [-0.06, 0.55, 0.06, 0.55, 0.16, -0.55, -0.16, -0.55]);
-      c.fillStyle = trim; c.fill(); c.strokeStyle = 'rgba(10,8,16,.85)'; c.lineWidth = 0.04; c.stroke();
+      poly(c, [-0.06, 0.55, 0.06, 0.55, 0.17, -0.55, -0.17, -0.55]);
+      c.fillStyle = vol(c, P, trim, -0.17, 0.17); c.fill(); c.strokeStyle = INK; c.lineWidth = 0.04; c.stroke();
+      // шипы
+      c.fillStyle = P.white ? '#fff' : '#e8dcc0';
+      for (const [x, y, s] of [[-0.16, -0.4, -1], [0.16, -0.3, 1], [-0.13, -0.15, -1], [0.14, -0.48, 1]] as const) { poly(c, [x, y - 0.04, x + s * 0.09, y, x, y + 0.04]); c.fill(); c.stroke(); }
       c.restore();
       break;
     case 'scythe':
-      c.strokeStyle = wood; c.lineWidth = 0.07;
-      c.beginPath(); c.moveTo(0.5, 0.85); c.lineTo(0.62, -0.75); c.stroke();
-      c.beginPath(); c.moveTo(0.62, -0.72); c.quadraticCurveTo(0.2, -0.95, -0.15, -0.6); c.quadraticCurveTo(0.25, -0.72, 0.6, -0.55); c.closePath();
-      c.fillStyle = '#c8d0d8'; c.fill(); c.strokeStyle = 'rgba(10,8,16,.85)'; c.lineWidth = 0.03; c.stroke();
+      shaft(0.5, 0.85, 0.62, -0.75, 0.07);
+      c.beginPath(); c.moveTo(0.62, -0.72); c.quadraticCurveTo(0.2, -0.97, -0.18, -0.58); c.quadraticCurveTo(0.25, -0.72, 0.6, -0.55); c.closePath();
+      c.fillStyle = metal(c, P, '#c8d0d8', -0.95, -0.55); c.fill(); c.strokeStyle = INK; c.lineWidth = 0.03; c.stroke();
+      if (!P.white) { c.strokeStyle = trim; c.lineWidth = 0.02; c.beginPath(); c.moveTo(0.5, -0.7); c.quadraticCurveTo(0.2, -0.85, -0.08, -0.62); c.stroke(); }
       break;
     case 'claws':
-      c.strokeStyle = trim; c.lineWidth = 0.05;
-      for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) {
-        c.beginPath(); c.moveTo(sx * (0.5 + i * 0.06), 0.15); c.lineTo(sx * (0.62 + i * 0.07), -0.12); c.stroke();
+      for (const sx of [-1, 1]) {
+        if (only && sx !== only) continue;
+        disc(c, sx * 0.5, 0.17, 0.1, P.skin);
+        c.lineWidth = 0.03; c.strokeStyle = INK; c.beginPath(); c.arc(sx * 0.5, 0.17, 0.1, 0, 7); c.stroke();
+        for (let i = 0; i < 3; i++) {
+          c.beginPath(); c.moveTo(sx * (0.5 + i * 0.05), 0.12); c.quadraticCurveTo(sx * (0.6 + i * 0.07), 0.05, sx * (0.64 + i * 0.07), -0.14);
+          c.strokeStyle = INK; c.lineWidth = 0.07; c.stroke();
+          c.strokeStyle = trim; c.lineWidth = 0.04; c.stroke();
+        }
       }
       break;
     case 'hammer':
-      c.strokeStyle = wood; c.lineWidth = 0.08;
-      c.beginPath(); c.moveTo(0.4, 0.75); c.lineTo(0.62, -0.35); c.stroke();
+      shaft(0.4, 0.75, 0.62, -0.35);
       c.save(); c.translate(0.64, -0.42); c.rotate(0.2);
-      c.fillStyle = trim; c.fillRect(-0.22, -0.13, 0.44, 0.26);
-      c.strokeStyle = 'rgba(10,8,16,.85)'; c.lineWidth = 0.04; c.strokeRect(-0.22, -0.13, 0.44, 0.26);
+      c.fillStyle = metal(c, P, trim, -0.13, 0.13); c.fillRect(-0.22, -0.13, 0.44, 0.26);
+      c.strokeStyle = INK; c.lineWidth = 0.04; c.strokeRect(-0.22, -0.13, 0.44, 0.26);
+      c.fillStyle = P.white ? '#fff' : shade(trim.startsWith('#') ? trim : '#888888', -0.3); c.fillRect(-0.24, -0.05, 0.48, 0.1);
       c.restore();
-      // щит
-      c.beginPath(); c.moveTo(-0.62, -0.1); c.lineTo(-0.3, -0.1); c.lineTo(-0.3, 0.3); c.quadraticCurveTo(-0.46, 0.55, -0.62, 0.3); c.closePath();
-      c.fillStyle = '#e8e8f0'; c.fill(); c.strokeStyle = 'rgba(10,8,16,.85)'; c.stroke();
-      c.fillStyle = trim; c.fillRect(-0.49, -0.05, 0.06, 0.3); c.fillRect(-0.57, 0.05, 0.22, 0.06);
       break;
-    case 'banner':
-      c.strokeStyle = wood; c.lineWidth = 0.07;
-      c.beginPath(); c.moveTo(0.55, 0.85); c.lineTo(0.55, -0.95); c.stroke();
-      poly(c, [0.55, -0.92, 1.0, -0.82, 0.88, -0.62, 1.0, -0.42, 0.55, -0.48]);
-      c.fillStyle = trim; c.fill(); c.strokeStyle = 'rgba(10,8,16,.6)'; c.lineWidth = 0.03; c.stroke();
-      disc(c, 0.55, -0.98, 0.05, '#f3d27a');
+    case 'banner': {
+      shaft(0.55, 0.85, 0.55, -0.95, 0.07);
+      const wv = (k: number) => Math.sin(p.t * 4 - k * 6) * 0.05 * k;
+      c.beginPath();
+      c.moveTo(0.55, -0.92);
+      c.quadraticCurveTo(0.78, -0.9 + wv(0.5), 1.0, -0.82 + wv(1));
+      c.lineTo(0.88, -0.62 + wv(0.8));
+      c.lineTo(1.0, -0.42 + wv(1));
+      c.quadraticCurveTo(0.78, -0.5 + wv(0.5), 0.55, -0.48);
+      c.closePath();
+      c.fillStyle = vol(c, P, trim, 0.55, 1.0); c.fill(); c.strokeStyle = INK; c.lineWidth = 0.03; c.stroke();
+      disc(c, 0.72, -0.68 + wv(0.4), 0.05, P.white ? '#fff' : '#f3d27a');
+      disc(c, 0.55, -0.98, 0.05, P.white ? '#fff' : '#f3d27a');
       break;
+    }
     case 'fist':
-      disc(c, 0.62, 0.15, 0.2, dark === '#ffffff' ? dark : L.skin);
-      c.strokeStyle = 'rgba(10,8,16,.85)'; c.lineWidth = 0.04; c.beginPath(); c.arc(0.62, 0.15, 0.2, 0, Math.PI * 2); c.stroke();
-      disc(c, -0.62, 0.15, 0.17, dark === '#ffffff' ? dark : L.skin);
+      for (const sx of [-1, 1]) {
+        if (only && sx !== only) continue;
+        const x = sx * 0.62;
+        c.beginPath(); c.arc(x, 0.15, sx > 0 ? 0.2 : 0.17, 0, Math.PI * 2);
+        c.fillStyle = vol(c, P, P.skin, x - 0.2, x + 0.2); c.fill();
+        c.strokeStyle = INK; c.lineWidth = 0.04; c.stroke();
+        c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 0.025;
+        c.beginPath(); c.moveTo(x + sx * 0.06, 0.03); c.lineTo(x + sx * 0.1, 0.2); c.moveTo(x - sx * 0.02, 0.01); c.lineTo(x + sx * 0.02, 0.2); c.stroke();
+      }
       break;
-    case 'totem':
-      c.strokeStyle = wood; c.lineWidth = 0.08;
-      c.beginPath(); c.moveTo(0.55, 0.85); c.lineTo(0.55, -0.55); c.stroke();
-      c.strokeStyle = '#5fc9a8'; c.lineWidth = 0.08;
-      c.beginPath(); c.moveTo(0.55, -0.3); c.bezierCurveTo(0.8, -0.45, 0.3, -0.6, 0.6, -0.8); c.stroke();
-      disc(c, 0.62, -0.84, 0.08, '#5fc9a8');
-      disc(c, 0.64, -0.86, 0.02, '#ffd25a');
+    case 'totem': {
+      shaft(0.55, 0.85, 0.55, -0.55);
+      c.strokeStyle = P.white ? '#fff' : '#5fc9a8'; c.lineWidth = 0.08;
+      const s = Math.sin(p.t * 2.2) * 0.05;
+      c.beginPath(); c.moveTo(0.55, -0.3); c.bezierCurveTo(0.8 + s, -0.45, 0.3 - s, -0.6, 0.6, -0.8); c.stroke();
+      disc(c, 0.62, -0.84, 0.08, P.white ? '#fff' : '#5fc9a8');
+      disc(c, 0.64, -0.86, 0.025, P.white ? '#fff' : '#ffd25a');
+      // перья качаются
+      for (const k of [-1, 1]) {
+        c.save(); c.translate(0.55, -0.42); c.rotate(k * 0.5 + Math.sin(p.t * 2 + k) * 0.12);
+        c.fillStyle = P.white ? '#fff' : k > 0 ? '#e05a4a' : '#f3d27a';
+        c.beginPath(); c.ellipse(0, 0.14, 0.035, 0.12, 0, 0, 7); c.fill();
+        c.restore();
+      }
+      void dark;
       break;
+    }
   }
 }
 
@@ -699,90 +1051,136 @@ export function drawCastleFigure(c: Ctx, col: string, deep: string, dmg = 0, whi
 /**
  * Нейтралы в координатах «радиус фигуры ≈ 20», центр (0,0), земля около y = 12.
  * Звери смотрят вправо. kind: wolf | boar | spider | turtle | lord.
+ * t — время в секундах (своя фаза у каждого зверя), atk — ход удара 0..1 (0 — не бьёт).
  */
-export function drawBeastFigure(c: Ctx, kind: string) {
+export function drawBeastFigure(c: Ctx, kind: string, t = 0, atk = 0) {
   const ink = '#14121c';
   c.lineJoin = 'round';
   c.lineCap = 'round';
   c.strokeStyle = ink;
   c.lineWidth = 1.6;
-  const sh = (fill: string, path: () => void, stroke = true) => {
+  const sh = (fill: string | CanvasGradient, path: () => void, stroke = true) => {
     c.beginPath(); path(); c.fillStyle = fill; c.fill(); if (stroke) c.stroke();
   };
   const eye = (x: number, y: number, r: number, col: string) => {
     c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
   };
+  // моргание: глаз ненадолго становится чёрточкой
+  const blink = (t + 1.3) % 3.7 < 0.14;
+  const lid = (x: number, y: number, r: number, col: string) => {
+    if (blink) { c.strokeStyle = ink; c.lineWidth = 0.9; c.beginPath(); c.moveTo(x - r, y); c.lineTo(x + r, y); c.stroke(); c.lineWidth = 1.6; }
+    else { eye(x, y, r, col); eye(x + r * 0.35, y - r * 0.35, r * 0.35, 'rgba(255,255,255,.8)'); }
+  };
   const shadow = (rx: number, y = 12) => {
     c.fillStyle = 'rgba(0,0,0,.32)'; c.beginPath(); c.ellipse(0, y, rx, rx * 0.25, 0, 0, 7); c.fill();
   };
+  /** Часть тела, повёрнутая вокруг (px,py) и сдвинутая на (dx,dy). */
+  const part = (px: number, py: number, ang: number, dx: number, dy: number, fn: () => void) => {
+    c.save(); c.translate(px + dx, py + dy); c.rotate(ang); c.translate(-px, -py); fn(); c.restore();
+  };
+  const lin = (col: string, x0: number, x1: number) => {
+    const g = c.createLinearGradient(x0, 0, x1, 0);
+    g.addColorStop(0, shade(col, 0.2)); g.addColorStop(0.55, col); g.addColorStop(1, shade(col, -0.28));
+    return g;
+  };
+  const hit = atk > 0 ? Math.sin(Math.min(1, atk / 0.6) * Math.PI) : 0; // 0→1→0 за первые 60% удара
+  const breath = Math.sin(t * 2.2);
 
   if (kind === 'wolf') {
     shadow(16);
     const fur = '#8f939c', furD = '#5d616b', belly = '#c9ccd2';
-    // дальние лапы и хвост
+    // дальние лапы и хвост (виляет)
     sh(furD, () => { c.rect(-9, 3, 3.5, 9); c.rect(6, 3, 3.5, 9); });
-    sh(fur, () => { c.moveTo(-12, -2); c.quadraticCurveTo(-21, -4, -22, -12); c.quadraticCurveTo(-17, -6, -11, -5); c.closePath(); });
-    // тело
-    sh(fur, () => c.ellipse(-1, -1, 12, 6.5, -0.05, 0, 7));
+    part(-12, -3, Math.sin(t * 5.5) * 0.28, 0, 0, () => {
+      sh(fur, () => { c.moveTo(-12, -2); c.quadraticCurveTo(-21, -4, -23, -13); c.quadraticCurveTo(-17, -6, -11, -5); c.closePath(); });
+      sh(belly, () => { c.moveTo(-21, -9); c.quadraticCurveTo(-22.5, -11, -23, -13); c.quadraticCurveTo(-21, -10, -19.5, -8.5); c.closePath(); }, false);
+    });
+    // тело дышит
+    sh(lin(fur, -13, 11), () => c.ellipse(-1, -1, 12, 6.5 + breath * 0.25, -0.05, 0, 7));
     sh(belly, () => c.ellipse(0, 2.5, 8, 2.6, 0, 0, 7), false);
+    c.strokeStyle = 'rgba(20,18,28,.35)'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(-6, -5); c.lineTo(-4, -3); c.moveTo(-2, -6); c.lineTo(0, -4); c.moveTo(2, -6.5); c.lineTo(4, -4.5); c.stroke();
+    c.strokeStyle = ink; c.lineWidth = 1.6;
     // ближние лапы
     sh(fur, () => { c.rect(-6, 3, 3.5, 9); c.rect(8.5, 3, 3.5, 9); });
-    // голова с мордой и ушами
-    sh(fur, () => { c.moveTo(7, -9); c.lineTo(9, -16); c.lineTo(12, -10); c.closePath(); });
-    sh(fur, () => c.ellipse(12, -6, 6, 5, 0, 0, 7));
-    sh(fur, () => { c.moveTo(15, -8); c.lineTo(22, -5); c.lineTo(21, -2); c.lineTo(15, -2); c.closePath(); });
-    sh(furD, () => { c.moveTo(11, -11); c.lineTo(13, -17); c.lineTo(15, -10); c.closePath(); });
-    eye(21.5, -4.6, 1.2, ink);
-    eye(15, -7, 1.4, '#ffd34d');
+    // голова: покачивается, при ударе — бросок вперёд с открытой пастью
+    part(9, -4, -hit * 0.25 + Math.sin(t * 1.8) * 0.04, hit * 4, Math.sin(t * 2.2 + 0.5) * 0.5, () => {
+      sh(fur, () => { c.moveTo(7, -9); c.lineTo(9, -16 + Math.sin(t * 3.1) * 0.6); c.lineTo(12, -10); c.closePath(); });
+      sh(lin(fur, 6, 18), () => c.ellipse(12, -6, 6, 5, 0, 0, 7));
+      // нижняя челюсть
+      part(15, -2, hit * 0.5, 0, 0, () => sh(fur, () => { c.moveTo(15, -3); c.lineTo(21, -2.5); c.lineTo(20, 0); c.lineTo(15, 0); c.closePath(); }));
+      if (hit > 0.2) sh('#c23a4c', () => { c.moveTo(15.5, -3.5); c.lineTo(21, -3.5); c.lineTo(20, -1.5); c.closePath(); }, false);
+      sh(fur, () => { c.moveTo(15, -8); c.lineTo(22, -5.5); c.lineTo(21.5, -3); c.lineTo(15, -3); c.closePath(); });
+      sh(furD, () => { c.moveTo(11, -11); c.lineTo(13, -17 + Math.sin(t * 3.1 + 0.4) * 0.6); c.lineTo(15, -10); c.closePath(); });
+      eye(21.8, -5.2, 1.2, ink);
+      lid(15, -7, 1.4, '#ffd34d');
+    });
   } else if (kind === 'boar') {
     shadow(16);
     const hide = '#7a5236', hideD = '#4f3423', mane = '#2f2119';
     sh(hideD, () => { c.rect(-9, 4, 4, 8); c.rect(5, 4, 4, 8); });
-    sh(hide, () => c.ellipse(-1, -1, 13, 9, 0, 0, 7));
-    // щетина по хребту
-    sh(mane, () => { c.moveTo(-12, -4); for (let i = 0; i < 6; i++) { c.lineTo(-10 + i * 3.6, -13 + (i % 2) * 3); } c.lineTo(9, -5); c.closePath(); });
+    // хвостик-завиток
+    c.strokeStyle = hideD; c.lineWidth = 1.4;
+    c.beginPath(); c.moveTo(-13, -2); c.quadraticCurveTo(-17, -4 + Math.sin(t * 6) * 1.5, -15, -7); c.stroke();
+    c.strokeStyle = ink; c.lineWidth = 1.6;
+    sh(lin(hide, -14, 12), () => c.ellipse(-1, -1, 13, 9 + breath * 0.3, 0, 0, 7));
+    // щетина по хребту дыбится при ударе
+    sh(mane, () => { c.moveTo(-12, -4); for (let i = 0; i < 6; i++) { c.lineTo(-10 + i * 3.6, -13 - hit * 2 + (i % 2) * 3); } c.lineTo(9, -5); c.closePath(); });
     sh(hide, () => { c.rect(-6, 4, 4, 8); c.rect(8, 4, 4, 8); });
-    // голова-рыло
-    sh(hide, () => c.ellipse(12, -1, 7, 6.5, 0, 0, 7));
-    sh('#c98d74', () => c.ellipse(19, 1, 3, 3.6, 0, 0, 7));
-    eye(18.4, 0.4, 0.7, ink); eye(19.8, 1.8, 0.7, ink);
-    sh('#f3ead6', () => { c.moveTo(15, 3); c.quadraticCurveTo(19, 4, 18, -2); c.quadraticCurveTo(17, 2, 15, 1); c.closePath(); });
-    sh(hideD, () => { c.moveTo(9, -6); c.lineTo(8, -12); c.lineTo(12, -7); c.closePath(); });
-    eye(13.5, -3, 1.4, '#ff6b4a');
+    // голова-рыло: принюхивается, при ударе бодает клыками
+    part(8, 0, hit * 0.35, hit * 3 + Math.sin(t * 3.4) * 0.35, Math.sin(t * 2.6) * 0.3, () => {
+      sh(lin(hide, 5, 19), () => c.ellipse(12, -1, 7, 6.5, 0, 0, 7));
+      sh('#c98d74', () => c.ellipse(19, 1, 3, 3.6 + Math.sin(t * 8) * 0.25, 0, 0, 7));
+      eye(18.4, 0.4, 0.7, ink); eye(19.8, 1.8, 0.7, ink);
+      sh('#f3ead6', () => { c.moveTo(15, 3); c.quadraticCurveTo(19, 4, 18, -2); c.quadraticCurveTo(17, 2, 15, 1); c.closePath(); });
+      sh(hideD, () => { c.moveTo(9, -6); c.lineTo(8, -12 + Math.sin(t * 2.7) * 0.5); c.lineTo(12, -7); c.closePath(); });
+      lid(13.5, -3, 1.4, '#ff6b4a');
+    });
   } else if (kind === 'spider') {
     shadow(17);
     const body = '#5a4580', bodyL = '#7d65a8';
-    c.lineWidth = 2.4;
-    c.strokeStyle = '#2e2440';
+    // лапы перебирают, передние поднимаются при ударе
     for (const s of [-1, 1]) for (let i = 0; i < 4; i++) {
       const a = -0.9 + i * 0.55;
-      c.beginPath();
-      c.moveTo(2 * s, 0);
-      c.quadraticCurveTo(s * (10 + i * 2), -10 + i * 3, s * (16 + i * 1.5), 10 - Math.abs(a) * 2);
-      c.stroke();
+      const lift = Math.sin(t * 5 + i * 1.3 + s) * 1.3 - (s > 0 && i === 0 ? hit * 9 : 0);
+      const kx = 2 * s, ky = 0;
+      const mx = s * (10 + i * 2), my = -10 + i * 3 + lift * 0.6;
+      const ex = s * (16 + i * 1.5) + (s > 0 && i === 0 ? hit * 3 : 0), ey = 10 - Math.abs(a) * 2 + Math.min(0, lift);
+      c.beginPath(); c.moveTo(kx, ky); c.quadraticCurveTo(mx, my, ex, ey);
+      c.strokeStyle = ink; c.lineWidth = 3.6; c.stroke();
+      c.strokeStyle = '#3a2e52'; c.lineWidth = 2.2; c.stroke();
     }
     c.strokeStyle = ink;
     c.lineWidth = 1.6;
-    sh(body, () => c.ellipse(-4, -2, 10, 8, 0, 0, 7));
-    sh('#c23a4c', () => { c.moveTo(-4, -8); c.lineTo(-1, -3); c.lineTo(-4, 2); c.lineTo(-7, -3); c.closePath(); }, false); // знак на спине
-    sh(bodyL, () => c.ellipse(8, 0, 6, 5.5, 0, 0, 7));
-    eye(10, -1.6, 1.2, '#ff5a5a'); eye(12, 0.2, 1.1, '#ff5a5a'); eye(8.6, 0.6, 0.9, '#ff5a5a');
-    sh('#e8dcc0', () => { c.moveTo(12, 3); c.lineTo(14, 7); c.lineTo(11, 4.5); c.closePath(); });
+    const bob = Math.sin(t * 3) * 0.6;
+    sh(lin(body, -14, 6), () => c.ellipse(-4, -2 + bob, 10, 8 + breath * 0.3, 0, 0, 7));
+    sh('#c23a4c', () => { c.moveTo(-4, -8 + bob); c.lineTo(-1, -3 + bob); c.lineTo(-4, 2 + bob); c.lineTo(-7, -3 + bob); c.closePath(); }, false);
+    sh(lin(bodyL, 2, 14), () => c.ellipse(8 + hit * 2, bob * 0.6, 6, 5.5, 0, 0, 7));
+    const ek = 0.7 + Math.sin(t * 4) * 0.3;
+    c.globalAlpha = ek;
+    eye(10 + hit * 2, -1.6 + bob * 0.6, 1.2, '#ff5a5a'); eye(12 + hit * 2, 0.2 + bob * 0.6, 1.1, '#ff5a5a'); eye(8.6 + hit * 2, 0.6 + bob * 0.6, 0.9, '#ff5a5a');
+    c.globalAlpha = 1;
+    // жвала щёлкают
+    const j = Math.sin(t * 7) * 0.5 + hit * 2;
+    sh('#e8dcc0', () => { c.moveTo(12 + hit * 2, 3); c.lineTo(14 + hit * 2 + j * 0.5, 7 + j * 0.3); c.lineTo(11 + hit * 2, 4.5); c.closePath(); });
   } else if (kind === 'turtle') {
     shadow(24, 13);
     const skin = '#7fb86d', shell = '#3f7a45', shellD = '#2b5a33', plate = '#9ccf7e';
-    // лапы
-    sh(skin, () => { c.ellipse(-15, 8, 5, 4, 0.4, 0, 7); });
-    sh(skin, () => { c.ellipse(13, 8, 5, 4, -0.4, 0, 7); });
-    // хвост
-    sh(skin, () => { c.moveTo(-20, 4); c.lineTo(-27, 7); c.lineTo(-19, 8); c.closePath(); });
-    // голова
-    sh(skin, () => { c.moveTo(14, 0); c.quadraticCurveTo(20, -8, 26, -6); c.quadraticCurveTo(31, -3, 27, 2); c.quadraticCurveTo(21, 4, 15, 5); c.closePath(); });
-    eye(25, -3.5, 1.3, ink);
-    c.beginPath(); c.moveTo(27, 0.5); c.lineTo(30, -0.5); c.stroke();
+    // лапы чуть переступают
+    sh(skin, () => { c.ellipse(-15, 8, 5, 4, 0.4 + Math.sin(t * 1.4) * 0.08, 0, 7); });
+    sh(skin, () => { c.ellipse(13, 8, 5, 4, -0.4 - Math.sin(t * 1.4) * 0.08, 0, 7); });
+    sh(skin, () => { c.moveTo(-20, 4); c.lineTo(-27, 7 + Math.sin(t * 2.5) * 0.6); c.lineTo(-19, 8); c.closePath(); });
+    // голова медленно высовывается и прячется, при ударе кусает
+    const out = Math.sin(t * 0.7) * 1.6 + hit * 5;
+    part(15, 2, -hit * 0.15, out, Math.sin(t * 1.9) * 0.4, () => {
+      sh(lin(skin, 14, 30), () => { c.moveTo(14, 0); c.quadraticCurveTo(20, -8, 26, -6); c.quadraticCurveTo(31, -3, 27, 2); c.quadraticCurveTo(21, 4, 15, 5); c.closePath(); });
+      lid(25, -3.5, 1.3, ink);
+      c.beginPath(); c.moveTo(26.5, 0.5); c.lineTo(30, -0.5 + hit * 2); c.stroke();
+    });
     // панцирь: купол с краем
+    const lift = breath * 0.4;
     sh(shellD, () => c.ellipse(-2, 3, 21, 7, 0, 0, 7));
-    sh(shell, () => { c.moveTo(-22, 3); c.quadraticCurveTo(-20, -19, -2, -20); c.quadraticCurveTo(16, -19, 18, 3); c.closePath(); });
+    sh(lin(shell, -22, 18), () => { c.moveTo(-22, 3); c.quadraticCurveTo(-20, -19 - lift, -2, -20 - lift); c.quadraticCurveTo(16, -19 - lift, 18, 3); c.closePath(); });
     // пластины
     c.fillStyle = plate;
     c.strokeStyle = shellD;
@@ -790,52 +1188,71 @@ export function drawBeastFigure(c: Ctx, kind: string) {
     const plates: [number, number, number][] = [[-2, -10, 6], [-12, -5, 4.5], [8, -5, 4.5], [-8, -15, 3.6], [4, -15, 3.6]];
     for (const [px, py, pr] of plates) {
       c.beginPath();
-      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; const xx = px + Math.cos(a) * pr, yy = py + Math.sin(a) * pr * 0.8; if (i) c.lineTo(xx, yy); else c.moveTo(xx, yy); }
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; const xx = px + Math.cos(a) * pr, yy = py - lift * 0.7 + Math.sin(a) * pr * 0.8; if (i) c.lineTo(xx, yy); else c.moveTo(xx, yy); }
       c.closePath(); c.fill(); c.stroke();
     }
-    // шипы по краю
+    // мох на панцире светится
+    const mk = 0.4 + Math.sin(t * 1.6) * 0.2;
+    c.fillStyle = `rgba(200,255,170,${mk})`;
+    c.beginPath(); c.arc(-2, -10 - lift, 2, 0, 7); c.arc(-12, -5 - lift, 1.4, 0, 7); c.arc(8, -5 - lift, 1.4, 0, 7); c.fill();
     c.strokeStyle = ink; c.lineWidth = 1.6;
     for (const sx of [-17, -9, 5, 13]) sh('#e8dcc0', () => { c.moveTo(sx - 2.5, 1); c.lineTo(sx, 6); c.lineTo(sx + 2.5, 1); c.closePath(); });
-    c.beginPath(); c.moveTo(-22, 3); c.quadraticCurveTo(-20, -19, -2, -20); c.quadraticCurveTo(16, -19, 18, 3); c.stroke();
+    c.beginPath(); c.moveTo(-22, 3); c.quadraticCurveTo(-20, -19 - lift, -2, -20 - lift); c.quadraticCurveTo(16, -19 - lift, 18, 3); c.stroke();
   } else {
-    // Лорд: рогатый демон с крыльями, вид спереди
+    // Лорд: рогатый демон с крыльями, вид спереди. Крылья машут, при ударе вскидывает когти.
     shadow(26, 14);
     const hide = '#9566dc', hideD = '#5f3d9e', armor = '#3a2f52', gold = '#f3c85a', wing = '#7048b0';
-    // крылья
+    const flap = Math.sin(t * 2.6) * 0.2 + hit * 0.25;
     for (const s of [-1, 1]) {
-      sh(wing, () => {
-        c.moveTo(s * 8, -12);
-        c.lineTo(s * 30, -30);
-        c.lineTo(s * 33, -6);
-        c.quadraticCurveTo(s * 28, -10, s * 25, -2);
-        c.quadraticCurveTo(s * 21, -8, s * 17, 0);
-        c.quadraticCurveTo(s * 14, -6, s * 9, 0);
-        c.closePath();
+      part(s * 8, -12, -s * flap, 0, 0, () => {
+        sh(lin(wing, s < 0 ? -33 : 8, s < 0 ? -8 : 33), () => {
+          c.moveTo(s * 8, -12);
+          c.lineTo(s * 30, -30);
+          c.lineTo(s * 33, -6);
+          c.quadraticCurveTo(s * 28, -10, s * 25, -2);
+          c.quadraticCurveTo(s * 21, -8, s * 17, 0);
+          c.quadraticCurveTo(s * 14, -6, s * 9, 0);
+          c.closePath();
+        });
+        c.strokeStyle = 'rgba(20,18,28,.6)'; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(s * 9, -11); c.lineTo(s * 25, -2); c.moveTo(s * 9, -11); c.lineTo(s * 17, 0); c.moveTo(s * 9, -11); c.lineTo(s * 33, -6); c.stroke();
+        c.strokeStyle = ink; c.lineWidth = 1.6;
       });
-      c.strokeStyle = 'rgba(20,18,28,.6)'; c.lineWidth = 1;
-      c.beginPath(); c.moveTo(s * 9, -11); c.lineTo(s * 25, -2); c.moveTo(s * 9, -11); c.lineTo(s * 17, 0); c.stroke();
-      c.strokeStyle = ink; c.lineWidth = 1.6;
     }
     // ноги
     sh(hideD, () => { c.rect(-9, 4, 6, 9); c.rect(3, 4, 6, 9); });
     sh('#e8dcc0', () => { c.moveTo(-10, 13); c.lineTo(-8, 15); c.lineTo(-6, 13); c.moveTo(2, 13); c.lineTo(4, 15); c.lineTo(6, 13); });
     // туловище и доспех
-    sh(hide, () => { c.moveTo(-11, 6); c.quadraticCurveTo(-14, -10, -9, -16); c.lineTo(9, -16); c.quadraticCurveTo(14, -10, 11, 6); c.closePath(); });
+    sh(lin(hide, -13, 13), () => { c.moveTo(-11, 6); c.quadraticCurveTo(-14, -10 - breath * 0.4, -9, -16); c.lineTo(9, -16); c.quadraticCurveTo(14, -10 - breath * 0.4, 11, 6); c.closePath(); });
     sh(armor, () => { c.moveTo(-7, -14); c.lineTo(7, -14); c.lineTo(5, 2); c.lineTo(0, 5); c.lineTo(-5, 2); c.closePath(); });
+    // самоцвет на груди пульсирует
+    const gk = 0.5 + Math.sin(t * 3) * 0.5;
+    const gg = c.createRadialGradient(0, -6, 0, 0, -6, 7);
+    gg.addColorStop(0, `rgba(255,230,140,${0.6 * gk})`); gg.addColorStop(1, 'rgba(255,230,140,0)');
+    c.fillStyle = gg; c.beginPath(); c.arc(0, -6, 7, 0, 7); c.fill();
     sh(gold, () => { c.moveTo(0, -11); c.lineTo(3, -6); c.lineTo(0, -1); c.lineTo(-3, -6); c.closePath(); });
     // руки с когтями
     for (const s of [-1, 1]) {
-      sh(hide, () => { c.moveTo(s * 9, -14); c.quadraticCurveTo(s * 19, -10, s * 17, 2); c.lineTo(s * 13, 2); c.quadraticCurveTo(s * 14, -6, s * 8, -8); c.closePath(); });
+      part(s * 9, -14, -s * (hit * 1.1 + Math.sin(t * 1.7 + s) * 0.05), 0, 0, () => {
+        sh(hide, () => { c.moveTo(s * 9, -14); c.quadraticCurveTo(s * 19, -10, s * 17, 2); c.lineTo(s * 13, 2); c.quadraticCurveTo(s * 14, -6, s * 8, -8); c.closePath(); });
+        sh('#e8dcc0', () => { c.moveTo(s * 13, 2); c.lineTo(s * 13.5, 6); c.lineTo(s * 15, 2.5); c.lineTo(s * 16.5, 6); c.lineTo(s * 17, 2); c.closePath(); });
+      });
       sh(armor, () => c.ellipse(s * 11, -14, 5.5, 3.5, s * 0.3, 0, 7));
-      sh('#e8dcc0', () => { c.moveTo(s * 13, 2); c.lineTo(s * 13.5, 6); c.lineTo(s * 15, 2.5); c.lineTo(s * 16.5, 6); c.lineTo(s * 17, 2); c.closePath(); });
     }
     // голова, рога, глаза
-    sh(hide, () => c.ellipse(0, -21, 7, 6.5, 0, 0, 7));
-    for (const s of [-1, 1]) sh('#efe6d0', () => { c.moveTo(s * 4, -25); c.quadraticCurveTo(s * 13, -28, s * 12, -37); c.quadraticCurveTo(s * 9, -30, s * 2, -27); c.closePath(); });
-    sh(armor, () => { c.moveTo(-6, -24); c.lineTo(0, -29); c.lineTo(6, -24); c.lineTo(0, -22); c.closePath(); });
-    eye(-2.8, -21, 1.6, '#ffd34d'); eye(2.8, -21, 1.6, '#ffd34d');
+    const hb = Math.sin(t * 2.2 + 0.7) * 0.4;
+    sh(lin(hide, -7, 7), () => c.ellipse(0, -21 + hb, 7, 6.5, 0, 0, 7));
+    for (const s of [-1, 1]) sh('#efe6d0', () => { c.moveTo(s * 4, -25 + hb); c.quadraticCurveTo(s * 13, -28 + hb, s * 12, -37 + hb); c.quadraticCurveTo(s * 9, -30 + hb, s * 2, -27 + hb); c.closePath(); });
+    sh(armor, () => { c.moveTo(-6, -24 + hb); c.lineTo(0, -29 + hb); c.lineTo(6, -24 + hb); c.lineTo(0, -22 + hb); c.closePath(); });
+    // глаза горят, сильнее при ударе
+    const ek = Math.min(1, 0.55 + Math.sin(t * 3.3) * 0.2 + hit * 0.5);
+    const eg = c.createRadialGradient(0, -21 + hb, 0, 0, -21 + hb, 7);
+    eg.addColorStop(0, `rgba(255,211,77,${0.45 * ek})`); eg.addColorStop(1, 'rgba(255,211,77,0)');
+    c.fillStyle = eg; c.beginPath(); c.arc(0, -21 + hb, 7, 0, 7); c.fill();
+    eye(-2.8, -21 + hb, 1.6, '#ffd34d'); eye(2.8, -21 + hb, 1.6, '#ffd34d');
     c.strokeStyle = ink; c.lineWidth = 1.2;
-    c.beginPath(); c.moveTo(-3, -17); c.lineTo(-1, -16); c.lineTo(1, -17); c.lineTo(3, -16); c.stroke();
+    const m = hit * 1.6;
+    c.beginPath(); c.moveTo(-3, -17 + hb); c.lineTo(-1, -16 + hb + m); c.lineTo(1, -17 + hb); c.lineTo(3, -16 + hb + m); c.stroke();
   }
 }
 
