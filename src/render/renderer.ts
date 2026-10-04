@@ -230,28 +230,84 @@ export class Renderer {
       x.fillRect(0, 0, W, H);
     });
 
-    // река
+    // река: плавная линия, песчаные берега, глубина к центру, камыши, кувшинки и камни
     x.lineCap = 'round';
     x.lineJoin = 'round';
-    const river = () => {
-      x.beginPath();
-      RIVER.forEach(([px, py], i) => (i ? x.lineTo(px, py) : x.moveTo(px, py)));
-    };
+    const river = () => riverPath(x);
     river();
-    x.strokeStyle = C.bank;
-    x.lineWidth = RIVER_W + 36;
+    x.strokeStyle = '#4f5b3a'; // влажная кромка
+    x.lineWidth = RIVER_W + 60;
     x.stroke();
-    x.strokeStyle = C.river;
+    x.strokeStyle = '#a99a6b'; // песок
+    x.lineWidth = RIVER_W + 40;
+    x.stroke();
+    x.strokeStyle = '#8b7f58';
+    x.lineWidth = RIVER_W + 16;
+    x.stroke();
+    x.strokeStyle = '#2f6a80'; // мелководье
     x.lineWidth = RIVER_W;
     x.stroke();
-    x.strokeStyle = C.river2;
-    x.lineWidth = RIVER_W * 0.45;
+    x.strokeStyle = C.river;
+    x.lineWidth = RIVER_W * 0.72;
     x.stroke();
-    x.strokeStyle = 'rgba(255,255,255,.12)';
+    x.strokeStyle = '#224e66'; // глубина
+    x.lineWidth = RIVER_W * 0.38;
+    x.stroke();
+    x.strokeStyle = 'rgba(255,255,255,.18)'; // пена у берегов
     x.lineWidth = 3;
-    x.setLineDash([40, 70]);
-    x.stroke();
+    x.setLineDash([18, 26, 6, 30]);
+    for (const off of [-1, 1]) {
+      x.save();
+      x.beginPath();
+      offsetRiver(x, off * (RIVER_W / 2 - 6));
+      x.stroke();
+      x.restore();
+    }
     x.setLineDash([]);
+    {
+      const rv = rng(17);
+      const len = riverLength();
+      // камни, камыши и кувшинки вдоль реки (не у мостов)
+      for (let i = 0; i < 260; i++) {
+        const t = rv() * len;
+        const pt = riverAt(t);
+        if (g.lanes.some((l) => l.dist(pt.x, pt.y) < 150)) continue;
+        const side = rv() > 0.5 ? 1 : -1;
+        const kind = rv();
+        if (kind < 0.45) {
+          // камыши на берегу
+          const d = RIVER_W / 2 + 4 + rv() * 14;
+          const bx = pt.x + pt.nx * d * side, by = pt.y + pt.ny * d * side;
+          x.strokeStyle = rv() > 0.5 ? '#5d7a3a' : '#6e8a45';
+          x.lineWidth = 2.2;
+          for (let k = 0; k < 4; k++) {
+            const ox = (rv() - 0.5) * 14, len2 = 14 + rv() * 16;
+            x.beginPath(); x.moveTo(bx + ox, by + 6); x.quadraticCurveTo(bx + ox + 3, by - len2 / 2, bx + ox + (rv() - 0.5) * 8, by - len2); x.stroke();
+          }
+          x.fillStyle = '#6b4a2a';
+          x.beginPath(); x.ellipse(bx + 2, by - 14, 2.5, 6, 0, 0, 7); x.fill();
+        } else if (kind < 0.75) {
+          // кувшинки на воде у берега
+          const d = RIVER_W / 2 - 20 - rv() * 25;
+          const lx = pt.x + pt.nx * d * side, ly = pt.y + pt.ny * d * side;
+          const rr2 = 9 + rv() * 7;
+          x.fillStyle = rv() > 0.4 ? '#4f8a4a' : '#5f9a52';
+          x.beginPath(); x.moveTo(lx, ly); x.arc(lx, ly, rr2, 0.3, Math.PI * 2 - 0.2); x.closePath(); x.fill();
+          if (rv() > 0.6) { x.fillStyle = '#f2c6d6'; x.beginPath(); x.arc(lx + 2, ly - 2, 3.5, 0, 7); x.fill(); }
+        } else {
+          // камень в воде
+          const d = (rv() - 0.5) * RIVER_W * 0.8;
+          const sx2 = pt.x + pt.nx * d, sy2 = pt.y + pt.ny * d;
+          const rs = 8 + rv() * 12;
+          x.fillStyle = 'rgba(255,255,255,.14)';
+          x.beginPath(); x.ellipse(sx2, sy2 + 2, rs * 1.5, rs * 0.7, 0, 0, 7); x.fill();
+          x.fillStyle = '#5a5e5f';
+          x.beginPath(); x.ellipse(sx2, sy2, rs, rs * 0.7, rv(), 0, 7); x.fill();
+          x.fillStyle = '#7b8081';
+          x.beginPath(); x.ellipse(sx2 - rs * 0.25, sy2 - rs * 0.2, rs * 0.55, rs * 0.35, 0, 0, 7); x.fill();
+        }
+      }
+    }
 
     // логова боссов
     for (const p of PITS) {
@@ -358,34 +414,87 @@ export class Renderer {
       x.fill();
     });
 
-    // лес: деревья везде, кроме дорог, реки, баз, полян и логов
+    // лес: деревья везде, кроме дорог, реки, баз, полян и логов. Сначала собираем места, потом рисуем сверху вниз,
+    // чтобы нижние деревья перекрывали верхние; под лесом — тёмная подстилка
     const tr = rng(42);
     const spots = [...ALTAR_POS, ...[0, 1, 2].flatMap((l) => [barracksPos(g.lanes, l, 0), barracksPos(g.lanes, l, 1)])];
-    for (let i = 0; i < 5200 * area; i++) {
+    const trees: { x: number; y: number; s: number; k: number; c: number }[] = [];
+    for (let i = 0; i < 5600 * area; i++) {
       const px = tr() * W;
       const py = tr() * H;
-      const s = 18 + tr() * 22;
+      const s = 16 + tr() * 24;
+      const k = tr(); // вид: <0.62 лиственное, <0.88 ёлка, иначе куст
+      const c = tr();
       const free =
         g.lanes.every((l) => l.dist(px, py) > 92 + s) &&
-        riverDist(px, py) > RIVER_W / 2 + 22 + s &&
+        riverDist(px, py) > RIVER_W / 2 + 34 + s &&
         THRONE_POS.every((t) => Math.max(Math.abs(t.x - px), Math.abs(t.y - py)) > BASE_HALF + 30 + s) &&
-        CAMPS.every((c) => Math.hypot(c.x - px, c.y - py) > 100 + s) &&
-        PITS.every((p) => Math.hypot(p.x - px, p.y - py) > 195 + s) &&
-        GUARD_POS.every((p) => Math.hypot(p.x - px, p.y - py) > 110 + s) &&
-        spots.every((p) => Math.hypot(p.x - px, p.y - py) > 85 + s);
-      if (!free) continue;
-      x.fillStyle = 'rgba(0,0,0,.25)';
-      x.beginPath();
-      x.arc(px + 5, py + 8, s, 0, 7);
-      x.fill();
-      x.fillStyle = C.tree;
-      x.beginPath();
-      x.arc(px, py, s, 0, 7);
-      x.fill();
-      x.fillStyle = tr() > 0.4 ? C.tree2 : C.tree3;
-      x.beginPath();
-      x.arc(px - s * 0.2, py - s * 0.25, s * 0.72, 0, 7);
-      x.fill();
+        CAMPS.every((cc) => Math.hypot(cc.x - px, cc.y - py) > 100 + s) &&
+        PITS.every((pp) => Math.hypot(pp.x - px, pp.y - py) > 195 + s) &&
+        GUARD_POS.every((pp) => Math.hypot(pp.x - px, pp.y - py) > 110 + s) &&
+        spots.every((pp) => Math.hypot(pp.x - px, pp.y - py) > 85 + s);
+      if (free) trees.push({ x: px, y: py, s, k, c });
+    }
+    // подстилка: тёмные пятна под кронами
+    x.fillStyle = 'rgba(16,30,20,.35)';
+    for (const t of trees) { x.beginPath(); x.arc(t.x + 4, t.y + 10, t.s * 1.5, 0, 7); x.fill(); }
+    trees.sort((p1, p2) => p1.y - p2.y);
+    for (const t of trees) {
+      const { s: sz } = t;
+      x.fillStyle = 'rgba(0,0,0,.28)';
+      x.beginPath(); x.ellipse(t.x + 7, t.y + sz * 0.55, sz * 0.95, sz * 0.5, 0, 0, 7); x.fill();
+      if (t.k < 0.62) {
+        // лиственное: ствол и пышная крона из трёх кругов, светлый край сверху-слева
+        x.fillStyle = '#4a3522';
+        x.fillRect(t.x - 3, t.y, 6, sz * 0.5);
+        const base = t.c < 0.33 ? C.tree : t.c < 0.66 ? '#21402a' : '#263a24';
+        const mid = t.c < 0.5 ? C.tree2 : '#2d4d2a';
+        const top = t.c < 0.5 ? C.tree3 : '#3a5e33';
+        x.fillStyle = base;
+        x.beginPath(); x.arc(t.x - sz * 0.35, t.y - sz * 0.1, sz * 0.7, 0, 7); x.arc(t.x + sz * 0.35, t.y - sz * 0.05, sz * 0.7, 0, 7); x.arc(t.x, t.y - sz * 0.45, sz * 0.78, 0, 7); x.fill();
+        x.fillStyle = mid;
+        x.beginPath(); x.arc(t.x - sz * 0.15, t.y - sz * 0.5, sz * 0.55, 0, 7); x.fill();
+        x.fillStyle = top;
+        x.beginPath(); x.arc(t.x - sz * 0.3, t.y - sz * 0.65, sz * 0.3, 0, 7); x.fill();
+      } else if (t.k < 0.88) {
+        // ёлка: три яруса треугольников
+        x.fillStyle = '#3e2c1c';
+        x.fillRect(t.x - 2.5, t.y + sz * 0.1, 5, sz * 0.45);
+        const dark = t.c < 0.5 ? '#16301f' : '#1a3624';
+        const light = t.c < 0.5 ? '#244a30' : '#2a5236';
+        for (let j = 0; j < 3; j++) {
+          const w = sz * (0.95 - j * 0.22), yb = t.y + sz * 0.2 - j * sz * 0.42;
+          x.fillStyle = dark;
+          x.beginPath(); x.moveTo(t.x - w, yb); x.lineTo(t.x, yb - sz * 0.75); x.lineTo(t.x + w, yb); x.closePath(); x.fill();
+          x.fillStyle = light;
+          x.beginPath(); x.moveTo(t.x - w * 0.9, yb - 2); x.lineTo(t.x, yb - sz * 0.72); x.lineTo(t.x - w * 0.05, yb - 2); x.closePath(); x.fill();
+        }
+      } else {
+        // куст
+        x.fillStyle = '#2b4a2c';
+        x.beginPath(); x.arc(t.x - sz * 0.3, t.y, sz * 0.45, 0, 7); x.arc(t.x + sz * 0.3, t.y + 2, sz * 0.42, 0, 7); x.arc(t.x, t.y - sz * 0.2, sz * 0.5, 0, 7); x.fill();
+        x.fillStyle = '#3f6a3a';
+        x.beginPath(); x.arc(t.x - sz * 0.15, t.y - sz * 0.3, sz * 0.25, 0, 7); x.fill();
+        if (t.c > 0.7) { x.fillStyle = '#c94b4b'; for (let j = 0; j < 4; j++) { x.beginPath(); x.arc(t.x + (j - 1.5) * sz * 0.2, t.y - sz * 0.05 + (j % 2) * 4, 2.2, 0, 7); x.fill(); } }
+      }
+    }
+    // трава и цветы у дорог
+    {
+      const fr = rng(5);
+      for (let i = 0; i < 1400 * area; i++) {
+        const px = fr() * W, py = fr() * H;
+        const d = Math.min(...g.lanes.map((l) => l.dist(px, py)));
+        if (d < 58 || d > 120 || riverDist(px, py) < RIVER_W / 2 + 40) continue;
+        if (THRONE_POS.some((t) => Math.max(Math.abs(t.x - px), Math.abs(t.y - py)) < BASE_HALF + 20)) continue;
+        if (fr() < 0.7) {
+          x.strokeStyle = fr() > 0.5 ? '#4c7240' : '#5a8448';
+          x.lineWidth = 1.6;
+          for (let k = 0; k < 3; k++) { x.beginPath(); x.moveTo(px + k * 3, py); x.lineTo(px + k * 3 + (fr() - 0.5) * 6, py - 6 - fr() * 6); x.stroke(); }
+        } else {
+          x.fillStyle = ['#f3d27a', '#f2f0e6', '#d98ad0', '#8ec5f0'][Math.floor(fr() * 4)];
+          x.beginPath(); x.arc(px, py, 2.6, 0, 7); x.fill();
+        }
+      }
     }
     // валуны у краёв леса
     const rr = rng(99);
@@ -420,19 +529,47 @@ export class Renderer {
       x.setLineDash([30, 40]);
       x.stroke();
       x.setLineDash([]);
-      // мост там, где дорога пересекает реку
-      for (let s = 0; s < lane.length; s += 13) {
-        const p = lane.at(s);
-        if (riverDist(p.x, p.y) > RIVER_W / 2 + 18) continue;
-        x.strokeStyle = C.plank;
-        x.lineWidth = 6;
+      // мост там, где дорога пересекает реку: настил из досок, по бокам перила со столбиками
+      const onBridge: number[] = [];
+      for (let t = 0; t < lane.length; t += 4) {
+        const p = lane.at(t);
+        if (riverDist(p.x, p.y) <= RIVER_W / 2 + 34) onBridge.push(t);
+      }
+      if (onBridge.length) {
+        const t0 = onBridge[0], t1 = onBridge[onBridge.length - 1];
+        // настил
         x.beginPath();
-        x.moveTo(p.x - p.nx * 48, p.y - p.ny * 48);
-        x.lineTo(p.x + p.nx * 48, p.y + p.ny * 48);
+        for (let t = t0; t <= t1; t += 4) { const p = lane.at(t); if (t === t0) x.moveTo(p.x, p.y); else x.lineTo(p.x, p.y); }
+        x.strokeStyle = '#3a2c1a';
+        x.lineWidth = 120;
+        x.lineCap = 'butt';
         x.stroke();
-        x.fillStyle = '#3a2c1a';
-        x.fillRect(p.x - p.nx * 54 - 4, p.y - p.ny * 54 - 4, 8, 8);
-        x.fillRect(p.x + p.nx * 54 - 4, p.y + p.ny * 54 - 4, 8, 8);
+        x.strokeStyle = '#7a5c36';
+        x.lineWidth = 108;
+        x.stroke();
+        x.lineCap = 'round';
+        for (let t = t0; t <= t1; t += 14) {
+          const p = lane.at(t);
+          x.strokeStyle = (Math.floor(t / 14) % 2) ? '#6a4e2c' : '#86663e';
+          x.lineWidth = 11;
+          x.beginPath(); x.moveTo(p.x - p.nx * 52, p.y - p.ny * 52); x.lineTo(p.x + p.nx * 52, p.y + p.ny * 52); x.stroke();
+          x.strokeStyle = 'rgba(0,0,0,.25)'; x.lineWidth = 1.5;
+          x.beginPath(); x.moveTo(p.x - p.nx * 52 + 6, p.y - p.ny * 52); x.lineTo(p.x + p.nx * 52 + 6, p.y + p.ny * 52); x.stroke();
+        }
+        // перила
+        for (const sd of [-1, 1]) {
+          x.beginPath();
+          for (let t = t0; t <= t1; t += 4) { const p = lane.at(t); const qx = p.x + p.nx * 58 * sd, qy = p.y + p.ny * 58 * sd; if (t === t0) x.moveTo(qx, qy); else x.lineTo(qx, qy); }
+          x.strokeStyle = '#2c2014'; x.lineWidth = 9; x.stroke();
+          x.strokeStyle = '#9a7748'; x.lineWidth = 5; x.stroke();
+          for (let t = t0; t <= t1 + 1; t += 40) {
+            const p = lane.at(Math.min(t, t1));
+            x.fillStyle = '#2c2014';
+            x.beginPath(); x.arc(p.x + p.nx * 58 * sd, p.y + p.ny * 58 * sd, 7, 0, 7); x.fill();
+            x.fillStyle = '#b08a55';
+            x.beginPath(); x.arc(p.x + p.nx * 58 * sd - 1, p.y + p.ny * 58 * sd - 1, 4.5, 0, 7); x.fill();
+          }
+        }
       }
     }
 
@@ -462,6 +599,7 @@ export class Renderer {
     const sh = Math.min(WORLD.H - sy, Math.ceil(this.vh / cam.z) + 4);
     if (sw > 0 && sh > 0) ctx.drawImage(this.bg, sx * BG_SCALE, sy * BG_SCALE, sw * BG_SCALE, sh * BG_SCALE, sx, sy, sw, sh);
 
+    this.drawWater();
     this.drawPads();
     for (const s of [0, 1] as Side[]) { this.drawThrone(s); this.drawBase(s); }
     for (const n of g.neutrals) this.drawNeutral(n);
@@ -488,6 +626,26 @@ export class Renderer {
     }
     this.drawFx();
     this.drawFog();
+  }
+
+  /** Течение реки: светлые блики плывут по воде (поверх нарисованного фона). */
+  private drawWater() {
+    const { ctx } = this;
+    const t = performance.now() / 1000;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.setLineDash([26, 120, 10, 160]);
+    for (const [off, a, sp] of [[-RIVER_W * 0.22, 0.13, 38], [RIVER_W * 0.12, 0.1, 30], [0, 0.16, 46]] as const) {
+      ctx.lineDashOffset = -t * sp - off * 3;
+      ctx.strokeStyle = `rgba(220,240,255,${a})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      offsetRiver(ctx, off);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   /** Свои видны всегда, чужие — только вне тумана. */
@@ -1183,6 +1341,56 @@ function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: 
   ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
   ctx.fillStyle = col;
   ctx.fillRect(x, y, w * Math.max(0, Math.min(1, k)), h);
+}
+
+/** Сглаженная река: квадратичные кривые через середины отрезков ломаной RIVER. */
+function riverPath(c: CanvasRenderingContext2D) {
+  c.beginPath();
+  c.moveTo(RIVER[0][0], RIVER[0][1]);
+  for (let i = 1; i < RIVER.length - 1; i++) {
+    const [x1, y1] = RIVER[i], [x2, y2] = RIVER[i + 1];
+    c.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+  }
+  const last = RIVER[RIVER.length - 1];
+  c.lineTo(last[0], last[1]);
+}
+
+/** Точки сглаженной реки с шагом ~8 единиц (считаются один раз). */
+let riverPts: { x: number; y: number; nx: number; ny: number; d: number }[] | null = null;
+function riverSamples() {
+  if (riverPts) return riverPts;
+  const raw: [number, number][] = [[RIVER[0][0], RIVER[0][1]]];
+  let px = RIVER[0][0], py = RIVER[0][1];
+  for (let i = 1; i < RIVER.length - 1; i++) {
+    const [x1, y1] = RIVER[i], [x2, y2] = RIVER[i + 1];
+    const ex = (x1 + x2) / 2, ey = (y1 + y2) / 2;
+    for (let k = 1; k <= 12; k++) {
+      const t = k / 12;
+      raw.push([(1 - t) * (1 - t) * px + 2 * (1 - t) * t * x1 + t * t * ex, (1 - t) * (1 - t) * py + 2 * (1 - t) * t * y1 + t * t * ey]);
+    }
+    px = ex; py = ey;
+  }
+  raw.push(RIVER[RIVER.length - 1]);
+  let d = 0;
+  riverPts = raw.map(([x, y], i) => {
+    const [ax, ay] = raw[Math.max(0, i - 1)], [bx, by] = raw[Math.min(raw.length - 1, i + 1)];
+    const len = Math.hypot(bx - ax, by - ay) || 1;
+    if (i) d += Math.hypot(x - raw[i - 1][0], y - raw[i - 1][1]);
+    return { x, y, nx: -(by - ay) / len, ny: (bx - ax) / len, d };
+  });
+  return riverPts;
+}
+function riverLength() { const p = riverSamples(); return p[p.length - 1].d; }
+function riverAt(dist: number) {
+  const p = riverSamples();
+  let i = 0;
+  while (i < p.length - 1 && p[i + 1].d < dist) i++;
+  return p[i];
+}
+/** Линия вдоль реки со сдвигом off поперёк течения. */
+function offsetRiver(c: CanvasRenderingContext2D, off: number) {
+  const p = riverSamples();
+  p.forEach((q, i) => (i ? c.lineTo(q.x + q.nx * off, q.y + q.ny * off) : c.moveTo(q.x + q.nx * off, q.y + q.ny * off)));
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

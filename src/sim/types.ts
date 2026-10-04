@@ -37,6 +37,7 @@ export interface Trip {
   x: number;
   y: number;
   idx: number; // место в отряде
+  spd?: number; // множитель скорости по пути туда: отряд, отправленный вместе, приходит одновременно
 }
 
 export type NeutralKind = 'lord' | 'turtle' | 'camp' | 'guard';

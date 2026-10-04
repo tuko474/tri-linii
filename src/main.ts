@@ -1112,7 +1112,6 @@ function openTrip(nid: number) {
   const n = g.neutrals[nid];
   tripNid = nid;
   const mineOut = g.party(nid, me);
-  const free = g.heroes.filter((h) => h.side === me && !h.dead && !h.trip);
   const name = g.neutralName(n);
   $('tripTitle').textContent = n.kind === 'camp' ? 'Лесной лагерь' : name;
   if (n.kind === 'guard' && n.owner === me) {
@@ -1134,20 +1133,11 @@ function openTrip(nid: number) {
         : `Лесные монстры дают ${BAL.neutral.camp.gold} золота. Хватит одного героя.`;
   const foeNote = g.party(nid, foe()).length && g.visible(me, n.x, n.y, 60) ? ' Там уже вражеские герои — сначала придётся победить их.' : '';
   $('tripText').textContent = n.alive ? reward + foeNote : `${name} появится через ${clock(n.respawnT)}. ${reward}`;
-  tripPick = new Set();
-  if ((n.kind === 'camp' || n.kind === 'guard') && free.length) {
-    // предложим героя ближе всего к лагерю
-    const best = [...free].sort((a, b) => dist(g.heroPos(a), n) - dist(g.heroPos(b), n))[0];
-    tripPick.add(best);
-  }
+  tripPick = new Set(); // никого заранее не выбираем — игрок решает сам
   renderTripHeroes();
   $('tripRecall').hidden = mineOut.length === 0;
   $('tripModal').hidden = false;
   modalPause = true;
-}
-
-function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function renderTripHeroes() {

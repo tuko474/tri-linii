@@ -594,12 +594,22 @@ export class Game {
     if (!n || !n.alive) return 0;
     if (n.kind === 'guard' && n.owner === side) return 0; // свой страж — бить нечего
     let idx = this.party(nid, side).length;
-    let sent = 0;
+    const group: Hero[] = [];
     for (const h of list) {
       if (h.side !== side || h.dead || h.trip) continue;
       const p = this.heroPos(h);
       h.trip = { nid, phase: 'go', x: p.x, y: p.y, idx: idx++ };
-      sent++;
+      group.push(h);
+    }
+    const sent = group.length;
+    // одновременное прибытие: все идут «маршем» (+BAL.partyMarch к скорости) и приходят ко времени самого дальнего
+    if (sent > 1) {
+      const far = Math.max(...group.map((h) => { const sp = this.tripSpot(n, h); return Math.hypot(sp.x - h.trip!.x, sp.y - h.trip!.y); }));
+      for (const h of group) {
+        const sp = this.tripSpot(n, h);
+        const d = Math.hypot(sp.x - h.trip!.x, sp.y - h.trip!.y);
+        h.trip!.spd = Math.max(0.3, (d / Math.max(1, far)) * (1 + BAL.partyMarch));
+      }
     }
     if (sent && n.kind !== 'camp') this.tell(side, `Твои герои идут на: ${this.neutralName(n)}`, 'info');
     return sent;
@@ -756,8 +766,9 @@ export class Game {
     const n = this.neutrals[t.nid];
     if (t.phase === 'go') {
       if (!n.alive) { t.phase = 'back'; return; }
-      if (this.moveTrip(h, this.tripSpot(n, h), dt)) {
+      if (this.moveTrip(h, this.tripSpot(n, h), dt * (t.spd ?? 1))) {
         t.phase = 'fight';
+        t.spd = undefined;
         if (n.kind === 'lord' || n.kind === 'turtle') this.say(h.side, 'roar');
       }
       return;
@@ -1363,7 +1374,7 @@ export class Game {
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
       autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
-        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx] : 0, h.lane, r(h.helpT), r(h.moveCd), h.stars, r(h.cd2)]),
+        h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx, h.trip.spd ?? 0] : 0, h.lane, r(h.helpT), r(h.moveCd), h.stars, r(h.cd2)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
         r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r]),
       wards: this.wards.map((w) => [w.side, w.lane, r(w.s), w.off, r(w.ttl), r(w.dmg), w.range, r(w.atkCd)]),
@@ -1384,8 +1395,8 @@ export class Game {
       if (!h) continue;
       [, h.lvl, h.xp, h.hp, h.maxHp, h.mana, h.maxMana, h.dmg, h.cd, h.atkCd] = a as number[];
       h.dead = a[10] === 1; h.respawn = a[11] as number; h.off = a[12] as number; h.s = a[13] as number;
-      const tr = a[14] as 0 | [number, 'go' | 'fight' | 'back', number, number, number];
-      h.trip = tr ? { nid: tr[0], phase: tr[1], x: tr[2], y: tr[3], idx: tr[4] } : null;
+      const tr = a[14] as 0 | [number, 'go' | 'fight' | 'back', number, number, number, number];
+      h.trip = tr ? { nid: tr[0], phase: tr[1], x: tr[2], y: tr[3], idx: tr[4], spd: tr[5] || undefined } : null;
       h.lane = a[15] as number; h.helpT = a[16] as number; h.moveCd = a[17] as number; h.stars = a[18] as number; h.cd2 = a[19] as number;
     }
     this.creeps = S.creeps.map((a) => ({
