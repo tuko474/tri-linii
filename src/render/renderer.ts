@@ -966,6 +966,7 @@ export class Renderer {
       ctx.font = '700 16px system-ui, sans-serif';
       ctx.textAlign = 'center';
       if (lvl) ctx.fillText('★'.repeat(lvl), 0, 46);
+      this.drawWaveTimer();
       ctx.restore();
     }
     const a = ALTAR_POS[side];
@@ -993,6 +994,49 @@ export class Renderer {
     ctx.beginPath(); ctx.moveTo(0, -62); ctx.lineTo(13, -34); ctx.lineTo(0, -10); ctx.lineTo(-13, -34); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.45)';
     ctx.beginPath(); ctx.moveTo(0, -58); ctx.lineTo(5, -34); ctx.lineTo(0, -16); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  /** Таймер до следующей волны над бараком (рисуется в его системе координат).
+   *  Кольцо убывает от полного к пустому; последние 5 с — золотое и пульсирует,
+   *  первые 1,5 с после выхода волны — «Волна!». Только отрисовка, симуляцию не трогает. */
+  private drawWaveTimer() {
+    const { ctx, g } = this;
+    const left = Math.max(0, g.waveTimer);
+    const since = BAL.waveEvery - left; // сколько прошло с выхода прошлой волны
+    const y = -90;
+    ctx.save();
+    ctx.translate(0, y);
+    if (g.waveNo > 0 && since < 1.5) {
+      const a = 1 - since / 1.5;
+      ctx.globalAlpha = a;
+      ctx.font = '800 22px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 4; ctx.strokeStyle = C.dark;
+      ctx.strokeText('Волна!', 0, -since * 14);
+      ctx.fillStyle = '#f3d27a';
+      ctx.fillText('Волна!', 0, -since * 14);
+      ctx.restore();
+      return;
+    }
+    const total = g.waveNo === 0 ? BAL.firstWave : BAL.waveEvery;
+    const frac = Math.min(1, left / total);
+    const soon = left <= 5;
+    const pulse = soon ? 1 + Math.sin(performance.now() / 90) * 0.06 : 1;
+    ctx.scale(pulse, pulse);
+    const R = 24;
+    ctx.fillStyle = 'rgba(14,20,16,.82)';
+    ctx.beginPath(); ctx.arc(0, 0, R + 4, 0, 7); ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(255,255,255,.12)';
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.stroke();
+    ctx.strokeStyle = soon ? '#f3d27a' : '#cfd8c8';
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
+    ctx.fillStyle = soon ? '#f3d27a' : '#eef3ea';
+    ctx.font = '800 22px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(Math.ceil(left)), 0, 1);
     ctx.restore();
   }
 

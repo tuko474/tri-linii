@@ -993,7 +993,7 @@ function syncPanel() {
   if ($('foeHpN').textContent !== hpTxt(g.throne[foe()])) $('foeHpN').textContent = hpTxt(g.throne[foe()]);
   $('clock').textContent = clock(g.t);
   const ping = ls && ls.rtt ? ` · ${Math.round(ls.rtt)} мс` : '';
-  $('waveInfo').textContent = lsWaiting ? (mode === 'guest' ? 'ждём хоста…' : 'ждём соперника…') + ping : `волна ${g.waveNo} · ${Math.ceil(g.waveTimer)} с${ping}`;
+  $('waveInfo').textContent = lsWaiting ? (mode === 'guest' ? 'ждём хоста…' : 'ждём соперника…') + ping : `волна ${g.waveNo + 1} через ${Math.ceil(g.waveTimer)} с${ping}`;
   for (const b of heroBtns) {
     const { h } = b;
     b.cast.classList.toggle('ready', g.canCast(h));
