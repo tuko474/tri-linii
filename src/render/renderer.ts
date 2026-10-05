@@ -1336,7 +1336,7 @@ export class Renderer {
   private drawHero(h: Hero) {
     const { ctx, g } = this;
     const p = g.heroPos(h);
-    const R = 40;
+    const R = 46;
     ctx.save();
     ctx.translate(p.x, p.y);
     if (h.dead) {
@@ -1405,16 +1405,20 @@ export class Renderer {
     if (h.side === 1) ctx.scale(-1, 1); // верхняя команда смотрит в другую сторону
     drawHeroFigure(ctx, h.def, h.flash > 0, pose);
     ctx.restore();
-    // уровень
+    // уровень — маленький значок на краю подставки, не на фигурке и не на соседе
+    const lx = R * 0.78, ly = R * 1.02;
     ctx.fillStyle = '#f3d27a';
+    ctx.strokeStyle = C.dark;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(R + 4, R * 0.55, 15, 0, 7);
+    ctx.arc(lx, ly, 12.5, 0, 7);
     ctx.fill();
+    ctx.stroke();
     ctx.fillStyle = C.dark;
-    ctx.font = '800 19px system-ui, sans-serif';
+    ctx.font = '800 15px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(h.lvl), R + 4, R * 0.55 + 1);
+    ctx.fillText(String(h.lvl), lx, ly + 1);
     // звёзды героя (прокачка вне боя) — видны и у соперника
     if (h.stars > 0) {
       ctx.font = '900 15px system-ui, sans-serif';

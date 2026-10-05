@@ -9,7 +9,7 @@ import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx,
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
 /** Сдвиг героев колонны вбок от оси дороги — чтобы не стояли ровной ниткой. */
-const HERO_ZIG = [0, -26, 26];
+const HERO_ZIG = [0, -24, 24];
 export type UpgKey = 'armor' | 'fury' | 'mana' | 'gun' | 'walls' | 'thorns';
 
 export class Game {
@@ -445,7 +445,8 @@ export class Game {
     let dealtSum = 0;
     const hit = (c: Creep, d: number) => { dealtSum += Math.min(d, Math.max(0, c.hp)); this.hitCreep(c, d); };
     const enemies = this.creeps.filter((c) => !c.dead && c.side !== h.side && c.lane === h.lane);
-    const inRange = enemies.filter((c) => Math.abs(c.s - h.s) <= range);
+    const front = this.colFront(h);
+    const inRange = enemies.filter((c) => this.reaches(h, c, range, front));
     const lane = this.lanes[h.lane];
     const need = strict ? 2 : 1;
     let ok = false;
@@ -1119,11 +1120,11 @@ export class Game {
 
       h.atkCd -= dt;
       if (h.atkCd > 0) continue;
-      const tgt = this.nearestEnemyCreep(h.lane, h.side, h.s, h.def.range);
+      const tgt = this.heroTarget(h);
       if (!tgt) continue;
       h.atkCd = h.def.rate * this.heroMods(h).rateMul;
       const dmg = this.atkDmg(h);
-      if (h.def.range < 150) {
+      if (h.def.range < 150 && Math.abs(tgt.s - h.s) < 150) {
         this.dealt(h, Math.min(dmg, tgt.hp));
         this.hitCreep(tgt, dmg);
       } else {
@@ -1167,6 +1168,40 @@ export class Game {
       this.throneCd[side] = cfg.rate * BAL.gunUp.rate ** up;
       this.projs.push({ x: t.x, y: t.y - 40, target: { kind: 'creep', c: best }, dmg: (cfg.dmg + cfg.dmgPerMin * (this.t / 60)) * (1 + up * BAL.gunUp.dmg), speed: 900, color: side === 0 ? '#9ff5e8' : '#ffb0bb', size: 7 });
     }
+  }
+
+  /** Передний край колонны героя: позиция самого переднего живого героя его стороны на этой линии (не в походе). */
+  colFront(h: Hero): number {
+    const dir = h.side === 0 ? 1 : -1;
+    let f = h.s;
+    for (const o of this.heroes) {
+      if (o.side !== h.side || o.lane !== h.lane || o.dead || o.trip) continue;
+      if ((o.s - f) * dir > 0) f = o.s;
+    }
+    return f;
+  }
+
+  /** Достаёт ли герой на линии крипа. «Позиция отвечает» (6 окт 2026): крипа, который бьёт колонну
+   *  (стоит перед её передним краем на расстоянии своей атаки), могут бить все её герои — и ближние, и задние.
+   *  Иначе лучники и катапульта били вышку безнаказанно. front — `colFront(h)`. */
+  reaches(h: Hero, c: Creep, range: number, front: number): boolean {
+    if (Math.abs(c.s - h.s) <= range) return true;
+    const ahead = (c.s - front) * (h.side === 0 ? 1 : -1);
+    return ahead >= -BAL.heroGap && ahead <= Math.max(range, c.range + c.r + BAL.heroReachPad);
+  }
+
+  /** Цель автоатаки героя на линии: ближний к нему крип, которого он достаёт. */
+  private heroTarget(h: Hero): Creep | null {
+    const front = this.colFront(h);
+    let best: Creep | null = null;
+    let bd = Infinity;
+    for (const c of this.creeps) {
+      if (c.dead || c.lane !== h.lane || c.side === h.side) continue;
+      if (!this.reaches(h, c, h.def.range, front)) continue;
+      const d = Math.abs(c.s - h.s);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
   }
 
   private nearestEnemyCreep(lane: number, side: Side, s: number, range: number): Creep | null {
