@@ -51,7 +51,7 @@ const kv = {
 
 /** Номер сборки игры (0.1.N → N); для сервера. Локальная сборка — «dev», считаем свежей. */
 /** Версия протокола игры: поднимаем, когда меняются сообщения с сервером (сервер не пускает в бои ниже своего MIN_BUILD). */
-export const PROTO = 52;
+export const PROTO = 53; // 53: герои колонной вдоль линии, катапульта бьёт задних (6 окт 2026)
 /** Что сообщаем серверу: протокол, а у тестовых сборок 0.1.N — номер сборки, если он больше. Локально — «dev», считаем свежей. */
 const verMeta = document.querySelector<HTMLMetaElement>('meta[name="app-version"]')?.content ?? 'dev';
 export const BUILD = verMeta === 'dev' ? 9999 : Math.max(PROTO, verMeta.startsWith('0.1.') ? Number(verMeta.split('.')[2]) || 0 : 0);
@@ -110,7 +110,7 @@ export class Online {
       this.retry = 0;
       const id = kv.get('tl-acc-id');
       const token = kv.get('tl-acc-token');
-      if (id && token) this.raw({ t: 'auth', id, token, matchId: this.match?.id, v: BUILD });
+      if (id && token) this.raw({ t: 'auth', id, token, matchId: this.match?.id, v: BUILD, p: PROTO });
       for (const s of this.outbox.splice(0)) ws.send(s);
       clearInterval(this.pingTimer);
       this.pingTimer = window.setInterval(() => this.raw({ t: 'ping', ts: Math.round(performance.now()) }), 5000);

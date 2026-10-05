@@ -2,14 +2,19 @@
 declare const process: { argv: string[] };
 import { Game } from '../src/sim/game';
 import { Bot, botPicks } from '../src/sim/bot';
+import { heroById } from '../src/data/heroes';
 
 const N = Number(process.argv[2] ?? 20);
 const RUSH = process.argv[3] === 'rush';
 // stars=A,B — звёзды всех героев стороны 0 и 1 (например stars=5,0)
 const STARS = (process.argv.find((a) => a.startsWith('stars=')) ?? 'stars=0,0').slice(6).split(',').map(Number);
 const res: { winner: number | null; t: number; pushes: number[]; lvl: number; lords: number[]; turtles: number[]; camps: number[] }[] = [];
+// order — у обеих сторон одни и те же герои, но у второй в колоннах линий обратный порядок (танк сзади)
+const ORDER = process.argv.includes('order');
 for (let i = 0; i < N; i++) {
-  const g = new Game([botPicks().map((p) => ({ ...p, stars: STARS[0] })), botPicks().map((p) => ({ ...p, stars: STARS[1] }))], 'normal');
+  const p0 = ORDER ? botPicks().sort((a, b) => heroById(b.heroId).hp - heroById(a.heroId).hp) : botPicks();
+  const p1 = ORDER ? [...p0].reverse() : botPicks();
+  const g = new Game([p0.map((p) => ({ ...p, stars: STARS[0] })), p1.map((p) => ({ ...p, stars: STARS[1] }))], 'normal');
   g.autoCast = [true, true];
   const HARD = process.argv[4] === 'hard';
   const bots = [new Bot(0, RUSH ? 'rush' : 'normal'), new Bot(1, 'normal', HARD ? 'hard' : 'normal')];
@@ -25,4 +30,5 @@ for (let i = 0; i < N; i++) {
 }
 console.log(res.map((r) => `win=${r.winner} t=${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')} pushes=${r.pushes} heroLvl=${r.lvl} lords=${r.lords} turtles=${r.turtles} camps=${r.camps}`).join('\n'));
 const times = res.filter((r) => r.winner !== null).map((r) => r.t);
+console.log('wins', res.filter((r) => r.winner === 0).length, ':', res.filter((r) => r.winner === 1).length);
 console.log('finished', times.length, '/', N, 'avg min', (times.reduce((a, b) => a + b, 0) / Math.max(1, times.length) / 60).toFixed(1));

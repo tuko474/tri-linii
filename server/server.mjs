@@ -18,6 +18,9 @@ const REJOIN_MS = 45000; // сколько ждём вернувшегося п�
 const START_CRYSTALS = 300;
 /** Минимальная сборка игры для боёв по сети: старые сами начисляли кристаллы и звёзды. */
 const MIN_BUILD = 52;
+// Протокол боя (PROTO в src/online.ts). В бой сводим только игроков с одинаковым протоколом —
+// иначе симуляции разойдутся. Старые клиенты (до 53) его не шлют — у них 52.
+const protoOf = (p) => Number(p) || 52;
 /** Версия протокола сервера: по ней игра понимает, что умеет сервер (в /health и в профиле). 2 — бой с ботом вместо соперника. */
 const SERVER_V = 2;
 const STARTERS = Object.keys(HERO_PRICE).filter((id) => HERO_PRICE[id] === 0);
@@ -292,8 +295,9 @@ class Client {
     try { this.handle(m); } catch (e) { console.error('handle', m.t, e); }
   }
 
-  login(u, build) {
+  login(u, build, proto) {
     this.build = Number(build) || 0;
+    this.proto = protoOf(proto);
     const prev = online.get(u.id);
     if (prev && prev !== this) { prev.send({ t: 'kicked' }); prev.user = null; prev.close(); }
     this.user = u;
@@ -319,20 +323,20 @@ class Client {
         const id = rid(9);
         // прогресс с телефона не переносим: его можно накрутить. Новый аккаунт — как новая игра.
         q.insert.run(id, rid(24), name, START_CRYSTALS, JSON.stringify(STARTERS), '{}', Date.now(), Date.now());
-        this.login(q.byId.get(id), m.v);
+        this.login(q.byId.get(id), m.v, m.p);
         return;
       }
       case 'auth': {
         const u = q.byId.get(String(m.id ?? ''));
         if (!u || u.token !== m.token) { this.send({ t: 'error', where: 'auth', text: 'Аккаунт не найден' }); return; }
-        this.login(u, m.v);
+        this.login(u, m.v, m.p);
         if (m.matchId) matches.get(m.matchId)?.rejoin(this);
         return;
       }
       case 'login': {
         const u = q.byName.get(cleanName(m.name));
         if (!u || !checkPass(String(m.password ?? ''), u.pass)) { this.send({ t: 'error', where: 'login', text: 'Неверное имя или пароль' }); return; }
-        this.login(u, m.v);
+        this.login(u, m.v, m.p);
         return;
       }
       case 'top':
@@ -517,6 +521,7 @@ class Client {
         const h = rooms.get(code);
         if (!h || !h.alive || !h.user) { this.send({ t: 'error', where: 'join', text: 'Комната не найдена. Проверь код' }); return; }
         if (h === this || h.user.id === me.id) { this.send({ t: 'error', where: 'join', text: 'Это твоя же комната' }); return; }
+        if (h.proto !== this.proto) { this.send({ t: 'error', where: 'join', text: 'У вас разные версии игры — обновитесь оба до последней' }); return; }
         rooms.delete(code);
         new Match(h, this, false);
         return;
@@ -694,7 +699,7 @@ function matchmake() {
     let best = null;
     let bd = Infinity;
     for (const b of list) {
-      if (b === a || used.has(b)) continue;
+      if (b === a || used.has(b) || b.c.proto !== a.c.proto) continue;
       const wb = 100 + ((now - b.since) / 1000) * 15;
       const d = Math.abs(a.c.user.rating - b.c.user.rating);
       if (d <= Math.min(wa, wb) && d < bd) { bd = d; best = b; }

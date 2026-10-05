@@ -143,6 +143,9 @@ h2 { font-size: 22px; }
   color: var(--parch); font: 700 12px var(--body); cursor: pointer;
 }
 .hero-chip[aria-pressed="true"] { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.hero-chip .kind { display: block; font: 600 10px var(--body); color: var(--muted); }
+.hero-chip .ord { font: 700 10px var(--body); font-style: normal; color: var(--muted); }
+.hero-chip .ord.front { color: var(--gold); text-transform: uppercase; letter-spacing: .04em; }
 
 /* ---------- бой: поле на весь экран, интерфейс поверх ---------- */
 .screen.battle { padding: 0; gap: 0; display: block; }
@@ -285,6 +288,7 @@ canvas { display: block; }
   .lane-col { padding: 6px; gap: 6px; }
   .hero-chip { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 5px 8px; }
   .hero-chip .portrait { width: 30px; height: 30px; flex-basis: 30px; font-size: 14px; }
+  .hero-chip .ord { margin-left: auto; }
   .rules { font-size: 14px; gap: 6px; }
   .cards { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
   .sticky-cta { padding: 8px 0 10px; }

@@ -8,6 +8,8 @@ import { BARRACKS_S, CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRON
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx, Side, Target, Ward } from './types';
 
 const SIDE_COLOR = ['#5fd4c4', '#e0566b'];
+/** Сдвиг героев колонны вбок от оси дороги — чтобы не стояли ровной ниткой. */
+const HERO_ZIG = [0, -26, 26];
 export type UpgKey = 'armor' | 'fury' | 'mana' | 'gun' | 'walls' | 'thorns';
 
 export class Game {
@@ -146,15 +148,19 @@ export class Game {
     return this.heroes.filter((h) => h.lane === lane && h.side === side);
   }
 
+  /** Герои позиции стоят друг за другом вдоль линии (6 окт 2026): первый — впереди, к врагу,
+   *  он и принимает удар крипов (они бьют ближнего). Порядок — как в расстановке (порядок героев в `heroes`),
+   *  гости с других линий (переход) встают позади своих. Колонна центрирована на точке позиции. */
   private placeHeroes(lane: number) {
     ([0, 1] as Side[]).forEach((side) => {
       const list = this.heroesOn(lane, side);
-      const gap = list.length === 2 ? 84 : 62;
-      const offs = list.map((_, i) => (i - (list.length - 1) / 2) * gap);
+      list.sort((a, b) => (a.home === lane ? 0 : 1) - (b.home === lane ? 0 : 1)); // sort стабильный: внутри — порядок расстановки
+      const dir = side === 0 ? 1 : -1;
       const s = this.slotS(lane, side);
+      const n = list.length;
       list.forEach((h, i) => {
-        h.s = s;
-        h.off = offs[i] ?? 0;
+        h.s = s + dir * ((n - 1) / 2 - i) * BAL.heroGap;
+        h.off = HERO_ZIG[i] ?? 0;
       });
     });
   }
@@ -1190,12 +1196,14 @@ export class Game {
 
       // 2. вражеский герой
       if (!target) {
+        // ближнего (передний герой колонны — танк); катапульта — дальнего в своём радиусе (бьёт по задним)
+        const far = c.kind === 'siege';
         let bh: Hero | null = null;
-        let bd = Infinity;
+        let bd = far ? -Infinity : Infinity;
         for (const h of this.heroes) {
           if (h.dead || h.trip || h.lane !== c.lane || h.side === c.side) continue;
           const d = (h.s - c.s) * dir;
-          if (d >= -20 && d <= reach + 22 && d < bd) { bd = d; bh = h; }
+          if (d >= -20 && d <= reach + 22 && (far ? d > bd : d < bd)) { bd = d; bh = h; }
         }
         if (bh) target = { kind: 'hero', h: bh };
       }

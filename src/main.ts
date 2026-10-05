@@ -11,7 +11,7 @@ import { Game } from './sim/game';
 import { LANE_NAMES, LANE_SHORT } from './sim/map';
 import type { Hero, Pick, Side } from './sim/types';
 import { Link, hostRoom, joinRoom, netMode, newRoomCode } from './net';
-import { BUILD, Daily, Ended, Online, serverUrl } from './online';
+import { BUILD, PROTO, Daily, Ended, Online, serverUrl } from './online';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const SCREENS = ['menu', 'how', 'stickers', 'daily', 'races', 'pick', 'lobby', 'account', 'queue', 'draft', 'place', 'battle', 'result'];
@@ -642,6 +642,9 @@ function toPlacement() {
   const prev: Pick[] = saved ? JSON.parse(saved) : [];
   const lanes = [0, 0, 1, 2, 2];
   placement = mine.map((id, i) => ({ heroId: id, lane: prev.find((p) => p.heroId === id)?.lane ?? lanes[i], stars: meta.starsOf(id) }));
+  // порядок в колонне линии (кто впереди) — как в прошлый раз
+  const at = (id: string) => { const k = prev.findIndex((p) => p.heroId === id); return k < 0 ? 99 : k; };
+  placement.sort((a, b) => at(a.heroId) - at(b.heroId));
   if (!validPlacement()) placement = mine.map((id, i) => ({ heroId: id, lane: lanes[i], stars: meta.starsOf(id) }));
   selectedChip = null;
   myPlacementSent = false;
@@ -650,6 +653,17 @@ function toPlacement() {
   $<HTMLButtonElement>('startBattle').hidden = false;
   renderPlace();
   show('place');
+}
+
+/** Поменять двух героев местами: и линией, и местом в колонне. */
+function swapPlaces(a: string, b: string) {
+  const i = placement.findIndex((x) => x.heroId === a);
+  const j = placement.findIndex((x) => x.heroId === b);
+  if (i < 0 || j < 0) return;
+  const pa = placement[i], pb = placement[j];
+  [pa.lane, pb.lane] = [pb.lane, pa.lane];
+  placement[i] = pb;
+  placement[j] = pa;
 }
 
 function renderPlace() {
@@ -661,25 +675,33 @@ function renderPlace() {
     col.setAttribute('role', 'button');
     col.tabIndex = 0;
     col.innerHTML = `<h3>${LANE_NAMES[l]}</h3><span class="n">${laneCount(l)} из 3</span>`;
-    for (const p of placement.filter((x) => x.lane === l)) {
+    const inLane = placement.filter((x) => x.lane === l);
+    inLane.forEach((p, k) => {
       const h = heroById(p.heroId);
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'hero-chip';
       chip.setAttribute('aria-pressed', String(selectedChip === h.id));
-      chip.innerHTML = `${portrait(h)}<span>${h.name}</span>`;
+      const tag = inLane.length > 1 ? `<em class="ord${k === 0 ? ' front' : ''}">${k === 0 ? 'впереди' : k + 1}</em>` : '';
+      chip.innerHTML = `${portrait(h)}<span>${h.name}<small class="kind">${h.hp} HP · ${h.range <= 130 ? 'ближний' : 'дальний'}</small></span>${tag}`;
       chip.onclick = (e) => {
         e.stopPropagation();
         if (myPlacementSent) return;
-        selectedChip = selectedChip === h.id ? null : h.id;
+        if (selectedChip && selectedChip !== h.id) { swapPlaces(selectedChip, h.id); selectedChip = null; }
+        else selectedChip = selectedChip === h.id ? null : h.id;
         renderPlace();
       };
       col.appendChild(chip);
-    }
+    });
     const moveHere = () => {
       if (!selectedChip || myPlacementSent) return;
-      const p = placement.find((x) => x.heroId === selectedChip)!;
-      if (p.lane !== l && laneCount(l) < 3) p.lane = l;
+      const i = placement.findIndex((x) => x.heroId === selectedChip);
+      const p = placement[i];
+      if (p.lane !== l && laneCount(l) < 3) {
+        p.lane = l;
+        placement.splice(i, 1);
+        placement.push(p); // пришёл на линию — встаёт в конец колонны
+      }
       selectedChip = null;
       renderPlace();
     };
@@ -1826,11 +1848,11 @@ $('qCancel').onclick = () => { online.send({ t: 'unqueue' }); show('menu'); };
 $('regBtn').onclick = () => {
   const name = $<HTMLInputElement>('regName').value.trim();
   if (name.length < 2) { $('accStatus').textContent = 'Имя — хотя бы 2 символа'; return; }
-  online.send({ t: 'register', name, v: BUILD });
+  online.send({ t: 'register', name, v: BUILD, p: PROTO });
   $('accStatus').textContent = 'Создаём…';
 };
 $('loginBtn').onclick = () => {
-  online.send({ t: 'login', v: BUILD, name: $<HTMLInputElement>('loginName').value.trim(), password: $<HTMLInputElement>('loginPass').value });
+  online.send({ t: 'login', v: BUILD, p: PROTO, name: $<HTMLInputElement>('loginName').value.trim(), password: $<HTMLInputElement>('loginPass').value });
   $('accStatus').textContent = 'Входим…';
 };
 $('nameBtn').onclick = () => online.send({ t: 'setName', name: $<HTMLInputElement>('newName').value.trim() });
