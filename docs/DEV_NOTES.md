@@ -19,7 +19,7 @@
 
 - Репозиторий: https://github.com/tuko474/tri-linii (публичный)
 - Свежий APK всегда: https://github.com/tuko474/tri-linii/releases/latest/download/tri-linii.apk
-- Сборка: GitHub Actions `.github/workflows/android.yml` при каждом push в main → Release `build-N`, файл `tri-linii-0.1.N.apk`.
+- Сборка: GitHub Actions `.github/workflows/android.yml` при каждом push в main (кроме правок только в `docs/` и `*.md`) → Release `build-N`, файл `tri-linii-0.1.N.apk`.
   Номер версии = номер запуска Actions (0.1.N, тег `build-N`); сборка вписывает его в `<meta name="app-version">` в `index.html`,
   он виден внизу главного экрана (локально «для разработки»). Игра спрашивает GitHub API о последнем релизе и, если он новее,
   показывает в меню плашку «Вышла версия… Скачать» со ссылкой на `tri-linii-0.1.N.apk` (`checkUpdate` в `main.ts`).

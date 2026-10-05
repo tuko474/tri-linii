@@ -7,6 +7,8 @@ name: Сборка для RuStore
 on:
   push:
     branches: [main, master]
+    # заметки и описания игру не меняют — новую версию из-за них не собираем
+    paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
 
 permissions:
