@@ -1025,6 +1025,13 @@ export class Game {
     this.fx = this.fx.filter((f) => f.t < f.life);
     this.throneAtkFx[0] = Math.max(0, this.throneAtkFx[0] - dt);
     this.throneAtkFx[1] = Math.max(0, this.throneAtkFx[1] - dt);
+    // стены понемногу чинят трон, пока его никто не бьёт
+    for (const s of [0, 1] as Side[]) {
+      const lv = this.upg[s].walls;
+      if (lv > 0 && this.winner === null && this.throneAtkFx[s] <= 0 && this.throne[s] > 0 && this.throne[s] < BAL.throneHp) {
+        this.throne[s] = Math.min(BAL.throneHp, this.throne[s] + BAL.throneUp.walls.regen * lv * dt);
+      }
+    }
 
     for (const s of [0, 1] as Side[]) {
       if (this.throne[s] <= 0) {

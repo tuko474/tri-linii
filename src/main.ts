@@ -763,7 +763,7 @@ function startBattle(picks: [Pick[], Pick[]], seed?: number) {
   $('tripModal').hidden = true;
   $('shopModal').hidden = true;
   $('toasts').innerHTML = '';
-  if (mode === 'guest') act({ c: 'auto', on: game.autoCast[me] });
+  // (раньше здесь гость слал ещё {auto: false} из ещё не синхронизированной симуляции — и выключал себе авто сразу после включения)
   buildPanel();
   show('battle');
   fit();
@@ -1062,6 +1062,17 @@ function syncPanel() {
     $('altarBtn').classList.toggle('can', g.gold[me] >= cheapest(['armor', 'fury', 'mana']));
     $('throneBtn').classList.toggle('can', g.gold[me] >= cheapest(['gun', 'walls', 'thorns']) || g.canGlyph(me));
     if (!$('shopModal').hidden) renderShop();
+    // кнопка глифа: готов / перезарядка / действует / нет золота; при атаке на трон — пульсирует
+    const gb = $('glyphBtn');
+    const on = g.glyphT[me] > 0, cd = g.glyphCd[me];
+    const ready = g.canGlyph(me);
+    const txt = on ? `${Math.ceil(g.glyphT[me])} с` : cd > 0 ? `${Math.ceil(cd)} с` : `◆${BAL.glyph.cost}`;
+    if ($('glyphTxt').textContent !== txt) $('glyphTxt').textContent = txt;
+    gb.style.setProperty('--p', on ? '0' : String(Math.min(1, cd / BAL.glyph.cd).toFixed(3)));
+    gb.classList.toggle('on', on);
+    gb.classList.toggle('ready', ready);
+    gb.classList.toggle('poor', !on && cd <= 0 && !ready);
+    gb.classList.toggle('urgent', ready && g.throneUnderAttack(me));
   }
   $('recallAll').hidden = !g.heroes.some((h) => h.side === me && h.trip && h.trip.phase !== 'back');
   const counts = g.raceCounts(me);
@@ -1293,6 +1304,13 @@ function closeShop() {
 $('shopClose').onclick = closeShop;
 $('altarBtn').onclick = () => openShop({ kind: 'altar' });
 $('throneBtn').onclick = () => openShop({ kind: 'throne' });
+// глиф в один тап прямо с экрана боя (pointerdown — без задержки click на телефоне)
+$('glyphBtn').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (!game) return;
+  if (game.canGlyph(me) && act({ c: 'glyph' })) sound.play('tap');
+  else sound.play('deny');
+});
 
 // ---------- переход героя на другую линию ----------
 let moveHero: Hero | null = null;

@@ -577,3 +577,28 @@ a.privacy-link.hint { text-align: center; font-size: 13px; }
 .top-list li.me { background: rgba(243,210,122,.08); }
 .rank-next { display: block; width: 100%; text-align: center; }
 .rating-line .rank-next { display: inline; margin-left: 6px; }
+
+/* глиф — круглая кнопка на экране боя рядом с «Троном»: жмётся в один тап */
+.glyph-btn {
+  --p: 0; position: relative; width: 52px; height: 52px; border-radius: 50%; padding: 0; flex: none;
+  border: 2px solid var(--line); background: rgba(23,20,42,.92); color: var(--parch); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1;
+  font: 700 11px var(--body); touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.glyph-btn i { font-style: normal; font-size: 21px; color: var(--muted); }
+.glyph-btn b { font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 1px; }
+/* перезарядка: тёмный сектор убывает по кругу */
+.glyph-btn::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(rgba(8,6,16,.62) calc(var(--p) * 1turn), transparent 0); }
+.glyph-btn.ready { border-color: var(--gold); box-shadow: 0 0 10px rgba(243,210,122,.55); }
+.glyph-btn.ready i { color: var(--gold); }
+.glyph-btn.ready b { color: var(--gold); }
+.glyph-btn.poor b { color: var(--dark); }
+/* трон под атакой, глиф готов — кнопка пульсирует красным */
+.glyph-btn.urgent { border-color: var(--dark); animation: glyphPulse .7s ease-in-out infinite alternate; }
+/* глиф действует — золотой купол */
+.glyph-btn.on { border-color: #ffe680; background: radial-gradient(circle, rgba(255,230,128,.55), rgba(23,20,42,.92) 70%); }
+.glyph-btn.on i { color: #fff3b8; }
+.glyph-btn:active { transform: scale(.94); }
+@keyframes glyphPulse { from { box-shadow: 0 0 4px rgba(224,86,107,.5); } to { box-shadow: 0 0 18px rgba(224,86,107,.95); transform: scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .glyph-btn.urgent { animation: none; box-shadow: 0 0 14px rgba(224,86,107,.9); } }
