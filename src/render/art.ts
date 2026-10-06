@@ -819,6 +819,167 @@ export function drawSkillIcon(c: Ctx, icon: SkillIcon, color: string, size: numb
       c.strokeStyle = W; c.lineWidth = 0.05;
       c.beginPath(); c.moveTo(-0.7, -0.5); c.lineTo(-0.45, -0.35); c.moveTo(-0.72, -0.15); c.lineTo(-0.5, -0.08); c.stroke();
       break;
+    // ----- вторые способности -----
+    case 'aura': // ледяное кольцо с шипами вокруг
+      c.lineWidth = 0.08; c.strokeStyle = '#d8f4ff';
+      c.beginPath(); c.arc(0, 0, 0.42, 0, Math.PI * 2); c.stroke();
+      for (let i = 0; i < 8; i++) { c.save(); c.rotate((i * Math.PI) / 4); c.fillStyle = '#d8f4ff'; poly(c, [-0.07, -0.46, 0, -0.72, 0.07, -0.46]); c.fill(); c.restore(); }
+      disc(c, 0, 0, 0.16, glow);
+      break;
+    case 'cloud': // грозовая туча и две молнии
+      c.fillStyle = '#e4e8f4';
+      for (const [x, y, r] of [[-0.3, -0.15, 0.24], [0.02, -0.3, 0.3], [0.32, -0.12, 0.22], [0, -0.05, 0.26]]) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
+      c.fillStyle = '#fff6b0';
+      poly(c, [-0.2, 0.05, -0.34, 0.38, -0.2, 0.36, -0.28, 0.66, -0.04, 0.28, -0.17, 0.3, -0.06, 0.05]); c.fill();
+      poly(c, [0.24, 0.08, 0.14, 0.34, 0.26, 0.32, 0.2, 0.56, 0.4, 0.26, 0.29, 0.28, 0.36, 0.08]); c.fill();
+      break;
+    case 'meteor': // огненный шар с хвостом
+      c.save(); c.rotate(-0.75);
+      c.beginPath(); c.moveTo(-0.2, 0.05); c.quadraticCurveTo(0, 0.95, 0.2, 0.05); c.closePath(); c.fillStyle = '#ff8a3d'; c.fill();
+      c.beginPath(); c.moveTo(-0.1, 0.1); c.quadraticCurveTo(0, 0.6, 0.1, 0.1); c.closePath(); c.fillStyle = '#ffd27a'; c.fill();
+      c.restore();
+      disc(c, 0.18, -0.2, 0.3, '#ffb15a'); disc(c, 0.22, -0.24, 0.16, '#fff3c4');
+      break;
+    case 'tornado': // воронка
+      c.lineWidth = 0.09;
+      for (let i = 0; i < 5; i++) { const w = 0.62 - i * 0.12, y = -0.5 + i * 0.24; c.beginPath(); c.ellipse(i * 0.04, y, w, 0.08, 0, 0, Math.PI * 2); c.stroke(); }
+      break;
+    case 'scythe': // коса
+      c.save(); c.rotate(0.35);
+      c.strokeStyle = '#c9a070'; c.lineWidth = 0.08; c.beginPath(); c.moveTo(0.05, 0.7); c.lineTo(0.05, -0.55); c.stroke();
+      c.beginPath(); c.moveTo(0.05, -0.55); c.quadraticCurveTo(-0.45, -0.7, -0.7, -0.25); c.quadraticCurveTo(-0.4, -0.45, 0.05, -0.38); c.closePath();
+      c.fillStyle = '#e8e8f0'; c.fill();
+      c.restore();
+      break;
+    case 'hex': // кукла вуду с булавками
+      c.fillStyle = '#e6d2a8';
+      c.beginPath(); c.arc(0, -0.38, 0.2, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.moveTo(-0.18, -0.2); c.lineTo(0.18, -0.2); c.lineTo(0.22, 0.25); c.lineTo(0.3, 0.6); c.lineTo(0.08, 0.6); c.lineTo(0, 0.3); c.lineTo(-0.08, 0.6); c.lineTo(-0.3, 0.6); c.lineTo(-0.22, 0.25); c.closePath(); c.fill();
+      c.fillRect(-0.48, -0.15, 0.96, 0.14);
+      c.strokeStyle = '#ff6a6a'; c.lineWidth = 0.05;
+      c.beginPath(); c.moveTo(-0.5, -0.55); c.lineTo(-0.05, -0.05); c.moveTo(0.55, -0.35); c.lineTo(0.08, 0.15); c.stroke();
+      disc(c, -0.5, -0.55, 0.06, '#ff6a6a'); disc(c, 0.55, -0.35, 0.06, '#ff6a6a');
+      break;
+    case 'fangs': // пасть с клыками
+      c.beginPath(); c.moveTo(-0.6, -0.15); c.quadraticCurveTo(0, -0.6, 0.6, -0.15); c.quadraticCurveTo(0, 0.05, -0.6, -0.15); c.fillStyle = '#ffd9d9'; c.fill();
+      c.beginPath(); c.moveTo(-0.6, 0.15); c.quadraticCurveTo(0, 0.6, 0.6, 0.15); c.quadraticCurveTo(0, -0.05, -0.6, 0.15); c.fill();
+      c.fillStyle = W;
+      for (const x of [-0.32, 0.32]) { poly(c, [x - 0.09, -0.16, x, 0.18, x + 0.09, -0.16]); c.fill(); poly(c, [x - 0.08, 0.16, x, -0.12, x + 0.08, 0.16]); c.fill(); }
+      break;
+    case 'icearrow': // одна ледяная стрела
+      c.save(); c.rotate(-0.8);
+      c.strokeStyle = '#d8f4ff'; c.lineWidth = 0.09; c.beginPath(); c.moveTo(0, 0.65); c.lineTo(0, -0.35); c.stroke();
+      c.fillStyle = '#9fe0ff'; poly(c, [0, -0.72, -0.17, -0.32, 0, -0.4, 0.17, -0.32]); c.fill();
+      c.fillStyle = '#d8f4ff'; poly(c, [-0.14, 0.7, 0, 0.5, 0.14, 0.7, 0, 0.6]); c.fill();
+      c.restore();
+      disc(c, -0.4, -0.35, 0.05, '#d8f4ff'); disc(c, 0.42, 0.3, 0.04, '#d8f4ff');
+      break;
+    case 'spiral': // гипнотическая спираль
+      c.lineWidth = 0.08; c.strokeStyle = '#e8d8ff';
+      c.beginPath();
+      for (let a = 0; a < Math.PI * 5; a += 0.15) { const r = 0.03 + a * 0.04; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (a === 0) c.moveTo(x, y); else c.lineTo(x, y); }
+      c.stroke();
+      break;
+    case 'burst': // дробь: точки разлетаются из центра
+      disc(c, 0, 0, 0.14, '#ffd27a');
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2, r1 = 0.24, r2 = 0.5 + (i % 2) * 0.12;
+        c.strokeStyle = '#ffd27a'; c.lineWidth = 0.04; c.beginPath(); c.moveTo(Math.cos(a) * r1, Math.sin(a) * r1); c.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); c.stroke();
+        disc(c, Math.cos(a) * (r2 + 0.06), Math.sin(a) * (r2 + 0.06), 0.06, W);
+      }
+      break;
+    case 'shield': // щит
+      c.beginPath(); c.moveTo(0, -0.62); c.lineTo(0.48, -0.42); c.quadraticCurveTo(0.48, 0.3, 0, 0.66); c.quadraticCurveTo(-0.48, 0.3, -0.48, -0.42); c.closePath();
+      c.fillStyle = '#f3e6c4'; c.fill();
+      c.fillStyle = shade(color, -0.4); c.fillRect(-0.06, -0.42, 0.12, 0.8); c.fillRect(-0.3, -0.12, 0.6, 0.12);
+      break;
+    case 'swords': // скрещённые мечи
+      for (const sx of [-1, 1]) {
+        c.save(); c.scale(sx, 1); c.rotate(0.75);
+        c.fillStyle = '#e8e8f0'; poly(c, [-0.06, 0.25, -0.06, -0.55, 0, -0.68, 0.06, -0.55, 0.06, 0.25]); c.fill();
+        c.fillStyle = '#f3d27a'; c.fillRect(-0.2, 0.25, 0.4, 0.07);
+        c.fillStyle = '#c9a070'; c.fillRect(-0.04, 0.32, 0.08, 0.26);
+        c.restore();
+      }
+      break;
+    case 'spin': // вихрь: стрелки по кругу
+      c.lineWidth = 0.1;
+      for (let i = 0; i < 3; i++) {
+        c.save(); c.rotate((i * Math.PI * 2) / 3);
+        c.beginPath(); c.arc(0, 0, 0.48, -0.2, 1.4); c.stroke();
+        const ex = Math.cos(1.4) * 0.48, ey = Math.sin(1.4) * 0.48;
+        c.save(); c.translate(ex, ey); c.rotate(1.4 + Math.PI / 2); poly(c, [-0.14, -0.08, 0.08, 0, -0.14, 0.12]); c.fill(); c.restore();
+        c.restore();
+      }
+      disc(c, 0, 0, 0.1, glow);
+      break;
+    case 'rings': // ударная волна
+      disc(c, 0, 0, 0.12, W);
+      for (const [r, w] of [[0.3, 0.08], [0.48, 0.06], [0.66, 0.04]]) { c.lineWidth = w; c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.stroke(); }
+      break;
+    case 'rocks': // летящие камни
+      c.fillStyle = '#c8ccd4';
+      poly(c, [0.05, -0.15, 0.2, -0.45, 0.5, -0.4, 0.55, -0.1, 0.3, 0.05]); c.fill();
+      poly(c, [-0.5, 0.15, -0.35, -0.05, -0.15, 0.05, -0.2, 0.3, -0.42, 0.32]); c.fill();
+      poly(c, [0.0, 0.35, 0.12, 0.22, 0.28, 0.3, 0.22, 0.48, 0.04, 0.5]); c.fill();
+      c.lineWidth = 0.05; c.beginPath(); c.moveTo(-0.15, -0.55); c.lineTo(0.05, -0.38); c.moveTo(-0.7, -0.15); c.lineTo(-0.55, -0.05); c.moveTo(-0.3, 0.55); c.lineTo(-0.12, 0.45); c.stroke();
+      break;
+    case 'crystal': // ледяные осколки
+      c.fillStyle = '#bfe8ff';
+      poly(c, [0, -0.7, 0.16, -0.1, 0, 0.1, -0.16, -0.1]); c.fill();
+      c.fillStyle = '#e4f6ff';
+      poly(c, [-0.55, -0.2, -0.18, 0.05, -0.25, 0.25, -0.5, 0.05]); c.fill();
+      poly(c, [0.55, -0.2, 0.18, 0.05, 0.25, 0.25, 0.5, 0.05]); c.fill();
+      poly(c, [0, 0.66, 0.14, 0.25, 0, 0.18, -0.14, 0.25]); c.fill();
+      break;
+    case 'tentacle': // щупальце с присосками
+      c.lineWidth = 0.18; c.strokeStyle = '#9fe0d0';
+      c.beginPath(); c.moveTo(-0.3, 0.65); c.bezierCurveTo(-0.5, 0.1, 0.5, 0.2, 0.25, -0.3); c.quadraticCurveTo(0.1, -0.6, -0.15, -0.45); c.stroke();
+      for (const [x, y] of [[-0.3, 0.4], [-0.1, 0.18], [0.18, 0.05], [0.28, -0.25]]) disc(c, x + 0.08, y, 0.045, shade(color, -0.5));
+      break;
+    case 'sprout': // росток
+      c.strokeStyle = '#c9f0a8'; c.lineWidth = 0.09; c.beginPath(); c.moveTo(0, 0.55); c.quadraticCurveTo(0.05, 0.1, 0, -0.15); c.stroke();
+      c.fillStyle = '#c9f0a8';
+      c.beginPath(); c.moveTo(0, -0.1); c.quadraticCurveTo(-0.55, -0.15, -0.55, -0.6); c.quadraticCurveTo(-0.05, -0.55, 0, -0.1); c.fill();
+      c.beginPath(); c.moveTo(0.02, 0.05); c.quadraticCurveTo(0.6, 0.0, 0.58, -0.42); c.quadraticCurveTo(0.08, -0.4, 0.02, 0.05); c.fill();
+      c.fillStyle = '#8a6a44'; c.beginPath(); c.ellipse(0, 0.58, 0.36, 0.1, 0, 0, Math.PI * 2); c.fill();
+      break;
+    case 'acid': // капли кислоты
+      for (const [x, y, k] of [[0, -0.1, 1], [-0.36, 0.3, 0.6], [0.38, 0.28, 0.65]]) {
+        c.beginPath(); c.moveTo(x, y - 0.45 * k); c.quadraticCurveTo(x + 0.32 * k, y, x + 0.26 * k, y + 0.16 * k); c.arc(x, y + 0.12 * k, 0.26 * k, 0.15, Math.PI - 0.15); c.quadraticCurveTo(x - 0.32 * k, y, x, y - 0.45 * k);
+        c.fillStyle = '#b8f56a'; c.fill();
+      }
+      disc(c, -0.06, -0.02, 0.06, W);
+      break;
+    case 'ghost': // призрак
+      c.beginPath(); c.moveTo(-0.4, 0.55); c.lineTo(-0.4, -0.15); c.arc(0, -0.15, 0.4, Math.PI, 0); c.lineTo(0.4, 0.55);
+      c.lineTo(0.27, 0.42); c.lineTo(0.13, 0.55); c.lineTo(0, 0.42); c.lineTo(-0.13, 0.55); c.lineTo(-0.27, 0.42); c.closePath();
+      c.fillStyle = '#ece6ff'; c.fill();
+      disc(c, -0.14, -0.15, 0.08, shade(color, -0.6)); disc(c, 0.14, -0.15, 0.08, shade(color, -0.6));
+      c.beginPath(); c.ellipse(0, 0.08, 0.08, 0.12, 0, 0, Math.PI * 2); c.fillStyle = shade(color, -0.6); c.fill();
+      break;
+    case 'spider': // паук
+      c.lineWidth = 0.06;
+      for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) {
+        const y = -0.12 + i * 0.12;
+        c.beginPath(); c.moveTo(0, y); c.quadraticCurveTo(sx * 0.4, y - 0.35 + i * 0.1, sx * 0.62, y + 0.05 + i * 0.08); c.stroke();
+      }
+      disc(c, 0, 0.18, 0.24, W); disc(c, 0, -0.18, 0.16, W);
+      disc(c, -0.06, -0.22, 0.04, '#ff3a4a'); disc(c, 0.06, -0.22, 0.04, '#ff3a4a');
+      break;
+    case 'mask': // маска убийцы
+      c.beginPath(); c.moveTo(-0.6, -0.25); c.quadraticCurveTo(0, -0.45, 0.6, -0.25); c.quadraticCurveTo(0.55, 0.25, 0.15, 0.35); c.lineTo(0, 0.18); c.lineTo(-0.15, 0.35); c.quadraticCurveTo(-0.55, 0.25, -0.6, -0.25);
+      c.fillStyle = '#2a2236'; c.fill(); c.strokeStyle = '#c9b4ff'; c.lineWidth = 0.05; c.stroke();
+      c.fillStyle = '#c9b4ff'; poly(c, [-0.42, -0.1, -0.12, -0.04, -0.4, 0.04]); c.fill(); poly(c, [0.42, -0.1, 0.12, -0.04, 0.4, 0.04]); c.fill();
+      break;
+    case 'souls': // души-огоньки
+      for (const [x, y, k] of [[-0.3, 0.1, 0.8], [0.28, -0.05, 1], [0, -0.42, 0.7]]) {
+        c.beginPath(); c.arc(x, y + 0.12 * k, 0.2 * k, 0, Math.PI);
+        c.quadraticCurveTo(x - 0.24 * k, y - 0.15 * k, x - 0.05 * k, y - 0.4 * k); c.quadraticCurveTo(x + 0.02 * k, y - 0.15 * k, x + 0.2 * k, y + 0.12 * k);
+        c.fillStyle = '#d8c8ff'; c.fill();
+        disc(c, x, y + 0.12 * k, 0.08 * k, glow);
+      }
+      break;
   }
   c.restore();
 }

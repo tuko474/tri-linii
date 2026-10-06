@@ -441,7 +441,7 @@ export class Game {
 
   /** Вторая способность готова: герой 5★, перезарядка прошла (маны не нужно). */
   canCast2(h: Hero) {
-    return !h.dead && h.stars >= BAL.stars.max && h.cd2 <= 0;
+    return !h.dead && h.stars >= BAL.stars.max && h.lvl >= BAL.stars.skill2Lvl && h.cd2 <= 0;
   }
 
   private ready(h: Hero, second: boolean) {

@@ -486,6 +486,7 @@ img.portrait { display: block; object-fit: cover; background: #0d0b18; }
 .tile-stars { position: absolute; left: 4px; top: 3px; font-size: 10px; color: var(--gold); background: rgba(23,20,42,.8); border-radius: 6px; padding: 0 4px; line-height: 15px; }
 .st-gold { color: var(--gold); }
 .hb > .s2 { position: absolute; left: -3px; top: 20px; z-index: 2; pointer-events: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--night); filter: grayscale(1) brightness(.6); transition: filter .2s; }
+.hb > .s2.locked { opacity: .45; }
 .hb > .s2.on { filter: none; border-color: var(--gold); box-shadow: 0 0 8px rgba(255,230,128,.8); }
 
 /* задания дня */

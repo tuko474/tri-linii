@@ -344,7 +344,7 @@ function renderCards() {
       <div class="star-line">${starsHTML(st)}<small>${st ? starBonusText(st) : owned ? 'звёзды усиливают героя' : ''}</small></div>
       <div class="nums"><span>HP ${Math.round(h.hp * (1 + BAL.stars.hp * st))}</span><span>урон ${Math.round(h.dmg * (1 + BAL.stars.dmg * st))}</span><span>${atkKind(h)} · ${h.range}</span></div>
       <div class="skill"><img class="skill-ico" src="${skillURL(h)}" alt=""><span><b>${h.skill.name}.</b> ${h.skill.desc}</span></div>
-      <div class="skill skill2${st >= BAL.stars.max ? '' : ' off'}"><img class="skill-ico" src="${skill2URL(h)}" alt=""><span><b>${h.skill2.name}.</b> ${h.skill2.desc}. ${st >= BAL.stars.max ? `Срабатывает сама, раз в ${h.skill2.cd} с.` : `<em>Откроется на ${BAL.stars.max}★.</em>`}</span></div>
+      <div class="skill skill2${st >= BAL.stars.max ? '' : ' off'}"><img class="skill-ico" src="${skill2URL(h)}" alt=""><span><b>${h.skill2.name}.</b> ${h.skill2.desc}. ${st >= BAL.stars.max ? `В бою — с ${BAL.stars.skill2Lvl} уровня героя, срабатывает сама, раз в ${h.skill2.cd} с.` : `<em>Откроется на ${BAL.stars.max}★, в бою — с ${BAL.stars.skill2Lvl} уровня героя.</em>`}</span></div>
       ${!owned ? `<button type="button" class="btn buy" ${meta.crystals < h.price ? 'disabled' : ''}>Открыть за ✦ ${h.price}</button>`
         : st >= BAL.stars.max ? '<span class="owned-tag">5★ — максимум</span>'
         : `<button type="button" class="btn star-up" ${meta.crystals < upCost ? 'disabled' : ''}>Звезда ${st + 1}★ за ✦ ${upCost}</button>`}`;
@@ -596,7 +596,7 @@ function renderDraft() {
     const trial = !meta.owned.has(sel.id) && noOwnedFree(meta.owned);
     const note = d.taken(sel.id) ? ' · уже выбран' : trial ? ' · пробный на этот бой' : !meta.owned.has(sel.id) ? ' · не открыт (открой в «Героях»)' : '';
     const ss = meta.owned.has(sel.id) ? meta.starsOf(sel.id) : 0;
-    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b>${ss ? ` <span class="st-gold">${ss}★</span>` : ''} · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}.${ss >= BAL.stars.max ? ` 5★: «${sel.skill2.name}» — ${sel.skill2.desc.toLowerCase()}.` : ''} <b>${atkKind(sel)} бой</b>, HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
+    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b>${ss ? ` <span class="st-gold">${ss}★</span>` : ''} · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}.${ss >= BAL.stars.max ? ` 5★: «${sel.skill2.name}» (с ${BAL.stars.skill2Lvl} ур.) — ${sel.skill2.desc.toLowerCase()}.` : ''} <b>${atkKind(sel)} бой</b>, HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
   } else {
     $('draftInfo').textContent = turn === me && noOwnedFree(meta.owned)
       ? 'Свободных открытых героев не осталось — можно взять любого как пробного на этот бой.'
@@ -890,7 +890,7 @@ function buildPanel() {
       s2.className = 's2';
       s2.src = skill2URL(h.def, 48);
       s2.alt = '';
-      s2.title = `${h.def.skill2.name}: срабатывает сама`;
+      s2.title = `${h.def.skill2.name}: срабатывает сама с ${BAL.stars.skill2Lvl} уровня`;
       wrap.appendChild(s2);
     }
     hb.appendChild(wrap);
@@ -1035,7 +1035,10 @@ function syncPanel() {
     else b.cdv.hidden = true;
     b.mana.style.width = (100 * h.mana) / h.maxMana + '%';
     const s2 = b.cast.parentElement!.querySelector<HTMLElement>('.s2');
-    if (s2) s2.classList.toggle('on', h.cd2 <= 0 && !h.dead);
+    if (s2) {
+      s2.classList.toggle('on', h.cd2 <= 0 && !h.dead && h.lvl >= BAL.stars.skill2Lvl);
+      s2.classList.toggle('locked', h.lvl < BAL.stars.skill2Lvl);
+    }
     const trip = h.trip ? (h.trip.phase === 'back' ? '↩' : '⚔') : '';
     b.back.hidden = !h.trip || h.trip.phase === 'back';
     b.badge.hidden = !trip;
@@ -2165,4 +2168,4 @@ requestAnimationFrame(frame);
 show('menu');
 
 // для автотестов: доступ к бою из консоли при адресе с #debug
-if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure, __Sound: Sound, __stickerURL: stickerURL });
+if (location.hash.includes('debug')) Object.assign(window, { __game: () => game, __renderer: () => renderer, __online: online, __castle: drawCastleFigure, __Sound: Sound, __stickerURL: stickerURL, __skillURL: skillURL, __skill2URL: skill2URL, __HEROES: HEROES });
