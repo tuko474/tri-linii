@@ -2,7 +2,7 @@
 
 export const WORLD = { W: 5400, H: 3000 };
 
-export type CreepKind = 'melee' | 'ranged' | 'siege' | 'lord';
+export type CreepKind = 'melee' | 'ranged' | 'siege' | 'mage' | 'lord';
 
 export interface CreepStats {
   hp: number;
@@ -27,6 +27,8 @@ export const BAL = {
   firstWave: 3,
   siegeEvery: 4, // каждая N-я волна с катапультой
   heroGap: 100, // расстояние между героями одной позиции вдоль линии (первый — впереди)
+  // Взрыв крипа-мага: урон dmg×mul всем врагам (крипам и героям линии) в радиусе r вокруг цели
+  creepMage: { blastEvery: 5, mul: 2.2, r: 110 },
   heroReachPad: 40, // «позиция отвечает»: герои достают крипа, бьющего колонну, с этим запасом сверх его дальности
 
   // Позиции вышек вдоль линии (доля длины от трона игрока).
@@ -42,6 +44,8 @@ export const BAL = {
     melee: { hp: 300, dmg: 19, range: 40, rate: 1.0, speed: 92, gold: 12, r: 12 },
     ranged: { hp: 200, dmg: 24, range: 165, rate: 1.25, speed: 92, gold: 16, r: 10 },
     siege: { hp: 650, dmg: 70, range: 270, rate: 2.6, speed: 72, gold: 40, r: 16 },
+    // крип-маг Стихий: стреляет издалека, раз в blastEvery с бьёт по площади (см. creepMage)
+    mage: { hp: 240, dmg: 22, range: 210, rate: 1.4, speed: 88, gold: 28, r: 13 },
     // Лорд, перешедший на сторону победителя: идёт по линии как огромный крип
     lord: { hp: 2600, dmg: 85, range: 70, rate: 1.3, speed: 74, gold: 150, r: 34 },
   } as Record<CreepKind, CreepStats>,
@@ -105,7 +109,7 @@ export const BAL = {
   xpToNext: (lvl: number) => 120 + 90 * (lvl - 1),
   xp: {
     passive: 0.6, // в секунду каждому живому герою, чтобы никто не отставал совсем
-    creep: { melee: 12, ranged: 15, siege: 35, lord: 120 } as Record<CreepKind, number>,
+    creep: { melee: 12, ranged: 15, siege: 35, mage: 22, lord: 120 } as Record<CreepKind, number>,
     camp: 70,
     guard: 80,
     turtle: 300,

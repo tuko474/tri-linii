@@ -3,7 +3,7 @@
 import { BAL, CreepKind, Difficulty, WORLD } from '../data/config';
 import { heroById } from '../data/heroes';
 import type { SkillDef } from '../data/heroes';
-import { RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
+import { CreepFx, RACES, RACE_IDS, RaceFx, RaceId, tierIndex } from '../data/races';
 import { BARRACKS_S, CAMPS, GUARD_POS, GUARD_R, LaneGeo, LANE_NAMES, PITS, THRONE_POS, THRONE_R, buildLanes } from './map';
 import type { Creep, Fx, GameEvent, Hero, Neutral, NeutralKind, Pick, Proj, Sfx, Side, Target, Ward } from './types';
 
@@ -220,12 +220,29 @@ export class Game {
   }
 
   sideMods(side: Side) {
-    let goldMul = 1, creepMul = 1;
-    for (const fx of Object.values(this.raceFx(side))) {
-      goldMul *= fx?.goldMul ?? 1;
-      creepMul *= fx?.creepMul ?? 1;
+    let goldMul = 1;
+    for (const fx of Object.values(this.raceFx(side))) goldMul *= fx?.goldMul ?? 1;
+    return { goldMul };
+  }
+
+  /** Бонусы рас крипам этой линии: раса с активным бонусом в команде и хотя бы одним героем на линии
+   *  (считается по текущей линии героя — переход переносит бонус). Список рас — для подписи. */
+  laneCreepFx(lane: number, side: Side): { fx: Required<CreepFx>; races: RaceId[] } {
+    const fx: Required<CreepFx> = { mul: 1, ls: 0, rate: 1, armor: 0, crit: 0, mage: 0, melee: 0 };
+    const races: RaceId[] = [];
+    for (const a of this.activeRaces(side)) {
+      if (a.tier < 0 || !this.heroes.some((h) => h.side === side && h.lane === lane && h.def.race === a.race)) continue;
+      const c = RACES[a.race].tiers[a.tier].creep;
+      races.push(a.race);
+      fx.mul *= c.mul ?? 1;
+      fx.ls += c.ls ?? 0;
+      fx.rate *= c.rate ?? 1;
+      fx.armor += c.armor ?? 0;
+      fx.crit += c.crit ?? 0;
+      if (c.mage) fx.mage = fx.mage ? Math.min(fx.mage, c.mage) : c.mage;
+      fx.melee += c.melee ?? 0;
     }
-    return { goldMul, creepMul };
+    return { fx, races };
   }
 
   /** Пересчитать HP и урон героев стороны после прокачки или новой сферы. */
@@ -999,7 +1016,7 @@ export class Game {
     this.creeps.push({
       uid: this.uid++, kind: 'lord', side, lane, s: this.slotS(lane, side) + dir * 70, off: 0,
       hp: st.hp * mul, maxHp: st.hp * mul, dmg: st.dmg * mul, range: st.range, rate: st.rate, speed: st.speed,
-      atkCd: 0, slowT: 0, slowMul: 1, stunT: 0, gold: st.gold, r: st.r, dead: false,
+      atkCd: 0, slowT: 0, slowMul: 1, stunT: 0, gold: st.gold, r: st.r, dead: false, ls: 0, crit: 0, armor: 0, castCd: 0,
     });
   }
 
@@ -1065,25 +1082,28 @@ export class Game {
         const lvl = this.creepLvl[lane][side];
         const kinds: CreepKind[] = [];
         const [exM, exR] = BAL.barracksExtra[this.barracks[lane][side]];
-        const melee = 3 + Math.floor(lvl / 4) + exM;
+        const rf = this.laneCreepFx(lane, side).fx;
+        const melee = 3 + Math.floor(lvl / 4) + exM + rf.melee;
         for (let i = 0; i < melee; i++) kinds.push('melee');
         kinds.push('ranged');
         if (lvl >= 6) kinds.push('ranged');
         for (let i = 0; i < exR; i++) kinds.push('ranged');
         if (this.waveNo % BAL.siegeEvery === 0) kinds.push('siege');
+        if (rf.mage && this.waveNo % rf.mage === 0) kinds.push('mage');
         const dir = side === 0 ? 1 : -1;
         const base = side === 0 ? BARRACKS_S : this.lanes[lane].length - BARRACKS_S;
         kinds.forEach((kind, i) => {
           const st = BAL.creep[kind];
           const late = Math.max(0, this.t - BAL.lateGameFrom) / 60;
-          const mul = (1 + BAL.creepLvlMul * lvl) * (1 + BAL.lateGamePerMin * late) * this.sideMods(side).creepMul;
+          const mul = (1 + BAL.creepLvlMul * lvl) * (1 + BAL.lateGamePerMin * late) * rf.mul;
           this.creeps.push({
             uid: this.uid++, kind, side, lane,
             s: base - dir * i * 28,
             off: ((i % 3) - 1) * 16,
             hp: st.hp * mul, maxHp: st.hp * mul, dmg: st.dmg * mul,
-            range: st.range, rate: st.rate, speed: st.speed, atkCd: this.rand() * 0.3,
+            range: st.range, rate: st.rate * rf.rate, speed: st.speed, atkCd: this.rand() * 0.3,
             slowT: 0, slowMul: 1, stunT: 0, gold: st.gold, r: st.r, dead: false,
+            ls: rf.ls, crit: rf.crit, armor: Math.min(0.5, rf.armor), castCd: BAL.creepMage.blastEvery * 0.6,
           });
         });
       }
@@ -1219,6 +1239,7 @@ export class Game {
     for (const c of this.creeps) {
       if (c.dead) continue;
       c.atkCd -= dt;
+      if (c.castCd > 0) c.castCd -= dt;
       if (c.slowT > 0) c.slowT -= dt; else c.slowMul = 1;
       if (c.stunT > 0) { c.stunT -= dt; continue; }
 
@@ -1261,10 +1282,19 @@ export class Game {
               if (c.dead) continue;
             }
           }
-          if (c.range < 100) this.applyHit(target, c.dmg);
+          let dmg = c.dmg;
+          if (c.crit > 0 && this.rand() < c.crit) {
+            dmg *= 2;
+            const p = this.creepPos(c);
+            this.fx.push({ kind: 'text', x: p.x, y: p.y - 18, text: '!', color: '#c9a8ff', t: 0, life: 0.5 });
+          }
+          if (c.ls > 0 && target.kind !== 'throne') c.hp = Math.min(c.maxHp, c.hp + dmg * c.ls);
+          if (c.kind === 'mage' && c.castCd <= 0) { c.castCd = BAL.creepMage.blastEvery; this.mageBlast(c, target); }
+          else if (c.range < 100) this.applyHit(target, dmg);
           else {
             const p = this.creepPos(c);
-            this.projs.push({ x: p.x, y: p.y, target, dmg: c.dmg, speed: 450, color: c.side === 0 ? '#bff3ea' : '#ffc2cb', size: c.kind === 'siege' ? 6 : 3 });
+            const col = c.kind === 'mage' ? '#8fd8ff' : c.side === 0 ? '#bff3ea' : '#ffc2cb';
+            this.projs.push({ x: p.x, y: p.y, target, dmg, speed: c.kind === 'mage' ? 520 : 450, color: col, size: c.kind === 'siege' ? 6 : c.kind === 'mage' ? 5 : 3 });
           }
         }
         continue;
@@ -1314,8 +1344,24 @@ export class Game {
     }
   }
 
+  /** Взрыв крипа-мага: урон всем врагам линии (крипам и героям) вокруг цели; по трону — просто сильный удар. */
+  private mageBlast(c: Creep, target: Target) {
+    const cfg = BAL.creepMage;
+    const dmg = c.dmg * cfg.mul;
+    if (target.kind === 'throne') { this.applyHit(target, dmg); return; }
+    const center = target.kind === 'creep' ? target.c.s : target.h.s;
+    const foe = (1 - c.side) as Side;
+    for (const e of this.creeps) if (!e.dead && e.side === foe && e.lane === c.lane && Math.abs(e.s - center) <= cfg.r) this.hitCreep(e, dmg);
+    for (const h of this.heroes) if (!h.dead && !h.trip && h.side === foe && h.lane === c.lane && Math.abs(h.s - center) <= cfg.r) this.hitHero(h, dmg);
+    const from = this.creepPos(c);
+    const p = this.lanes[c.lane].at(center);
+    this.fx.push({ kind: 'bolt', x: from.x, y: from.y - 10, x2: p.x, y2: p.y, color: '#8fd8ff', t: 0, life: 0.3 });
+    this.fx.push({ kind: 'ring', x: p.x, y: p.y, r: cfg.r, color: '#8fd8ff', t: 0, life: 0.5 });
+  }
+
   private hitCreep(c: Creep, dmg: number) {
     if (c.dead) return;
+    if (c.armor > 0) dmg *= 1 - c.armor;
     c.hp -= dmg;
     if (c.hp <= 0) {
       c.dead = true;
@@ -1426,7 +1472,7 @@ export class Game {
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
         h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx, h.trip.spd ?? 0] : 0, h.lane, r(h.helpT), r(h.moveCd), h.stars, r(h.cd2)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
-        r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r]),
+        r(c.atkCd), r(c.slowT), c.slowMul, r(c.stunT), c.gold, c.r, c.ls, c.crit, c.armor, r(c.castCd)]),
       wards: this.wards.map((w) => [w.side, w.lane, r(w.s), w.off, r(w.ttl), r(w.dmg), w.range, r(w.atkCd)]),
       projs: this.projs.map((p) => [r(p.x), r(p.y), tgt(p.target), r(p.dmg), p.speed, p.color, p.size, p.src?.uid ?? 0]),
       neutrals: this.neutrals.map((n) => [r(n.hp), r(n.maxHp), r(n.dmg), n.alive ? 1 : 0, r(n.respawnT), r(n.atkCd), n.hits, n.owner]),
@@ -1453,6 +1499,7 @@ export class Game {
       uid: a[0] as number, kind: a[1] as CreepKind, side: a[2] as Side, lane: a[3] as number, s: a[4] as number, off: a[5] as number,
       hp: a[6] as number, maxHp: a[7] as number, dmg: a[8] as number, range: a[9] as number, rate: a[10] as number, speed: a[11] as number,
       atkCd: a[12] as number, slowT: a[13] as number, slowMul: a[14] as number, stunT: a[15] as number, gold: a[16] as number, r: a[17] as number, dead: false,
+      ls: a[18] as number, crit: a[19] as number, armor: a[20] as number, castCd: a[21] as number,
     }));
     const cByUid = new Map(this.creeps.map((c) => [c.uid, c]));
     this.wards = S.wards.map((a) => ({ side: a[0] as Side, lane: a[1], s: a[2], off: a[3], ttl: a[4], dmg: a[5], range: a[6], atkCd: a[7] }));

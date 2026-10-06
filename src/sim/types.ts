@@ -80,6 +80,11 @@ export interface Creep {
   gold: number;
   r: number;
   dead: boolean;
+  // бонусы расы (на линии, где стоит герой этой расы) — задаются при появлении
+  ls: number; // вампиризм
+  crit: number; // шанс крита ×2
+  armor: number; // снижение урона
+  castCd: number; // крип-маг: до следующего взрыва
 }
 
 export interface Ward {

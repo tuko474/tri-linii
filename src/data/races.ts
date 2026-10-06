@@ -23,13 +23,27 @@ export interface RaceFx {
   allArmor?: number;
   allXpMul?: number;
   goldMul?: number; // золото за крипов
-  creepMul?: number; // HP и урон своих крипов
+  creepMul?: number; // (не используется с 6 окт 2026 — бонусы крипам теперь в creep)
+}
+
+/** Бонус расы крипам (6 окт 2026). Действует на линии, где стоит хотя бы один герой этой расы;
+ *  сила — по уровню бонуса расы в команде (2 или 4 героя). */
+export interface CreepFx {
+  mul?: number; // HP и урон
+  ls?: number; // лечатся от своего урона
+  rate?: number; // множитель перезарядки атаки (меньше — быстрее)
+  armor?: number; // получают меньше урона
+  crit?: number; // шанс крита ×2
+  mage?: number; // крип-маг в каждой N-й волне
+  melee?: number; // доп. мечники в волне
 }
 
 export interface RaceTier {
   n: number;
   text: string;
   fx: RaceFx;
+  creep: CreepFx;
+  creepText: string;
 }
 
 export interface RaceDef {
@@ -43,43 +57,43 @@ export const RACES: Record<RaceId, RaceDef> = {
   undead: {
     id: 'undead', name: 'Нежить', color: '#8fd36b',
     tiers: [
-      { n: 2, text: 'Нежить возрождается на 30% быстрее и лечится на 10% от урона', fx: { respawnMul: 0.7, lifesteal: 0.1 } },
-      { n: 4, text: 'Возрождение вдвое быстрее, вампиризм 20%, вся команда лечится на 8% от урона', fx: { respawnMul: 0.5, lifesteal: 0.2, allLifesteal: 0.08 } },
+      { n: 2, text: 'Нежить возрождается на 30% быстрее и лечится на 10% от урона', fx: { respawnMul: 0.7, lifesteal: 0.1 }, creep: { ls: 0.2 }, creepText: 'лечатся на 20% от своего урона' },
+      { n: 4, text: 'Возрождение вдвое быстрее, вампиризм 20%, вся команда лечится на 8% от урона', fx: { respawnMul: 0.5, lifesteal: 0.2, allLifesteal: 0.08 }, creep: { ls: 0.35 }, creepText: 'лечатся на 35% от своего урона' },
     ],
   },
   elemental: {
     id: 'elemental', name: 'Стихии', color: '#7cc8f0',
     tiers: [
-      { n: 2, text: 'Способности стихий: перезарядка −15%, сила +15%', fx: { cdMul: 0.85, spellMul: 1.15 } },
-      { n: 4, text: 'Перезарядка −25%, сила +35%, способности всей команды +15%', fx: { cdMul: 0.75, spellMul: 1.35, allSpellMul: 1.15 } },
+      { n: 2, text: 'Способности стихий: перезарядка −15%, сила +15%', fx: { cdMul: 0.85, spellMul: 1.15 }, creep: { mage: 2 }, creepText: 'крип-маг в каждой второй волне' },
+      { n: 4, text: 'Перезарядка −25%, сила +35%, способности всей команды +15%', fx: { cdMul: 0.75, spellMul: 1.35, allSpellMul: 1.15 }, creep: { mage: 1 }, creepText: 'крип-маг в каждой волне' },
     ],
   },
   wild: {
     id: 'wild', name: 'Дикие', color: '#d9a74a',
     tiers: [
-      { n: 2, text: 'Автоатаки диких +15% и на 10% быстрее', fx: { atkMul: 1.15, rateMul: 0.9 } },
-      { n: 4, text: 'Атаки +35% и на 20% быстрее, автоатаки всей команды +12%', fx: { atkMul: 1.35, rateMul: 0.8, allAtkMul: 1.12 } },
+      { n: 2, text: 'Автоатаки диких +15% и на 10% быстрее', fx: { atkMul: 1.15, rateMul: 0.9 }, creep: { rate: 0.87 }, creepText: 'бьют на 15% быстрее' },
+      { n: 4, text: 'Атаки +35% и на 20% быстрее, автоатаки всей команды +12%', fx: { atkMul: 1.35, rateMul: 0.8, allAtkMul: 1.12 }, creep: { rate: 0.77 }, creepText: 'бьют на 30% быстрее' },
     ],
   },
   kingdom: {
     id: 'kingdom', name: 'Королевство', color: '#f3d27a',
     tiers: [
-      { n: 2, text: 'Золото за крипов +10%, твои крипы крепче и сильнее на 12%', fx: { goldMul: 1.1, creepMul: 1.12 } },
-      { n: 4, text: 'Золото +20%, крипы +30%', fx: { goldMul: 1.2, creepMul: 1.3 } },
+      { n: 2, text: 'Золото за крипов +10%', fx: { goldMul: 1.1 }, creep: { mul: 1.12 }, creepText: 'крепче и сильнее на 12%' },
+      { n: 4, text: 'Золото за крипов +20%', fx: { goldMul: 1.2 }, creep: { mul: 1.3, melee: 1 }, creepText: '+30% и лишний мечник в волне' },
     ],
   },
   mountain: {
     id: 'mountain', name: 'Горные', color: '#b8925a',
     tiers: [
-      { n: 2, text: 'HP горных +20%, получают на 10% меньше урона', fx: { hpMul: 1.2, armor: 0.1 } },
-      { n: 4, text: 'HP +35%, урона −25%, вся команда получает на 12% меньше урона', fx: { hpMul: 1.35, armor: 0.25, allArmor: 0.12 } },
+      { n: 2, text: 'HP горных +20%, получают на 10% меньше урона', fx: { hpMul: 1.2, armor: 0.1 }, creep: { armor: 0.12 }, creepText: 'получают на 12% меньше урона' },
+      { n: 4, text: 'HP +35%, урона −25%, вся команда получает на 12% меньше урона', fx: { hpMul: 1.35, armor: 0.25, allArmor: 0.12 }, creep: { armor: 0.22 }, creepText: 'получают на 22% меньше урона' },
     ],
   },
   shadow: {
     id: 'shadow', name: 'Тени', color: '#9a7bd8',
     tiers: [
-      { n: 2, text: 'Тени: 20% шанс крита ×2, опыт +15%', fx: { critChance: 0.2, critMul: 2, xpMul: 1.15 } },
-      { n: 4, text: 'Крит 35% ×2,3, опыт +30%, вся команда получает опыт на 15% быстрее', fx: { critChance: 0.35, critMul: 2.3, xpMul: 1.3, allXpMul: 1.15 } },
+      { n: 2, text: 'Тени: 20% шанс крита ×2, опыт +15%', fx: { critChance: 0.2, critMul: 2, xpMul: 1.15 }, creep: { crit: 0.15 }, creepText: '15% шанс крита ×2' },
+      { n: 4, text: 'Крит 35% ×2,3, опыт +30%, вся команда получает опыт на 15% быстрее', fx: { critChance: 0.35, critMul: 2.3, xpMul: 1.3, allXpMul: 1.15 }, creep: { crit: 0.25 }, creepText: '25% шанс крита ×2' },
     ],
   },
 };

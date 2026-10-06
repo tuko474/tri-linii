@@ -1,5 +1,6 @@
 // Отрисовка поля на Canvas 2D с камерой. Читает состояние Game, ничего в нём не меняет.
 import { BAL, WORLD } from '../data/config';
+import { RACES } from '../data/races';
 import type { Game } from '../sim/game';
 import { ALTAR_POS, CAMPS, GUARD_POS, PITS, RIVER, RIVER_W, THRONE_POS, barracksPos, segDist } from '../sim/map';
 import type { Hero, Neutral, Side } from '../sim/types';
@@ -967,6 +968,14 @@ export class Renderer {
       ctx.textAlign = 'center';
       if (lvl) ctx.fillText('★'.repeat(lvl), 0, 46);
       this.drawWaveTimer();
+      // метки рас, которые усиливают крипов этой линии (цвет расы)
+      const races = g.laneCreepFx(l, side).races;
+      races.forEach((r, i) => {
+        const x = (i - (races.length - 1) / 2) * 18;
+        ctx.fillStyle = RACES[r].color;
+        ctx.strokeStyle = C.dark; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(x, -127, 7, 0, 7); ctx.fill(); ctx.stroke();
+      });
       ctx.restore();
     }
     const a = ALTAR_POS[side];
@@ -1661,6 +1670,21 @@ function drawCreepFigure(x: CanvasRenderingContext2D, kind: string, col: string,
     shape('#4a3a26', () => x.arc(-9, 9, 4.5, 0, 7)); // колёса
     shape('#4a3a26', () => x.arc(9, 9, 4.5, 0, 7));
     x.fillStyle = steel; x.beginPath(); x.arc(-9, 9, 1.3, 0, 7); x.arc(9, 9, 1.3, 0, 7); x.fill();
+  } else if (kind === 'mage') {
+    // крип-маг Стихий: мантия цвета команды, остроконечная шляпа, посох со светящимся кристаллом
+    shape(deep, () => { x.moveTo(-8, 12); x.lineTo(-4, -4); x.lineTo(4, -4); x.lineTo(8, 12); x.closePath(); }); // мантия
+    shape(col, () => { x.moveTo(-5, 4); x.lineTo(-3, -4); x.lineTo(3, -4); x.lineTo(5, 4); x.closePath(); }); // накидка
+    shape(skin, () => x.arc(0, -8, 5, 0, 7)); // лицо
+    shape(col, () => { x.moveTo(-8, -10); x.lineTo(8, -10); x.lineTo(2, -24); x.closePath(); }); // шляпа
+    shape('#8fd8ff', () => x.arc(2, -24, 1.8, 0, 7));
+    x.fillStyle = ink; x.beginPath(); x.arc(2.5, -8, 1, 0, 7); x.fill(); // глаз
+    x.strokeStyle = wood; x.lineWidth = 2.4;
+    x.beginPath(); x.moveTo(9, 11); x.lineTo(11, -12); x.stroke(); // посох
+    x.strokeStyle = ink; x.lineWidth = 2;
+    const gl = x.createRadialGradient(11, -15, 1, 11, -15, 9);
+    gl.addColorStop(0, 'rgba(160,230,255,.9)'); gl.addColorStop(1, 'rgba(160,230,255,0)');
+    x.fillStyle = gl; x.beginPath(); x.arc(11, -15, 9, 0, 7); x.fill();
+    shape('#8fd8ff', () => { x.moveTo(11, -20); x.lineTo(14, -15); x.lineTo(11, -10); x.lineTo(8, -15); x.closePath(); }); // кристалл
   } else {
     // Лорд на линии: рогатый великан
     shape(deep, () => { x.rect(-9, 6, 6, 7); x.rect(3, 6, 6, 7); }); // ноги

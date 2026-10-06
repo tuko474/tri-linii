@@ -1,7 +1,7 @@
 // Точка входа: меню → (лобби) → драфт → расстановка → бой → итог.
 import { BAL, Difficulty, WORLD } from './data/config';
 import { HEROES, HeroDef, STARTER_IDS, heroById } from './data/heroes';
-import { RACES, RACE_IDS, RaceId, tierIndex } from './data/races';
+import { RACES, RACE_IDS, RaceId, RaceTier, tierIndex } from './data/races';
 import { portraitURL, raceURL, skillURL, skill2URL, drawCastleFigure, STICKERS, stickerURL } from './render/art';
 import { Sound } from './audio';
 import { Renderer, clock } from './render/renderer';
@@ -244,7 +244,7 @@ function synergyHTML(counts: Partial<Record<RaceId, number>>, compact = false) {
       const n = counts[r] ?? 0;
       const ti = tierIndex(r, n);
       const next = RACES[r].tiers[ti + 1];
-      const cur = ti >= 0 ? RACES[r].tiers[ti].text : `Бонус с ${RACES[r].tiers[0].n}`;
+      const cur = ti >= 0 ? tierText(RACES[r].tiers[ti]) : `Бонус с ${RACES[r].tiers[0].n}`;
       const dots = RACES[r].tiers.map((t, i) => `<i class="${i <= ti ? 'on' : ''}">${t.n}</i>`).join('');
       return `<button type="button" class="syn ${ti >= 0 ? 'active' : ''}" data-race="${r}" style="--rc:${RACES[r].color}" title="${cur}">
         <img src="${raceURL(r)}" alt=""><b>${n}</b>${compact ? '' : `<span class="syn-name">${RACES[r].name}</span><span class="dots">${dots}</span>`}
@@ -259,9 +259,14 @@ function countsOf(ids: string[]): Partial<Record<RaceId, number>> {
 }
 
 // ---------- расы: описание бонусов ----------
+/** Текст уровня бонуса расы: героям + крипам на линиях, где стоит герой этой расы. */
+function tierText(t: RaceTier): string {
+  return `${t.text}; крипы на линиях с её героем — ${t.creepText}`;
+}
+
 /** Бонусы расы списком: «2 героя: …», «4 героя: …». */
 function raceTiersHTML(r: RaceId): string {
-  return RACES[r].tiers.map((t) => `<li><b>${t.n} ${t.n < 5 ? 'героя' : 'героев'}:</b> ${t.text}</li>`).join('');
+  return RACES[r].tiers.map((t) => `<li><b>${t.n} ${t.n < 5 ? 'героя' : 'героев'}:</b> ${tierText(t)}</li>`).join('');
 }
 
 /** Что даст герой расе твоей команды в драфте — одна строка. */
@@ -272,8 +277,8 @@ function raceHint(id: string, team: string[]): string {
   const tier = race.tiers.find((t) => t.n === n);
   const next = race.tiers.find((t) => t.n > n);
   const head = `<span class="race-line" style="color:${race.color}">${race.name}</span>`;
-  if (tier) return `${head}: с ним будет ${n} — включится: ${tier.text}.`;
-  if (next) return `${head}: с ним ${n} из ${next.n} — бонус: ${next.text}.`;
+  if (tier) return `${head}: с ним будет ${n} — включится: ${tierText(tier)}.`;
+  if (next) return `${head}: с ним ${n} из ${next.n} — бонус: ${tierText(next)}.`;
   return `${head}: с ним ${n} — максимальный бонус уже действует.`;
 }
 
@@ -1129,7 +1134,7 @@ function raceToast(side: Side, e: Event) {
   const next = RACES[r].tiers[ti + 1];
   const orbs = game.orbs[side][r] ?? 0;
   const who = side === me ? '' : 'У врага: ';
-  toast(`${who}${RACES[r].name} ${n}${orbs ? ` (сфер: ${orbs})` : ''}: ${ti >= 0 ? RACES[r].tiers[ti].text : 'бонуса пока нет'}${next ? `. С ${next.n}: ${next.text}` : ''}`, side === me ? 'info' : 'bad');
+  toast(`${who}${RACES[r].name} ${n}${orbs ? ` (сфер: ${orbs})` : ''}: ${ti >= 0 ? tierText(RACES[r].tiers[ti]) : 'бонуса пока нет'}${next ? `. С ${next.n}: ${tierText(next)}` : ''}`, side === me ? 'info' : 'bad');
 }
 $('synergy').addEventListener('click', (e) => raceToast(me, e));
 $('foeSynergy').addEventListener('click', (e) => raceToast(foe(), e));
