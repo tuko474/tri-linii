@@ -978,12 +978,20 @@ export class Game {
   }
 
   /**
-   * Сфера расы: случайный герой твоей команды — и его раса. Шанс расы пропорционален числу её героев
-   * (5 магов — точно маг, 5 разных рас — одна из пяти). +1 к расе, пока Лорд не возродится.
+   * Сфера расы (+1 к расе, пока Лорд не возродится). С 6 окт 2026 — «недостающая»: выпадает раса твоей команды,
+   * которой не хватает одного героя до следующего бонуса (2 мага, 2 горных, 1 дикий → дикий; 3 мага, 2 диких → маг;
+   * 5 разных рас → любая из пяти поровну). Если таких нет (например, 5 одной расы) — как раньше:
+   * случайный герой команды и его раса (сфера с прошлого Лорда тоже считается).
    */
   private rollOrb(side: Side): RaceId {
-    const team = this.heroes.filter((h) => h.side === side);
-    const race = team[Math.floor(this.rand() * team.length)].def.race;
+    const counts = this.raceCounts(side);
+    const near = RACE_IDS.filter((r) => counts[r] > 0 && RACES[r].tiers.some((t) => t.n === counts[r] + 1));
+    let race: RaceId;
+    if (near.length) race = near[Math.floor(this.rand() * near.length)];
+    else {
+      const team = this.heroes.filter((h) => h.side === side);
+      race = team[Math.floor(this.rand() * team.length)].def.race;
+    }
     this.orbs[side][race] = (this.orbs[side][race] ?? 0) + 1;
     this.refreshStats(side);
     return race;
