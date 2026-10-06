@@ -59,6 +59,8 @@ export class Game {
   barracks: [number, number][] = [[0, 0], [0, 0], [0, 0]];
   /** Глиф: сколько ещё действует и перезарядка. */
   glyphT: [number, number] = [0, 0];
+  /** Подчинённый Лорд ждёт следующей волны: линия, по которой он выйдет от барака (-1 — нет). */
+  lordNext: [number, number] = [-1, -1];
   glyphCd: [number, number] = [0, 0];
 
   constructor(picks: [Pick[], Pick[]], difficulty: Difficulty, seed = Math.floor(Math.random() * 2 ** 31)) {
@@ -112,7 +114,7 @@ export class Game {
     const add = (v: number) => { h = (Math.imul(h, 31) + Math.round(v * 10)) | 0; };
     add(this.t); add(this.gold[0]); add(this.gold[1]); add(this.throne[0]); add(this.throne[1]); add(this.rs);
     for (const x of this.heroes) { add(x.hp); add(x.mana); add(x.lvl); add(x.lane); add(x.stars); add(x.cd2); }
-    for (const s of [0, 1] as Side[]) { add(this.upg[s].armor + this.upg[s].fury * 7 + this.upg[s].mana * 49 + this.upg[s].gun * 343 + this.upg[s].walls * 2401 + this.upg[s].thorns * 16807); add(this.glyphCd[s]); }
+    for (const s of [0, 1] as Side[]) { add(this.upg[s].armor + this.upg[s].fury * 7 + this.upg[s].mana * 49 + this.upg[s].gun * 343 + this.upg[s].walls * 2401 + this.upg[s].thorns * 16807); add(this.glyphCd[s]); add(this.lordNext[s]); }
     add(this.creeps.length);
     for (const c of this.creeps) { add(c.hp); add(c.s); }
     for (const n of this.neutrals) add(n.hp);
@@ -632,7 +634,8 @@ export class Game {
       for (const h of group) {
         const sp = this.tripSpot(n, h);
         const d = Math.hypot(sp.x - h.trip!.x, sp.y - h.trip!.y);
-        h.trip!.spd = Math.max(0.3, (d / Math.max(1, far)) * (1 + BAL.partyMarch));
+        // нижний предел маленький: раньше было 0,3 — герой рядом с логовом (центр, у реки) прибегал раньше всех
+        h.trip!.spd = Math.max(0.03, (d / Math.max(1, far)) * (1 + BAL.partyMarch));
       }
     }
     if (sent && n.kind !== 'camp') this.tell(side, `Твои герои идут на: ${this.neutralName(n)}`, 'info');
@@ -966,12 +969,13 @@ export class Game {
     } else {
       this.stats.lords[side]++;
       const lane = this.bestLane(side);
-      this.spawnLordCreep(side, lane);
+      this.lordNext[side] = lane; // выйдет от барака вместе со следующей волной
       const race = this.rollOrb(side);
       const rn = RACES[race].name;
       const other = (1 - side) as Side;
-      this.tell(side, `Лорд на твоей стороне (${LANE_NAMES[lane]} линия). Сфера: ${rn} +1, пока Лорд мёртв`, 'good');
-      this.tell(other, `Враг подчинил Лорда (${LANE_NAMES[lane]} линия) и получил сферу: ${rn}`, 'bad');
+      const w = Math.ceil(this.waveTimer);
+      this.tell(side, `Лорд на твоей стороне: выйдет с волной через ${w} с (${LANE_NAMES[lane]} линия). Сфера: ${rn} +1, пока Лорд мёртв`, 'good');
+      this.tell(other, `Враг подчинил Лорда: выйдет с волной через ${w} с (${LANE_NAMES[lane]} линия). Сфера: ${rn}`, 'bad');
       this.say(side, 'bossDown');
       this.say(other, 'bad');
     }
@@ -1018,12 +1022,14 @@ export class Game {
     return best;
   }
 
+  /** Лорд выходит от барака впереди волны. */
   private spawnLordCreep(side: Side, lane: number) {
     const st = BAL.creep.lord;
     const dir = side === 0 ? 1 : -1;
     const mul = 1 + 0.08 * (this.t / 60);
+    const base = side === 0 ? BARRACKS_S : this.lanes[lane].length - BARRACKS_S;
     this.creeps.push({
-      uid: this.uid++, kind: 'lord', side, lane, s: this.slotS(lane, side) + dir * 70, off: 0,
+      uid: this.uid++, kind: 'lord', side, lane, s: base + dir * 40, off: 0,
       hp: st.hp * mul, maxHp: st.hp * mul, dmg: st.dmg * mul, range: st.range, rate: st.rate, speed: st.speed,
       atkCd: 0, slowT: 0, slowMul: 1, stunT: 0, gold: st.gold, r: st.r, dead: false, ls: 0, crit: 0, armor: 0, castCd: 0,
     });
@@ -1086,6 +1092,11 @@ export class Game {
 
   private spawnWave() {
     this.waveNo++;
+    for (const side of [0, 1] as Side[]) {
+      if (this.lordNext[side] < 0) continue;
+      this.spawnLordCreep(side, this.lordNext[side]);
+      this.lordNext[side] = -1;
+    }
     for (let lane = 0; lane < 3; lane++) {
       for (const side of [0, 1] as Side[]) {
         const lvl = this.creepLvl[lane][side];
@@ -1493,7 +1504,7 @@ export class Game {
     return {
       t: r(this.t), gold: this.gold.map(r), throne: this.throne.map(r), front: this.front, creepLvl: this.creepLvl,
       waveTimer: r(this.waveTimer), waveNo: this.waveNo, winner: this.winner, orbs: this.orbs, stats: this.stats,
-      autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
+      autoCast: this.autoCast, upg: this.upg, bar: this.barracks, gl: [...this.glyphT.map(r), ...this.glyphCd.map(r)], rs: this.rs, uid: this.uid, vt: r(this.visionT), ln: this.lordNext, tac: this.throneAtkFx.map(r), tcd: this.throneCd.map(r),
       heroes: this.heroes.map((h) => [h.uid, h.lvl, r(h.xp), r(h.hp), r(h.maxHp), r(h.mana), r(h.maxMana), r(h.dmg), r(h.cd), r(h.atkCd),
         h.dead ? 1 : 0, r(h.respawn), h.off, r(h.s), h.trip ? [h.trip.nid, h.trip.phase, r(h.trip.x), r(h.trip.y), h.trip.idx, h.trip.spd ?? 0] : 0, h.lane, r(h.helpT), r(h.moveCd), h.stars, r(h.cd2)]),
       creeps: this.creeps.map((c) => [c.uid, c.kind, c.side, c.lane, r(c.s), c.off, r(c.hp), r(c.maxHp), r(c.dmg), c.range, c.rate, c.speed,
@@ -1509,7 +1520,7 @@ export class Game {
     this.t = S.t; this.gold = S.gold as [number, number]; this.throne = S.throne as [number, number];
     this.front = S.front; this.creepLvl = S.creepLvl; this.waveTimer = S.waveTimer; this.waveNo = S.waveNo;
     this.winner = S.winner; this.orbs = S.orbs; this.stats = S.stats; this.autoCast = S.autoCast;
-    this.throneAtkFx = S.tac; this.upg = S.upg; this.barracks = S.bar; this.glyphT = [S.gl[0], S.gl[1]]; this.glyphCd = [S.gl[2], S.gl[3]]; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.throneCd = S.tcd;
+    this.throneAtkFx = S.tac; this.upg = S.upg; this.barracks = S.bar; this.glyphT = [S.gl[0], S.gl[1]]; this.glyphCd = [S.gl[2], S.gl[3]]; this.rs = S.rs; this.uid = S.uid; this.visionT = S.vt; this.throneCd = S.tcd; this.lordNext = [...(S.ln ?? [-1, -1])] as [number, number];
     const byUid = new Map(this.heroes.map((h) => [h.uid, h]));
     for (const a of S.heroes) {
       const h = byUid.get(a[0] as number);

@@ -1224,10 +1224,25 @@ function renderTripHeroes() {
   $('tripWarn').textContent = empty.length
     ? `${empty.map((l) => LANE_NAMES[l]).join(' и ')} линия останется без героев — вражеские крипы смогут занять позицию.`
     : '';
+  const free = tripFree();
+  const all = $<HTMLButtonElement>('tripAll');
+  all.disabled = free.length === 0 || !n.alive;
+  all.textContent = free.length && free.every((h) => tripPick.has(h)) ? 'Снять всех' : 'Все';
   const go = $<HTMLButtonElement>('tripGo');
   go.disabled = tripPick.size === 0 || !n.alive;
   go.textContent = tripPick.size ? `Отправить (${tripPick.size})` : 'Выбери героев';
 }
+
+/** Свои герои, которых можно отправить: живые и не в походе. */
+function tripFree(): Hero[] {
+  return game ? game.heroes.filter((h) => h.side === me && !h.dead && !h.trip) : [];
+}
+$('tripAll').onclick = () => {
+  const free = tripFree();
+  if (free.length && free.every((h) => tripPick.has(h))) tripPick = new Set();
+  else tripPick = new Set(free);
+  renderTripHeroes();
+};
 
 function closeTrip() {
   $('tripModal').hidden = true;

@@ -968,6 +968,15 @@ export class Renderer {
       ctx.textAlign = 'center';
       if (lvl) ctx.fillText('★'.repeat(lvl), 0, 46);
       this.drawWaveTimer();
+      // подчинённый Лорд выйдет отсюда со следующей волной
+      if (g.lordNext[side] === l) {
+        ctx.font = '800 15px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 4; ctx.strokeStyle = C.dark;
+        ctx.strokeText('♛ Лорд', 0, -150);
+        ctx.fillStyle = '#c9a8ff';
+        ctx.fillText('♛ Лорд', 0, -150);
+      }
       // метки рас, которые усиливают крипов этой линии (цвет расы)
       const races = g.laneCreepFx(l, side).races;
       races.forEach((r, i) => {
