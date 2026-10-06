@@ -342,7 +342,7 @@ function renderCards() {
       <div class="card-head">${portrait(h)}<div><h3>${h.name}</h3><div class="role">${h.role}</div>
         <span class="race-tag" style="--rc:${race.color}"><img src="${raceURL(h.race, 40)}" alt="">${race.name}</span></div></div>
       <div class="star-line">${starsHTML(st)}<small>${st ? starBonusText(st) : owned ? 'звёзды усиливают героя' : ''}</small></div>
-      <div class="nums"><span>HP ${Math.round(h.hp * (1 + BAL.stars.hp * st))}</span><span>урон ${Math.round(h.dmg * (1 + BAL.stars.dmg * st))}</span><span>дальн. ${h.range}</span></div>
+      <div class="nums"><span>HP ${Math.round(h.hp * (1 + BAL.stars.hp * st))}</span><span>урон ${Math.round(h.dmg * (1 + BAL.stars.dmg * st))}</span><span>${atkKind(h)} · ${h.range}</span></div>
       <div class="skill"><img class="skill-ico" src="${skillURL(h)}" alt=""><span><b>${h.skill.name}.</b> ${h.skill.desc}</span></div>
       <div class="skill skill2${st >= BAL.stars.max ? '' : ' off'}"><img class="skill-ico" src="${skill2URL(h)}" alt=""><span><b>${h.skill2.name}.</b> ${h.skill2.desc}. ${st >= BAL.stars.max ? `Срабатывает сама, раз в ${h.skill2.cd} с.` : `<em>Откроется на ${BAL.stars.max}★.</em>`}</span></div>
       ${!owned ? `<button type="button" class="btn buy" ${meta.crystals < h.price ? 'disabled' : ''}>Открыть за ✦ ${h.price}</button>`
@@ -548,6 +548,11 @@ function doPick(side: Side, id: string) {
   if (draft.done) setTimeout(toPlacement, 700);
 }
 
+/** Ближний или дальний бой героя (ближние — дальность до 130: им место впереди колонны). */
+function atkKind(h: { range: number }): string {
+  return h.range <= 130 ? 'Ближний' : 'Дальний';
+}
+
 function renderDraft() {
   if (!draft) return;
   const d = draft;
@@ -591,7 +596,7 @@ function renderDraft() {
     const trial = !meta.owned.has(sel.id) && noOwnedFree(meta.owned);
     const note = d.taken(sel.id) ? ' · уже выбран' : trial ? ' · пробный на этот бой' : !meta.owned.has(sel.id) ? ' · не открыт (открой в «Героях»)' : '';
     const ss = meta.owned.has(sel.id) ? meta.starsOf(sel.id) : 0;
-    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b>${ss ? ` <span class="st-gold">${ss}★</span>` : ''} · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}.${ss >= BAL.stars.max ? ` 5★: «${sel.skill2.name}» — ${sel.skill2.desc.toLowerCase()}.` : ''} HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
+    $('draftInfo').innerHTML = `<img class="skill-ico" src="${skillURL(sel)}" alt=""><span><b>${sel.name}</b>${ss ? ` <span class="st-gold">${ss}★</span>` : ''} · ${sel.role} · <span style="color:${race.color}">${race.name}</span>${note}<br>${sel.skill.name}: ${sel.skill.desc}.${ss >= BAL.stars.max ? ` 5★: «${sel.skill2.name}» — ${sel.skill2.desc.toLowerCase()}.` : ''} <b>${atkKind(sel)} бой</b>, HP ${sel.hp}, урон ${sel.dmg}, дальность ${sel.range}.<br>${raceHint(sel.id, d.team(me))}</span>`;
   } else {
     $('draftInfo').textContent = turn === me && noOwnedFree(meta.owned)
       ? 'Свободных открытых героев не осталось — можно взять любого как пробного на этот бой.'
@@ -688,7 +693,7 @@ function renderPlace() {
       chip.className = 'hero-chip';
       chip.setAttribute('aria-pressed', String(selectedChip === h.id));
       const tag = inLane.length > 1 ? `<em class="ord${k === 0 ? ' front' : ''}">${k === 0 ? 'впереди' : k + 1}</em>` : '';
-      chip.innerHTML = `${portrait(h)}<span>${h.name}<small class="kind">${h.hp} HP · ${h.range <= 130 ? 'ближний' : 'дальний'}</small></span>${tag}`;
+      chip.innerHTML = `${portrait(h)}<span>${h.name}<small class="kind">${h.hp} HP · ${atkKind(h).toLowerCase()}</small></span>${tag}`;
       chip.onclick = (e) => {
         e.stopPropagation();
         if (myPlacementSent) return;
