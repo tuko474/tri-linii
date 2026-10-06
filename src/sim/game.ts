@@ -678,8 +678,9 @@ export class Game {
   }
 
   /** Глиф: на несколько секунд все герои стороны на линиях не получают урона. */
-  glyph(side: Side): boolean {
+  glyph(side: Side, auto = false): boolean {
     if (!this.canGlyph(side)) return false;
+    if (auto) this.tell(side, 'Трон почти пал — глиф включился сам!', 'bad');
     this.gold[side] -= BAL.glyph.cost;
     this.glyphCd[side] = BAL.glyph.cd;
     this.glyphT[side] = BAL.glyph.dur;
@@ -1186,7 +1187,7 @@ export class Game {
       }
       if (!best) continue;
       this.throneCd[side] = cfg.rate * BAL.gunUp.rate ** up;
-      this.projs.push({ x: t.x, y: t.y - 40, target: { kind: 'creep', c: best }, dmg: (cfg.dmg + cfg.dmgPerMin * (this.t / 60)) * (1 + up * BAL.gunUp.dmg), speed: 900, color: side === 0 ? '#9ff5e8' : '#ffb0bb', size: 7 });
+      this.projs.push({ x: t.x, y: t.y - 40, target: { kind: 'creep', c: best }, dmg: (cfg.dmg + cfg.dmgPerMin * (this.t / 60) + cfg.pctHp * best.maxHp) * (1 + up * BAL.gunUp.dmg), speed: 900, color: side === 0 ? '#9ff5e8' : '#ffb0bb', size: 7 });
     }
   }
 
@@ -1289,6 +1290,7 @@ export class Game {
             this.fx.push({ kind: 'text', x: p.x, y: p.y - 18, text: '!', color: '#c9a8ff', t: 0, life: 0.5 });
           }
           if (c.ls > 0 && target.kind !== 'throne') c.hp = Math.min(c.maxHp, c.hp + dmg * c.ls);
+          if (target.kind === 'throne') dmg = this.throneDmg(c, dmg);
           if (c.kind === 'mage' && c.castCd <= 0) { c.castCd = BAL.creepMage.blastEvery; this.mageBlast(c, target); }
           else if (c.range < 100) this.applyHit(target, dmg);
           else {
@@ -1332,6 +1334,13 @@ export class Game {
     this.projs = this.projs.filter((p) => p.speed > 0);
   }
 
+  /** Трон — крепость: усиление крипа (уровень волны, поздняя игра, расы) действует на урон по трону
+   *  ослабленно — степенью BAL.throneFort.pow вместо полной силы. Против героев крипы бьют в полную силу. */
+  private throneDmg(c: Creep, dmg: number): number {
+    const mul = Math.max(1, c.dmg / BAL.creep[c.kind].dmg);
+    return dmg * Math.pow(mul, BAL.throneFort.pow - 1);
+  }
+
   private applyHit(t: Target, dmg: number) {
     if (t.kind === 'creep') this.hitCreep(t.c, dmg);
     else if (t.kind === 'hero') this.hitHero(t.h, dmg);
@@ -1339,7 +1348,15 @@ export class Game {
       if (this.winner !== null) return;
       this.throneAtkFx[t.side] = 1.2;
       if (this.glyphT[t.side] > 0) return; // глиф: трон тоже под щитом
-      this.throne[t.side] -= dmg * Math.max(0, 1 - BAL.throneUp.walls.per * this.upg[t.side].walls); // стены
+      const left = this.throne[t.side] - dmg * Math.max(0, 1 - BAL.throneUp.walls.per * this.upg[t.side].walls); // стены
+      // последний рубеж: удар опустил бы трон до 1% — сам включается глиф (если есть золото и он не на перезарядке),
+      // а этот удар трон переживает с 1 прочностью
+      if (left <= BAL.throneHp * BAL.throneFort.autoGlyph && this.canGlyph(t.side)) {
+        this.throne[t.side] = Math.max(1, left);
+        this.glyph(t.side, true);
+        return;
+      }
+      this.throne[t.side] = left;
       this.say(t.side, 'throne');
     }
   }
@@ -1348,7 +1365,7 @@ export class Game {
   private mageBlast(c: Creep, target: Target) {
     const cfg = BAL.creepMage;
     const dmg = c.dmg * cfg.mul;
-    if (target.kind === 'throne') { this.applyHit(target, dmg); return; }
+    if (target.kind === 'throne') { this.applyHit(target, this.throneDmg(c, dmg)); return; }
     const center = target.kind === 'creep' ? target.c.s : target.h.s;
     const foe = (1 - c.side) as Side;
     for (const e of this.creeps) if (!e.dead && e.side === foe && e.lane === c.lane && Math.abs(e.s - center) <= cfg.r) this.hitCreep(e, dmg);
