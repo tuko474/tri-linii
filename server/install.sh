@@ -15,7 +15,9 @@ say() { printf '\n\033[1;33m== %s\033[0m\n' "$*"; }
 export DEBIAN_FRONTEND=noninteractive
 
 say "Пакеты системы"
-apt-get update -y -q
+# Caddy уже стоит — его внешний репозиторий не нужен (cloudsmith бывает недоступен: 402/403 из РФ)
+if command -v caddy >/dev/null; then rm -f /etc/apt/sources.list.d/caddy-stable.list; fi
+apt-get update -y -q || echo "apt update с ошибками — продолжаю"
 apt-get install -y -q curl git ca-certificates debian-keyring debian-archive-keyring apt-transport-https gnupg
 
 say "Node.js 22"
@@ -34,7 +36,11 @@ say "Caddy (https-сертификат ставится сам)"
 if ! command -v caddy >/dev/null; then
   if curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null \
      && curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list; then
-    apt-get update -y -q && apt-get install -y -q caddy
+    if ! { apt-get update -y -q && apt-get install -y -q caddy; }; then
+      rm -f /etc/apt/sources.list.d/caddy-stable.list
+      apt-get update -y -q || true
+      apt-get install -y -q caddy
+    fi
   else
     apt-get install -y -q caddy
   fi
