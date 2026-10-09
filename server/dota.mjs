@@ -120,7 +120,7 @@ const intSid = (v) => {
 const cleanName = (s) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 32) || 'Игрок';
 const teamNameOk = (s) => /^[\p{L}\p{N} _.\-]{3,20}$/u.test(s) && s.trim() === s && !/\s{2}/.test(s);
 const tagOk = (s) => /^[\p{L}\p{N}]{2,5}$/u.test(s);
-const fail = (err) => ({ ok: false, err });
+const fail = (err, err_en = err) => ({ ok: false, err, err_en });
 
 function getPlayer(db, sid) {
   return db.prepare('SELECT * FROM players WHERE sid = ?').get(sid);
@@ -197,7 +197,7 @@ OPS.start = (db, b) => {
 OPS.end = (db, b, test) => {
   const id = String(b.match || '').slice(0, 40);
   const m = db.prepare('SELECT * FROM matches WHERE id = ?').get(id);
-  if (!m) return fail('матч не найден');
+  if (!m) return fail('матч не найден', 'match not found');
   if (m.ended) return JSON.parse(m.result); // повтор — тот же ответ
   const rules = test ? RULES.test : RULES.real;
   const winner = Number(b.winner);
@@ -215,11 +215,12 @@ OPS.end = (db, b, test) => {
   const bySide = { 2: list.filter((x) => x.side === 2), 3: list.filter((x) => x.side === 3) };
 
   let reason = null;
-  if (winner !== 2 && winner !== 3) reason = 'победитель не определён';
-  else if (b.cheats) reason = 'включены читы';
-  else if (duration < rules.minMinutes * 60) reason = `матч короче ${rules.minMinutes} мин`;
-  else if (Math.min(bySide[2].length, bySide[3].length) < rules.minPerTeam) reason = `меньше ${rules.minPerTeam} игроков в команде`;
-  else if (Math.abs(bySide[2].length - bySide[3].length) > rules.maxDiff) reason = 'команды неравные по числу игроков';
+  let reasonEn = null;
+  if (winner !== 2 && winner !== 3) [reason, reasonEn] = ['победитель не определён', 'no winner'];
+  else if (b.cheats) [reason, reasonEn] = ['включены читы', 'cheats enabled'];
+  else if (duration < rules.minMinutes * 60) [reason, reasonEn] = [`матч короче ${rules.minMinutes} мин`, `match shorter than ${rules.minMinutes} min`];
+  else if (Math.min(bySide[2].length, bySide[3].length) < rules.minPerTeam) [reason, reasonEn] = [`меньше ${rules.minPerTeam} игроков в команде`, `fewer than ${rules.minPerTeam} players per team`];
+  else if (Math.abs(bySide[2].length - bySide[3].length) > rules.maxDiff) [reason, reasonEn] = ['команды неравные по числу игроков', 'teams have unequal player counts'];
 
   const start = JSON.parse(m.start || '{}');
   const t = now();
@@ -273,7 +274,7 @@ OPS.end = (db, b, test) => {
       }
     }
   }
-  const out = { ok: true, ranked: !reason, kind, reason, winner, results, teams };
+  const out = { ok: true, ranked: !reason, kind, reason, reason_en: reasonEn, winner, results, teams };
   db.prepare('UPDATE matches SET ended = ?, kind = ?, reason = ?, winner = ?, duration = ?, result = ? WHERE id = ?')
     .run(t, kind, reason, winner, duration, JSON.stringify(out), id);
   return out;
@@ -282,7 +283,7 @@ OPS.end = (db, b, test) => {
 // Профиль игрока: рейтинг, команда, приглашения, последние игры
 OPS.profile = (db, b) => {
   const sid = intSid(b.sid);
-  if (!sid) return fail('нет игрока');
+  if (!sid) return fail('нет игрока', 'no player');
   const p = ensurePlayer(db, sid, b.name);
   const t = teamOf(db, sid);
   const cutoff = now() - DOTA.INVITE_DAYS * 86400e3;
@@ -314,57 +315,57 @@ OPS.top = (db, b) => {
 
 OPS.team_create = (db, b) => {
   const sid = intSid(b.sid);
-  if (!sid) return fail('нет игрока');
+  if (!sid) return fail('нет игрока', 'no player');
   ensurePlayer(db, sid, b.myName);
   const name = String(b.name || '').trim().replace(/\s+/g, ' ');
   const tag = String(b.tag || '').trim().toUpperCase();
-  if (!teamNameOk(name)) return fail('Название: 3–20 символов (буквы, цифры, пробел, _ . -)');
-  if (!tagOk(tag)) return fail('Тег: 2–5 букв или цифр');
-  if (teamOf(db, sid)) return fail('Ты уже в команде — сначала выйди из неё');
-  if (db.prepare('SELECT 1 FROM teams WHERE name = ?').get(name)) return fail('Такое название уже занято');
-  if (db.prepare('SELECT 1 FROM teams WHERE tag = ?').get(tag)) return fail('Такой тег уже занят');
+  if (!teamNameOk(name)) return fail('Название: 3–20 символов (буквы, цифры, пробел, _ . -)', 'Name: 3–20 characters (letters, digits, space, _ . -)');
+  if (!tagOk(tag)) return fail('Тег: 2–5 букв или цифр', 'Tag: 2–5 letters or digits');
+  if (teamOf(db, sid)) return fail('Ты уже в команде — сначала выйди из неё', 'You are already in a team — leave it first');
+  if (db.prepare('SELECT 1 FROM teams WHERE name = ?').get(name)) return fail('Такое название уже занято', 'This name is already taken');
+  if (db.prepare('SELECT 1 FROM teams WHERE tag = ?').get(tag)) return fail('Такой тег уже занят', 'This tag is already taken');
   const t = now();
   const r = db.prepare('INSERT INTO teams (name, tag, captain, created) VALUES (?, ?, ?, ?)').run(name, tag, sid, t);
   db.prepare('INSERT INTO members (sid, team, joined) VALUES (?, ?, ?)').run(sid, Number(r.lastInsertRowid), t);
   db.prepare('DELETE FROM invites WHERE sid = ?').run(sid);
-  return { ok: true, text: `Команда [${tag}] ${name} создана. Ты капитан — пригласи игроков.` };
+  return { ok: true, text: `Команда [${tag}] ${name} создана. Ты капитан — пригласи игроков.`, text_en: `Team [${tag}] ${name} created. You are the captain — invite players.` };
 };
 
 function captainTeam(db, sid) {
   const t = teamOf(db, sid);
-  if (!t) return [null, fail('Ты не в команде')];
-  if (t.captain !== sid) return [null, fail('Это может только капитан')];
+  if (!t) return [null, fail('Ты не в команде', 'You are not in a team')];
+  if (t.captain !== sid) return [null, fail('Это может только капитан', 'Only the captain can do this')];
   return [t, null];
 }
 
 OPS.team_invite = (db, b) => {
   const sid = intSid(b.sid);
   const target = intSid(b.target);
-  if (!sid || !target || sid === target) return fail('Некого приглашать');
+  if (!sid || !target || sid === target) return fail('Некого приглашать', 'Nobody to invite');
   const [t, err] = captainTeam(db, sid);
   if (err) return err;
   ensurePlayer(db, target, b.targetName);
-  if (teamOf(db, target)) return fail('Этот игрок уже в команде');
+  if (teamOf(db, target)) return fail('Этот игрок уже в команде', 'This player is already in a team');
   const n = membersOf(db, t.id).length;
-  if (n >= DOTA.TEAM_SIZE) return fail(`В команде уже ${DOTA.TEAM_SIZE} игроков`);
+  if (n >= DOTA.TEAM_SIZE) return fail(`В команде уже ${DOTA.TEAM_SIZE} игроков`, `The team already has ${DOTA.TEAM_SIZE} players`);
   db.prepare('INSERT OR REPLACE INTO invites (team, sid, by, created) VALUES (?, ?, ?, ?)').run(t.id, target, sid, now());
-  return { ok: true, text: 'Приглашение отправлено', team: teamShort(t) };
+  return { ok: true, text: 'Приглашение отправлено', text_en: 'Invitation sent', team: teamShort(t) };
 };
 
 OPS.team_answer = (db, b) => {
   const sid = intSid(b.sid);
   const teamId = Math.floor(Number(b.team));
   const inv = db.prepare('SELECT * FROM invites WHERE team = ? AND sid = ?').get(teamId, sid);
-  if (!inv) return fail('Приглашение не найдено или устарело');
+  if (!inv) return fail('Приглашение не найдено или устарело', 'Invitation not found or expired');
   db.prepare('DELETE FROM invites WHERE team = ? AND sid = ?').run(teamId, sid);
-  if (!b.accept) return { ok: true, text: 'Приглашение отклонено' };
-  if (teamOf(db, sid)) return fail('Ты уже в команде — сначала выйди из неё');
+  if (!b.accept) return { ok: true, text: 'Приглашение отклонено', text_en: 'Invitation declined' };
+  if (teamOf(db, sid)) return fail('Ты уже в команде — сначала выйди из неё', 'You are already in a team — leave it first');
   const t = db.prepare('SELECT * FROM teams WHERE id = ?').get(teamId);
-  if (!t) return fail('Команды больше нет');
-  if (membersOf(db, t.id).length >= DOTA.TEAM_SIZE) return fail('В команде уже нет мест');
+  if (!t) return fail('Команды больше нет', 'The team no longer exists');
+  if (membersOf(db, t.id).length >= DOTA.TEAM_SIZE) return fail('В команде уже нет мест', 'The team is already full');
   db.prepare('INSERT INTO members (sid, team, joined) VALUES (?, ?, ?)').run(sid, t.id, now());
   db.prepare('DELETE FROM invites WHERE sid = ?').run(sid);
-  return { ok: true, text: `Ты в команде [${t.tag}] ${t.name}` };
+  return { ok: true, text: `Ты в команде [${t.tag}] ${t.name}`, text_en: `You joined [${t.tag}] ${t.name}` };
 };
 
 function removeMember(db, t, sid) {
@@ -373,21 +374,22 @@ function removeMember(db, t, sid) {
   if (!rest.length) {
     db.prepare('DELETE FROM teams WHERE id = ?').run(t.id);
     db.prepare('DELETE FROM invites WHERE team = ?').run(t.id);
-    return 'команда распущена (в ней никого не осталось)';
+    return ['команда распущена (в ней никого не осталось)', 'team disbanded (nobody left)'];
   }
   if (t.captain === sid) {
     db.prepare('UPDATE teams SET captain = ? WHERE id = ?').run(rest[0].sid, t.id);
-    return `капитан теперь ${rest[0].name || rest[0].sid}`;
+    return [`капитан теперь ${rest[0].name || rest[0].sid}`, `new captain: ${rest[0].name || rest[0].sid}`];
   }
-  return '';
+  return ['', ''];
 }
 
 OPS.team_leave = (db, b) => {
   const sid = intSid(b.sid);
   const t = teamOf(db, sid);
-  if (!t) return fail('Ты не в команде');
-  const extra = removeMember(db, t, sid);
-  return { ok: true, text: `Ты вышел из [${t.tag}] ${t.name}` + (extra ? `; ${extra}` : '') };
+  if (!t) return fail('Ты не в команде', 'You are not in a team');
+  const [extra, extraEn] = removeMember(db, t, sid);
+  return { ok: true, text: `Ты вышел из [${t.tag}] ${t.name}` + (extra ? `; ${extra}` : ''),
+    text_en: `You left [${t.tag}] ${t.name}` + (extraEn ? `; ${extraEn}` : '') };
 };
 
 OPS.team_kick = (db, b) => {
@@ -395,15 +397,15 @@ OPS.team_kick = (db, b) => {
   const target = intSid(b.target);
   const [t, err] = captainTeam(db, sid);
   if (err) return err;
-  if (target === sid) return fail('Себя исключить нельзя — выйди из команды');
+  if (target === sid) return fail('Себя исключить нельзя — выйди из команды', 'You cannot kick yourself — leave the team instead');
   const m = db.prepare('SELECT * FROM members WHERE sid = ? AND team = ?').get(target, t.id);
   if (!m) {
     // может, это неотвеченное приглашение — отзываем
     const r = db.prepare('DELETE FROM invites WHERE team = ? AND sid = ?').run(t.id, target);
-    return r.changes ? { ok: true, text: 'Приглашение отозвано' } : fail('Игрок не в твоей команде');
+    return r.changes ? { ok: true, text: 'Приглашение отозвано', text_en: 'Invitation revoked' } : fail('Игрок не в твоей команде', 'This player is not in your team');
   }
   removeMember(db, t, target);
-  return { ok: true, text: 'Игрок исключён' };
+  return { ok: true, text: 'Игрок исключён', text_en: 'Player kicked' };
 };
 
 OPS.team_captain = (db, b) => {
@@ -411,9 +413,9 @@ OPS.team_captain = (db, b) => {
   const target = intSid(b.target);
   const [t, err] = captainTeam(db, sid);
   if (err) return err;
-  if (!db.prepare('SELECT 1 FROM members WHERE sid = ? AND team = ?').get(target, t.id)) return fail('Игрок не в твоей команде');
+  if (!db.prepare('SELECT 1 FROM members WHERE sid = ? AND team = ?').get(target, t.id)) return fail('Игрок не в твоей команде', 'This player is not in your team');
   db.prepare('UPDATE teams SET captain = ? WHERE id = ?').run(target, t.id);
-  return { ok: true, text: 'Капитан передан' };
+  return { ok: true, text: 'Капитан передан', text_en: 'Captaincy transferred' };
 };
 
 OPS.team_disband = (db, b) => {
@@ -423,7 +425,7 @@ OPS.team_disband = (db, b) => {
   db.prepare('DELETE FROM members WHERE team = ?').run(t.id);
   db.prepare('DELETE FROM invites WHERE team = ?').run(t.id);
   db.prepare('DELETE FROM teams WHERE id = ?').run(t.id);
-  return { ok: true, text: `Команда [${t.tag}] ${t.name} распущена` };
+  return { ok: true, text: `Команда [${t.tag}] ${t.name} распущена`, text_en: `Team [${t.tag}] ${t.name} disbanded` };
 };
 
 // ---------- ключ сервера Valve ----------
@@ -480,10 +482,13 @@ function readBody(req) {
 export async function handleDota(req, res) {
   const url = new URL(req.url, 'http://x');
   const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-  if (limited(ip)) return send(res, 429, fail('слишком часто'));
+  if (limited(ip)) return send(res, 429, fail('слишком часто', 'too many requests'));
   try {
     if (req.method === 'GET' && (url.pathname === '/dota' || url.pathname === '/dota/')) {
-      return send(res, 200, leaderboardPage(), 'text/html; charset=utf-8');
+      // язык: ?lang=en / ?lang=ru, иначе по языку браузера
+      const qLang = url.searchParams.get('lang');
+      const en = qLang ? qLang === 'en' : !/^ru|,\s*ru/i.test(String(req.headers['accept-language'] || 'ru'));
+      return send(res, 200, leaderboardPage(en), 'text/html; charset=utf-8');
     }
     if (req.method === 'GET' && url.pathname === '/dota/top.json') {
       return send(res, 200, OPS.top(dbFor(false), { kind: url.searchParams.get('kind') }));
@@ -491,9 +496,9 @@ export async function handleDota(req, res) {
     if (req.method === 'POST' && url.pathname === '/dota/api') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const test = !!body.test;
-      if (!test && !keyOk(String(req.headers['x-aod-key'] || ''))) return send(res, 403, fail('неверный ключ сервера'));
+      if (!test && !keyOk(String(req.headers['x-aod-key'] || ''))) return send(res, 403, fail('неверный ключ сервера', 'invalid server key'));
       const op = Object.hasOwn(OPS, body.op) ? OPS[body.op] : null;
-      if (!op) return send(res, 400, fail('неизвестная операция'));
+      if (!op) return send(res, 400, fail('неизвестная операция', 'unknown operation'));
       const db = dbFor(test);
       let out;
       db.exec('BEGIN IMMEDIATE');
@@ -507,17 +512,18 @@ export async function handleDota(req, res) {
       if (body.op === 'end' || body.op === 'team_create') console.log(`[dota]${test ? '[test]' : ''} ${body.op}: ${JSON.stringify(out).slice(0, 300)}`);
       return send(res, 200, out);
     }
-    return send(res, 404, fail('нет такого адреса'));
+    return send(res, 404, fail('нет такого адреса', 'not found'));
   } catch (e) {
     console.error('[dota] ошибка', e);
-    return send(res, 500, fail('ошибка сервера'));
+    return send(res, 500, fail('ошибка сервера', 'server error'));
   }
 }
 
 // ---------- страница с таблицей лидеров ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-function leaderboardPage() {
+function leaderboardPage(en = false) {
+  const L = (ru, e) => (en ? e : ru);
   const db = dbFor(false);
   const solo = OPS.top(db, { kind: 'solo' }).list;
   const teams = OPS.top(db, { kind: 'team' }).list;
@@ -525,8 +531,8 @@ function leaderboardPage() {
   const soloRows = solo.map((p, i) => `<tr><td>${i + 1}</td><td>${p.tag ? `<span class="tag">[${esc(p.tag)}]</span> ` : ''}${esc(p.name)}</td><td class="n">${p.mmr}</td><td class="n">${p.games}</td><td class="n">${wr(p.wins, p.games)}</td></tr>`).join('');
   const teamRows = teams.map((t, i) => `<tr><td>${i + 1}</td><td><span class="tag">[${esc(t.tag)}]</span> ${esc(t.name)}</td><td class="n">${t.mmr}</td><td class="n">${t.games}</td><td class="n">${wr(t.wins, t.games)}</td></tr>`).join('');
   const empty = (txt) => `<tr><td colspan="5" class="empty">${txt}</td></tr>`;
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Arena of Defense — рейтинг</title><style>
+  return `<!doctype html><html lang="${en ? 'en' : 'ru'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arena of Defense — ${L('рейтинг', 'leaderboard')}</title><style>
 :root{--bg:#0f0d0c;--card:#1b1714;--line:#332c27;--text:#ece4d8;--muted:#a3988a;--gold:#f0c45a}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:760px;margin:0 auto;padding:24px 16px 48px}h1{color:var(--gold);font-size:26px;margin:0 0 4px}
@@ -537,11 +543,11 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{bo
 tr:nth-child(-n+3) td:first-child{color:var(--gold);font-weight:700}.tag{color:var(--gold)}.empty{color:var(--muted);text-align:center;padding:18px}
 a{color:var(--gold)}footer{color:var(--muted);font-size:13px;margin-top:28px}
 </style></head><body><main>
-<h1>Arena of Defense</h1><p class="sub">Рейтинг кастомки Dota 2 · обновляется после каждой рейтинговой игры</p>
-<h2>Игроки (соло-ММР)</h2><table><tr><th>#</th><th>Игрок</th><th class="n">ММР</th><th class="n">Игр</th><th class="n">Побед</th></tr>
-${soloRows || empty(`Пока никто не прошёл калибровку (${DOTA.CALIB_GAMES} игр)`)}</table>
-<h2>Команды</h2><table><tr><th>#</th><th>Команда</th><th class="n">ММР</th><th class="n">Игр</th><th class="n">Побед</th></tr>
-${teamRows || empty('Пока не было командных игр 5 на 5')}</table>
-<footer><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3816015867">Мастерская Steam</a> · <a href="https://t.me/arena_of_defense">Telegram</a></footer>
+<h1>Arena of Defense</h1><p class="sub">${L('Рейтинг кастомки Dota 2 · обновляется после каждой рейтинговой игры', 'Dota 2 custom game leaderboard · updated after every ranked game')} · <a href="?lang=${en ? 'ru' : 'en'}">${en ? 'По-русски' : 'English'}</a></p>
+<h2>${L('Игроки (соло-ММР)', 'Players (solo MMR)')}</h2><table><tr><th>#</th><th>${L('Игрок', 'Player')}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>
+${soloRows || empty(L(`Пока никто не прошёл калибровку (${DOTA.CALIB_GAMES} игр)`, `Nobody has finished calibration yet (${DOTA.CALIB_GAMES} games)`))}</table>
+<h2>${L('Команды', 'Teams')}</h2><table><tr><th>#</th><th>${L('Команда', 'Team')}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>
+${teamRows || empty(L('Пока не было командных игр 5 на 5', 'No 5v5 team games yet'))}</table>
+<footer><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3816015867">${L('Мастерская Steam', 'Steam Workshop')}</a> · <a href="https://t.me/arena_of_defense">Telegram</a></footer>
 </main></body></html>`;
 }
