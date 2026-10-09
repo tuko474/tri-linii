@@ -5,6 +5,7 @@
 
 import { BOT_REWARD, BOT_DAILY, BOT_AFTER_MS, HERO_PRICE, STICKER_PRICE, STAR_COST, MAX_STARS, REWARD, MIN_REWARD_MS, LOGIN_REWARD, QUESTS, QUESTS_PER_DAY, dayNow, msToNextDay } from './economy.mjs';
 import http from 'node:http';
+import { handleDota } from './dota.mjs'; // рейтинг кастомки Dota 2 (адреса /dota…)
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -722,6 +723,10 @@ setInterval(() => {
 
 // ---------- http ----------
 const srv = http.createServer((req, res) => {
+  if (req.url === '/dota' || req.url?.startsWith('/dota/') || req.url?.startsWith('/dota?')) {
+    handleDota(req, res);
+    return;
+  }
   if (req.url === '/privacy' || req.url === '/privacy/') {
     // политика конфиденциальности (ссылка для RuStore и для игры). Оператор — из файла рядом с базой или OPERATOR
     let html = '';
