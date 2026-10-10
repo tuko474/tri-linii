@@ -267,3 +267,7 @@ appId пока `com.trilinii.game` — сменить ДО первой публ
 - Рейтинговая игра: ≥10 мин, ≥3 игрока в каждой команде, разница ≤1, без читов (правила — `RULES` в dota.mjs).
 - Команды: ровно до 5 игроков, капитан создаёт (название + тег) и приглашает из лобби по Steam id.
   Командный ММР меняется, только если обе стороны — полные составы (5/5) двух разных команд; соло-ММР тогда не меняется.
+- Страница `/dota`: внизу блок «Спасибо сторонникам» (Boosty) и ссылки Telegram / Мастерская / RuStore / Boosty.
+  Список сторонников — `/var/lib/arena/dota_supporters.json`, правится на сервере:
+  `node /opt/arena/server/dota_admin.mjs supporter add "Ник" legend|ally|supporter`, `… supporter del "Ник"`, `… supporter list`.
+  Ссылки — `LINKS` в `server/dota.mjs`.

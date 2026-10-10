@@ -522,6 +522,44 @@ export async function handleDota(req, res) {
 // ---------- страница с таблицей лидеров ----------
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+// ---------- сторонники (Boosty) ----------
+// Список хранится на сервере: /var/lib/arena/dota_supporters.json — [{ "name": "Ник", "tier": "legend|ally|supporter" }]
+// Править командой: node /opt/arena/server/dota_admin.mjs supporter add "Ник" legend
+export const SUPPORTERS_FILE = path.join(DATA_DIR, 'dota_supporters.json');
+export const LINKS = {
+  boosty: 'https://boosty.to/arenaofdefense',
+  telegram: 'https://t.me/arena_of_defense',
+  workshop: 'https://steamcommunity.com/sharedfiles/filedetails/?id=3816015867',
+  rustore: 'https://www.rustore.ru/catalog/app/ru.arenaofdefense.game',
+};
+function readSupporters() {
+  try {
+    const list = JSON.parse(fs.readFileSync(SUPPORTERS_FILE, 'utf8'));
+    return Array.isArray(list) ? list.filter((x) => x && x.name) : [];
+  } catch { return []; }
+}
+
+function supportersBlock(L) {
+  const list = readSupporters();
+  const tiers = [['legend', L('Легенды', 'Legends')], ['ally', L('Соратники', 'Allies')], ['supporter', L('Сторонники', 'Supporters')]];
+  const body = list.length
+    ? tiers.map(([key, title]) => {
+      const names = list.filter((x) => x.tier === key);
+      if (!names.length) return '';
+      return `<div class="tier"><div class="tier-title">${title}</div><div class="names">${names.map((x) => `<span class="name ${key}">${key === 'legend' ? '👑 ' : ''}${esc(x.name)}</span>`).join('')}</div></div>`;
+    }).join('')
+    : `<div class="empty">${L('Пока никого — стань первым!', 'Nobody yet — be the first!')}</div>`;
+  return `<section class="thanks" id="thanks"><h2>💛 ${L('Спасибо сторонникам', 'Thanks to supporters')}</h2>
+<p class="sub">${L('Эти люди поддерживают разработку Arena of Defense. Хочешь сюда?', 'These people support the development of Arena of Defense. Want to be here?')} → <a href="${LINKS.boosty}" target="_blank" rel="noopener">Boosty</a></p>
+${body}</section>
+<footer><div class="links">
+<a class="link" href="${LINKS.telegram}" target="_blank" rel="noopener"><span>✈️</span>Telegram</a>
+<a class="link" href="${LINKS.workshop}" target="_blank" rel="noopener"><span>🎮</span>${L('Мастерская Steam', 'Steam Workshop')}</a>
+<a class="link" href="${LINKS.rustore}" target="_blank" rel="noopener"><span>📱</span>Android (RuStore)</a>
+<a class="link boosty" href="${LINKS.boosty}" target="_blank" rel="noopener"><span>💛</span>${L('Поддержать', 'Support')}</a>
+</div><div class="copy">Arena of Defense · ${L('подписка не даёт преимуществ в игре', 'support gives no in-game advantage')}</div></footer>`;
+}
+
 function leaderboardPage(en = false) {
   const L = (ru, e) => (en ? e : ru);
   const db = dbFor(false);
@@ -541,13 +579,24 @@ table{width:100%;border-collapse:collapse;background:var(--card);border:1px soli
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-weight:600;font-size:13px}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{border-bottom:0}
 tr:nth-child(-n+3) td:first-child{color:var(--gold);font-weight:700}.tag{color:var(--gold)}.empty{color:var(--muted);text-align:center;padding:18px}
-a{color:var(--gold)}footer{color:var(--muted);font-size:13px;margin-top:28px}
+a{color:var(--gold)}
+.thanks{margin-top:36px}.thanks h2{margin-bottom:4px}.thanks .sub{color:var(--muted);margin:0 0 14px;font-size:14px}
+.tier{margin-bottom:12px}.tier-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
+.names{display:flex;flex-wrap:wrap;gap:8px}.name{padding:5px 12px;border-radius:999px;font-size:14px;background:var(--card);border:1px solid var(--line)}
+.name.legend{color:#ffd34d;border-color:#b8901f;background:#2c2614;font-weight:600}.name.ally{color:#cfd8ff;border-color:#4a5a9a}
+.empty{color:var(--muted);font-style:italic;font-size:14px}td.empty{color:var(--muted)!important;font-weight:400!important}
+footer{margin-top:32px;padding-top:20px;border-top:1px solid var(--line)}
+.links{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.link{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:10px;text-decoration:none;background:var(--card);border:1px solid var(--line);color:var(--text);font-size:15px;transition:border-color .15s,transform .15s}
+.link:hover{border-color:var(--gold);transform:translateY(-1px)}.link.boosty{border-color:#f15f2c}
+.copy{text-align:center;color:var(--muted);font-size:12px;margin-top:14px}
+@media (max-width:480px){.link{flex:1 1 100%;justify-content:center}}
 </style></head><body><main>
 <h1>Arena of Defense</h1><p class="sub">${L('Рейтинг кастомки Dota 2 · обновляется после каждой рейтинговой игры', 'Dota 2 custom game leaderboard · updated after every ranked game')} · <a href="?lang=${en ? 'ru' : 'en'}">${en ? 'По-русски' : 'English'}</a></p>
 <h2>${L('Игроки (соло-ММР)', 'Players (solo MMR)')}</h2><table><tr><th>#</th><th>${L('Игрок', 'Player')}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>
 ${soloRows || empty(L(`Пока никто не прошёл калибровку (${DOTA.CALIB_GAMES} игр)`, `Nobody has finished calibration yet (${DOTA.CALIB_GAMES} games)`))}</table>
 <h2>${L('Команды', 'Teams')}</h2><table><tr><th>#</th><th>${L('Команда', 'Team')}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>
 ${teamRows || empty(L('Пока не было командных игр 5 на 5', 'No 5v5 team games yet'))}</table>
-<footer><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3816015867">${L('Мастерская Steam', 'Steam Workshop')}</a> · <a href="https://t.me/arena_of_defense">Telegram</a></footer>
+${supportersBlock(L)}
 </main></body></html>`;
 }
