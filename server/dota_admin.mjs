@@ -19,8 +19,31 @@ const show = (list) => {
 };
 
 const [what, cmd, name, tier = 'supporter'] = process.argv.slice(2);
+
+// Сезоны:
+//   node /opt/arena/server/dota_admin.mjs season          — текущий сезон и сколько дней осталось
+//   node /opt/arena/server/dota_admin.mjs season preview  — какие значки получили бы игроки, если бы сезон кончился сейчас
+if (what === 'season') {
+  process.env.DB ||= '/var/lib/arena/arena.db';
+  const { seasonOf, closeSeason, BADGES } = await import('./dota.mjs');
+  const { DatabaseSync } = await import('node:sqlite');
+  const s = seasonOf(Date.now());
+  console.log(`Сезон: ${s.ru}${s.trial ? ' (пробный, без значков)' : ''}, до конца ${Math.ceil((s.end - Date.now()) / 86400e3)} дн.`);
+  if (cmd === 'preview') {
+    // «season preview test» — по тестовой базе (игры из Tools)
+    const db = new DatabaseSync(path.join(path.dirname(process.env.DB), name === 'test' ? 'dota_test.db' : 'dota.db'));
+    const r = closeSeason(db, s.id, { dryRun: true, forceBadges: true });
+    const show = (b) => (b ? `${BADGES[b].icon} ${BADGES[b].ru}` : '—');
+    console.log('\nИгроки (место · ММР · игр за сезон · значок):');
+    for (const x of r.solo) console.log(`${String(x.place).padStart(3)}. ${x.name.padEnd(24)} ${String(x.mmr).padStart(5)}  ${String(x.games).padStart(3)}  ${show(x.badge)}`);
+    console.log('\nКоманды:');
+    for (const x of r.teams) console.log(`${String(x.place).padStart(3)}. [${x.tag}] ${x.name.padEnd(20)} ${String(x.mmr).padStart(5)}  ${String(x.games).padStart(3)}  ${show(x.badge)}`);
+  }
+  process.exit(0);
+}
+
 if (what !== 'supporter') {
-  console.log('Команды: supporter list | supporter add "Ник" legend|ally|supporter | supporter del "Ник"');
+  console.log('Команды: supporter list | supporter add "Ник" legend|ally|supporter | supporter del "Ник" | season | season preview');
   process.exit(1);
 }
 let list = load();
