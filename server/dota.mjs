@@ -836,6 +836,73 @@ function readSupporters() {
   } catch { return []; }
 }
 
+// ---------- иконки значков (свои рисунки в духе иконок способностей Доты) ----------
+// Цвета рамки по рангу: от «камня» к «бессмертному». c1/c2 — градиент фона, rim — ободок.
+const TIER_COLORS = {
+  food:     ['#8d6c55', '#2c1f17', '#6e5644'],
+  feeder:   ['#c0844a', '#3f2410', '#b27a42'],
+  rune:     ['#46b4d6', '#0e2c3d', '#57c1e0'],
+  courier:  ['#cfd7e1', '#2f3742', '#b3bdc9'],
+  baby:     ['#74c96f', '#173d1b', '#82d27d'],
+  throne:   ['#a875ec', '#2b1352', '#b085f0'],
+  legend:   ['#f6cf6a', '#5a3c0a', '#f0c45a'],
+  champion: ['#ff7340', '#4a0b07', '#ffb347'],
+  gang1:    ['#f6cf6a', '#5a3c0a', '#f0c45a'],
+  gang2:    ['#d8dee6', '#353d48', '#bcc5d0'],
+  gang3:    ['#d0884c', '#43240d', '#c07a40'],
+};
+
+// лавровые листья по дуге — для «Легенды Арены»
+function laurel() {
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    const th = 235 - i * 21;                       // от низа слева вверх
+    const r = (th * Math.PI) / 180;
+    const x = 32 + 22 * Math.cos(r);
+    const y = 33 - 22 * Math.sin(r);
+    const phi = 180 - th;                          // лист вдоль дуги
+    for (const [cx, rot] of [[x, phi], [64 - x, -phi]]) {
+      out += `<ellipse cx="${cx.toFixed(1)}" cy="${y.toFixed(1)}" rx="4.4" ry="8.6" transform="rotate(${rot.toFixed(0)} ${cx.toFixed(1)} ${y.toFixed(1)})"/>`;
+    }
+  }
+  return out + '<path d="M26 57l6-4 6 4-6 3z"/><path d="M32 20l3.2 6.8 7.3.8-5.5 5 1.6 7.2L32 36l-6.6 3.8 1.6-7.2-5.5-5 7.3-.8z"/>';
+}
+
+const GLYPHS = {
+  // кусок мяса на кости
+  food: '<path d="M38 8c10 0 18 8 18 17 0 11-10 18-19 17l-6 6a6 6 0 1 1-9 2 6 6 0 1 1 2-9l6-6C29 26 29 8 38 8z"/><path style="fill:none;stroke:var(--c2)" d="M38 15c6 0 11 4 11 10" stroke-width="3" stroke-linecap="round"/>',
+  // бутылочка
+  feeder: '<path d="M28 4h8l1 7h-10z"/><path d="M25 12h14l3 7H22z"/><rect x="20" y="20" width="24" height="38" rx="7"/><path style="fill:none;stroke:var(--c2)" d="M26 30h8M26 38h8M26 46h8" stroke-width="3" stroke-linecap="round"/>',
+  // руна
+  rune: '<path d="M32 3l21 29-21 29-21-29z"/><path style="fill:var(--c2);stroke:var(--c2)" d="M32 15l12 17-12 17-12-17z"/><path d="M32 23l6 9-6 9-6-9z"/><circle cx="50" cy="12" r="2.5"/><circle cx="13" cy="52" r="2"/>',
+  // подкова курьера
+  courier: '<path d="M12 8h12v24a8 8 0 0 0 16 0V8h12v24a20 20 0 0 1-40 0z"/><g style="fill:var(--c2);stroke:var(--c2)"><circle cx="18" cy="14" r="2"/><circle cx="18" cy="24" r="2"/><circle cx="46" cy="14" r="2"/><circle cx="46" cy="24" r="2"/></g><path d="M8 8h16v5H8zM40 8h16v5H40z"/>',
+  // панцирь Бэби Рошана
+  baby: '<path d="M6 46a26 24 0 0 1 52 0z"/><path style="fill:none;stroke:var(--c2)" d="M18 46l4-14 10-8 10 8 4 14M22 32H12M42 32h10M32 24V14" stroke-width="2.5"/><circle cx="56" cy="40" r="6"/><rect x="12" y="46" width="8" height="10" rx="3"/><rect x="44" y="46" width="8" height="10" rx="3"/>',
+  // трон с трещиной
+  throne: '<path d="M18 4l7 6 7-6 7 6 7-6v30h4v8h-4v16h-7V42H25v16h-7V42h-4v-8h4z"/><path style="fill:none;stroke:var(--c2)" d="M33 10l-4 8 6 5-5 9" stroke-width="3" stroke-linejoin="round"/>',
+  legend: laurel(),
+  // корона с рогами Рошана
+  champion: '<path d="M10 50l3-24 11 10 8-20 8 20 11-10 3 24z"/><rect x="10" y="51" width="44" height="7" rx="2"/><path d="M13 26C6 20 6 10 12 5c-1 7 2 12 7 15zM51 26c7-6 7-16 1-21 1 7-2 12-7 15z"/><circle style="fill:var(--c2);stroke:var(--c2)" cx="32" cy="40" r="4"/>',
+};
+const shield = (n) => `<path d="M32 4l22 8v18c0 15-9 25-22 30C19 55 10 45 10 30V12z"/><text style="fill:var(--c2);stroke:var(--c2)" x="32" y="40" text-anchor="middle" font-size="20" font-weight="700" font-family="Georgia,serif">${n}</text>`;
+GLYPHS.gang1 = shield('I');
+GLYPHS.gang2 = shield('II');
+GLYPHS.gang3 = shield('III');
+
+function iconSprite() {
+  return `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${Object.entries(GLYPHS)
+    .map(([id, g]) => `<symbol id="g-${id}" viewBox="0 0 64 64">${g}</symbol>`).join('')}</defs></svg>`;
+}
+// Иконка значка: квадрат как у способности (команды — круглая медаль)
+function badgeIcon(id, size = 'm', title = '') {
+  if (!BADGES[id]) return '';
+  const [c1, c2, rim] = TIER_COLORS[id];
+  const shape = BADGES[id].team ? ' medal' : '';
+  return `<span class="ico ${size}${shape} t-${id}" style="--c1:${c1};--c2:${c2};--rim:${rim}"${title ? ` title="${esc(title)}"` : ''}><svg viewBox="0 0 64 64"><use href="#g-${id}"/></svg></span>`;
+}
+
+// ---------- сторонники (Boosty) ----------
 function supportersBlock(L) {
   const list = readSupporters();
   const tiers = [['legend', L('Легенды', 'Legends')], ['ally', L('Соратники', 'Allies')], ['supporter', L('Сторонники', 'Supporters')]];
@@ -843,20 +910,21 @@ function supportersBlock(L) {
     ? tiers.map(([key, title]) => {
       const names = list.filter((x) => x.tier === key);
       if (!names.length) return '';
-      return `<div class="tier"><div class="tier-title">${title}</div><div class="names">${names.map((x) => `<span class="name ${key}">${key === 'legend' ? '👑 ' : ''}${esc(x.name)}</span>`).join('')}</div></div>`;
+      return `<div class="tier"><div class="tier-title">${title}</div><div class="names">${names.map((x) => `<span class="name ${key}">${key === 'legend' ? '♛ ' : ''}${esc(x.name)}</span>`).join('')}</div></div>`;
     }).join('')
     : `<div class="empty">${L('Пока никого — стань первым!', 'Nobody yet — be the first!')}</div>`;
-  return `<section class="thanks" id="thanks"><h2>💛 ${L('Спасибо сторонникам', 'Thanks to supporters')}</h2>
+  return `<section class="panel thanks" id="thanks"><h2><span>${L('Спасибо сторонникам', 'Thanks to supporters')}</span></h2>
 <p class="sub">${L('Эти люди поддерживают разработку Arena of Defense. Хочешь сюда?', 'These people support the development of Arena of Defense. Want to be here?')} → <a href="${LINKS.boosty}" target="_blank" rel="noopener">Boosty</a></p>
 ${body}</section>
 <footer><div class="links">
-<a class="link" href="${LINKS.telegram}" target="_blank" rel="noopener"><span>✈️</span>Telegram</a>
-<a class="link" href="${LINKS.workshop}" target="_blank" rel="noopener"><span>🎮</span>${L('Мастерская Steam', 'Steam Workshop')}</a>
-<a class="link" href="${LINKS.rustore}" target="_blank" rel="noopener"><span>📱</span>Android (RuStore)</a>
-<a class="link boosty" href="${LINKS.boosty}" target="_blank" rel="noopener"><span>💛</span>${L('Поддержать', 'Support')}</a>
+<a class="link" href="${LINKS.telegram}" target="_blank" rel="noopener">Telegram</a>
+<a class="link" href="${LINKS.workshop}" target="_blank" rel="noopener">${L('Мастерская Steam', 'Steam Workshop')}</a>
+<a class="link" href="${LINKS.rustore}" target="_blank" rel="noopener">Android (RuStore)</a>
+<a class="link boosty" href="${LINKS.boosty}" target="_blank" rel="noopener">${L('Поддержать', 'Support')}</a>
 </div><div class="copy">Arena of Defense · ${L('подписка не даёт преимуществ в игре', 'support gives no in-game advantage')}</div></footer>`;
 }
 
+// ---------- страница с таблицей лидеров ----------
 function leaderboardPage(en = false) {
   const L = (ru, e) => (en ? e : ru);
   const db = dbFor(false);
@@ -865,82 +933,157 @@ function leaderboardPage(en = false) {
   const teams = OPS.top(db, { kind: 'team' }).list;
   const season = top.season;
   const archive = OPS.seasons(db).list;
+  const B = BADGES;
   const wr = (w, g) => (g ? Math.round((w / g) * 100) + '%' : '—');
   const bname = (b) => (b ? (en ? b.en : b.ru) : '');
-  const ico = (b, extra = '') => (b ? `<span class="b" title="${esc(bname(b) + (b.season ? ' · ' + b.season : '') + extra)}">${b.icon}</span>` : '');
-  const nowRank = (b) => (b && !season.trial ? `<span class="live" title="${esc(L('Ранг сейчас', 'Current rank'))}">${b.icon} ${esc(bname(b))}</span>` : '');
-  const soloRows = solo.map((p, i) => `<tr><td>${i + 1}</td><td>${ico(p.badge)}${ico(p.gang)}${p.tag ? `<span class="tag">[${esc(p.tag)}]</span> ` : ''}${esc(p.name)} ${nowRank(p.live)}</td><td class="n">${p.mmr}</td><td class="n">${p.games}</td><td class="n">${wr(p.wins, p.games)}</td></tr>`).join('');
-  const teamRows = teams.map((t, i) => `<tr><td>${i + 1}</td><td><span class="tag">[${esc(t.tag)}]</span> ${esc(t.name)} ${nowRank(t.live)}</td><td class="n">${t.mmr}</td><td class="n">${t.games}</td><td class="n">${wr(t.wins, t.games)}</td></tr>`).join('');
+  const owned = (b) => (b ? badgeIcon(b.id, 's', bname(b) + (b.season ? ' · ' + b.season : '')) : '');
+  const nowRank = (b) => (b && !season.trial ? `<span class="live">${badgeIcon(b.id, 'xs')}${esc(bname(b))}</span>` : '');
+  const pos = (i) => `<td class="pos"><span class="rk${i < 3 ? ' r' + (i + 1) : ''}">${i + 1}</span></td>`;
+  const soloRows = solo.map((p, i) => `<tr>${pos(i)}<td class="who"><div class="nm">${owned(p.badge)}${owned(p.gang)}${p.tag ? `<span class="tag">[${esc(p.tag)}]</span>` : ''}<span class="pn">${esc(p.name)}</span></div>${nowRank(p.live)}</td><td class="n mmr">${p.mmr}</td><td class="n">${p.games}</td><td class="n">${wr(p.wins, p.games)}</td></tr>`).join('');
+  const teamRows = teams.map((t, i) => `<tr>${pos(i)}<td class="who"><div class="nm"><span class="tag">[${esc(t.tag)}]</span><span class="pn">${esc(t.name)}</span></div>${nowRank(t.live)}</td><td class="n mmr">${t.mmr}</td><td class="n">${t.games}</td><td class="n">${wr(t.wins, t.games)}</td></tr>`).join('');
   const empty = (txt) => `<tr><td colspan="5" class="empty">${txt}</td></tr>`;
+  const head = (who) => `<tr><th class="pos">#</th><th>${who}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>`;
+
   const days = season.daysLeft;
-  const seasonLine = `<div class="season"><div class="s-name">${esc(en ? season.en : season.ru)}${season.trial ? ` <span class="trial">${L('пробный сезон', 'trial season')}</span>` : ''}</div>
-<div class="s-left">${L('до конца сезона', 'season ends in')}: <b>${days}</b> ${L(plural(days, 'день', 'дня', 'дней'), days === 1 ? 'day' : 'days')}</div></div>`;
-  const B = BADGES;
-  const legendRow = (id, who) => `<div class="lg"><span class="lg-i">${B[id].icon}</span><span class="lg-n">${esc(en ? B[id].en : B[id].ru)}</span><span class="lg-w">${who}</span></div>`;
-  const legend = `<section class="badges"><h2>${L('Значки сезона', 'Season badges')}</h2>
+  const s0 = seasonById(season.id);
+  const progress = s0 ? Math.min(100, Math.max(0, ((now() - s0.start) / (s0.end - s0.start)) * 100)) : 0;
+  const seasonBanner = `<section class="banner">
+<div class="b-top"><div><div class="b-kicker">${L('Текущий сезон', 'Current season')}</div>
+<div class="b-name">${esc(en ? season.en : season.ru)}${season.trial ? `<span class="trial">${L('пробный', 'trial')}</span>` : ''}</div></div>
+<div class="b-left"><b>${days}</b><span>${L(plural(days, 'день', 'дня', 'дней'), days === 1 ? 'day' : 'days')} ${L('до конца', 'left')}</span></div></div>
+<div class="bar"><i style="width:${progress.toFixed(1)}%"></i></div></section>`;
+
+  const tile = (id, who) => `<div class="tile">${badgeIcon(id, 'l')}<div class="t-txt"><div class="t-name t-${id}">${esc(en ? B[id].en : B[id].ru)}</div><div class="t-who">${who}</div></div></div>`;
+  const legend = `<section class="panel"><h2><span>${L('Значки сезона', 'Season badges')}</span></h2>
 <p class="sub">${season.trial
     ? L('Этот сезон пробный — значков за него не будет. Значки начнутся со следующего сезона.', 'This season is a trial — no badges for it. Badges start next season.')
     : L(`Выдаются в конце сезона по месту в таблице (финальный ММР). Нужно сыграть минимум ${DOTA.SEASON_MIN_GAMES} рейтинговых игр за сезон. Значок остаётся навсегда.`, `Awarded at the end of the season by final table position. You need at least ${DOTA.SEASON_MIN_GAMES} ranked games in the season. Badges are kept forever.`)}</p>
-<div class="lgs">
-${legendRow('champion', L('№1 сезона', '#1 of the season'))}
-${legendRow('legend', L('места 2–10', 'places 2–10'))}
-${legendRow('throne', L('верхние 4%', 'top 4%'))}
-${legendRow('baby', L('следующие 8%', 'next 8%'))}
-${legendRow('courier', L('следующие 13%', 'next 13%'))}
-${legendRow('rune', L('следующие 20%', 'next 20%'))}
-${legendRow('feeder', L('следующие 25%', 'next 25%'))}
-${legendRow('food', L('остальные', 'the rest'))}
-${legendRow('gang1', L('1-я команда сезона', 'team #1'))}
-${legendRow('gang2', L('2-я команда', 'team #2'))}
-${legendRow('gang3', L('3-я команда', 'team #3'))}
+<div class="tiles">
+${tile('champion', L('№1 сезона', '#1 of the season'))}
+${tile('legend', L('места 2–10', 'places 2–10'))}
+${tile('throne', L('верхние 4%', 'top 4%'))}
+${tile('baby', L('следующие 8%', 'next 8%'))}
+${tile('courier', L('следующие 13%', 'next 13%'))}
+${tile('rune', L('следующие 20%', 'next 20%'))}
+${tile('feeder', L('следующие 25%', 'next 25%'))}
+${tile('food', L('остальные', 'the rest'))}
+</div>
+<h3>${L('Команды', 'Teams')}</h3>
+<div class="tiles">
+${tile('gang1', L('1-я команда сезона', 'team #1'))}
+${tile('gang2', L('2-я команда', 'team #2'))}
+${tile('gang3', L('3-я команда', 'team #3'))}
 </div>
 <p class="sub small">${L(`Новый сезон каждые 3 месяца: зима (1 декабря), весна (1 марта), лето (1 июня), осень (1 сентября). В начале сезона ММР сдвигается наполовину к ${DOTA.START_MMR} и ${DOTA.RECALIB_GAMES} игр идёт перекалибровка.`, `A new season every 3 months: winter (Dec 1), spring (Mar 1), summer (Jun 1), autumn (Sep 1). At the start of a season MMR moves halfway towards ${DOTA.START_MMR}, followed by ${DOTA.RECALIB_GAMES} recalibration games.`)}</p></section>`;
-  const archiveBlock = archive.length ? `<section><h2>${L('Прошлые сезоны', 'Past seasons')}</h2>${archive.map((a) => {
-    const top3 = a.solo.slice(0, 3).map((x) => `${x.badge ? B[x.badge].icon + ' ' : ''}${esc(x.name)} <span class="m">${x.mmr}</span>`).join(' · ');
-    const tm = a.teams.map((x) => `${x.badge ? B[x.badge].icon + ' ' : ''}[${esc(x.tag)}] ${esc(x.name)}`).join(' · ');
-    return `<div class="arch"><div class="a-name">${esc(en ? a.en : a.ru)}${a.trial ? ` <span class="trial">${L('пробный', 'trial')}</span>` : ''}</div>
+
+  const archiveBlock = archive.length ? `<section class="panel"><h2><span>${L('Прошлые сезоны', 'Past seasons')}</span></h2>${archive.map((a) => {
+    const top3 = a.solo.slice(0, 3).map((x) => `<span class="a-p">${x.badge ? badgeIcon(x.badge, 'xs') : ''}${esc(x.name)} <span class="m">${x.mmr}</span></span>`).join('');
+    const tm = a.teams.map((x) => `<span class="a-p">${x.badge ? badgeIcon(x.badge, 'xs') : ''}[${esc(x.tag)}] ${esc(x.name)}</span>`).join('');
+    return `<div class="arch"><div class="a-name">${esc(en ? a.en : a.ru)}${a.trial ? `<span class="trial">${L('пробный', 'trial')}</span>` : ''}</div>
 <div class="a-row">${top3 || L('никто не играл', 'nobody played')}</div>${tm ? `<div class="a-row">${tm}</div>` : ''}</div>`;
   }).join('')}</section>` : '';
+
   return `<!doctype html><html lang="${en ? 'en' : 'ru'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Arena of Defense — ${L('рейтинг', 'leaderboard')}</title><style>
-:root{--bg:#0f0d0c;--card:#1b1714;--line:#332c27;--text:#ece4d8;--muted:#a3988a;--gold:#f0c45a}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-main{max-width:760px;margin:0 auto;padding:24px 16px 48px}h1{color:var(--gold);font-size:26px;margin:0 0 4px}
-p.sub{color:var(--muted);margin:0 0 24px}h2{font-size:18px;margin:28px 0 8px}
-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted);font-weight:600;font-size:13px}
-td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{border-bottom:0}
-tr:nth-child(-n+3) td:first-child{color:var(--gold);font-weight:700}.tag{color:var(--gold)}.empty{color:var(--muted);text-align:center;padding:18px}
+<title>Arena of Defense — ${L('рейтинг', 'leaderboard')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Forum&family=PT+Sans:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0a0a;--panel:#151212;--panel2:#1c1716;--line:#3a2e25;--line2:#5a4632;--text:#e9e1d3;--muted:#9a8f80;--gold:#e8bd5a;--gold2:#b8862d;--red:#a3271b;--green:#5fae3e}
+*{box-sizing:border-box}
+body{margin:0;color:var(--text);font:15px/1.45 'PT Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:
+radial-gradient(1200px 520px at 50% -160px,rgba(163,39,27,.38),transparent 70%),
+radial-gradient(800px 400px at 100% 30%,rgba(40,70,40,.10),transparent 70%),
+repeating-linear-gradient(135deg,rgba(255,255,255,.012) 0 2px,transparent 2px 6px),var(--bg)}
+main{max-width:820px;margin:0 auto;padding:28px 16px 48px}
 a{color:var(--gold)}
-.thanks{margin-top:36px}.thanks h2{margin-bottom:4px}.thanks .sub{color:var(--muted);margin:0 0 14px;font-size:14px}
-.tier{margin-bottom:12px}.tier-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
-.names{display:flex;flex-wrap:wrap;gap:8px}.name{padding:5px 12px;border-radius:999px;font-size:14px;background:var(--card);border:1px solid var(--line)}
-.name.legend{color:#ffd34d;border-color:#b8901f;background:#2c2614;font-weight:600}.name.ally{color:#cfd8ff;border-color:#4a5a9a}
-.empty{color:var(--muted);font-style:italic;font-size:14px}td.empty{color:var(--muted)!important;font-weight:400!important}
-footer{margin-top:32px;padding-top:20px;border-top:1px solid var(--line)}
+.title{text-align:center;margin-bottom:18px}
+.title h1{font-family:Forum,Georgia,serif;font-weight:400;font-size:40px;letter-spacing:.08em;text-transform:uppercase;margin:0;
+background:linear-gradient(#fff2c7,#e8bd5a 45%,#9b6a1f);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 2px 18px rgba(232,189,90,.18)}
+.title .orn{display:flex;align-items:center;gap:12px;justify-content:center;color:var(--gold2);margin:4px 0 6px}
+.title .orn::before,.title .orn::after{content:"";height:1px;width:min(160px,28vw);background:linear-gradient(90deg,transparent,var(--gold2))}
+.title .orn::after{transform:scaleX(-1)}
+.title p{color:var(--muted);margin:0;font-size:14px}
+h2{font-family:Forum,Georgia,serif;font-weight:400;font-size:22px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);margin:0 0 12px;display:flex;align-items:center;gap:12px}
+h2::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line2),transparent)}
+h3{font-family:Forum,Georgia,serif;font-weight:400;font-size:17px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:18px 0 10px}
+.panel{margin-top:30px}
+p.sub{color:var(--muted);margin:0 0 14px}p.sub.small{font-size:13px;margin-top:14px}
+/* баннер сезона */
+.banner{position:relative;border:1px solid var(--line2);border-radius:4px;padding:16px 18px 14px;
+background:linear-gradient(180deg,rgba(163,39,27,.22),rgba(21,18,18,.9) 70%),var(--panel);box-shadow:inset 0 1px 0 rgba(255,220,150,.08),0 10px 30px rgba(0,0,0,.45)}
+.banner::before,.banner::after{content:"";position:absolute;width:14px;height:14px;border:2px solid var(--gold2);top:-2px}
+.banner::before{left:-2px;border-right:0;border-bottom:0}.banner::after{right:-2px;border-left:0;border-bottom:0}
+.b-top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.b-kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.b-name{font-family:Forum,Georgia,serif;font-size:30px;color:#fff1cf;line-height:1.1}
+.b-left{text-align:right}.b-left b{font-family:Forum,Georgia,serif;font-size:30px;color:var(--gold);font-weight:400;margin-right:6px}.b-left span{color:var(--muted)}
+.bar{height:6px;margin-top:12px;background:#0a0808;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#7a1d14,#e0592c,#f3c35a);box-shadow:0 0 12px rgba(243,155,70,.6)}
+.trial{font-family:'PT Sans',sans-serif;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a9c3ff;border:1px solid #3e5490;background:rgba(62,84,144,.18);border-radius:3px;padding:2px 7px;margin-left:10px;vertical-align:middle}
+/* таблицы как табло Доты */
+table{width:100%;border-collapse:collapse;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+th{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gold2);text-align:left;padding:9px 10px;background:#100d0c;border-bottom:1px solid var(--line2)}
+td{padding:8px 10px;border-bottom:1px solid rgba(58,46,37,.6);vertical-align:middle}
+tr:last-child td{border-bottom:0}tbody tr:hover td,table tr:hover td{background:rgba(232,189,90,.04)}
+.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.mmr{color:#fff1cf;font-weight:700}
+th.pos,td.pos{width:44px;text-align:center}
+.rk{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;font-weight:700;font-size:13px;color:var(--muted)}
+.rk.r1,.rk.r2,.rk.r3{color:#1a1208;box-shadow:inset 0 -3px 6px rgba(0,0,0,.35),0 0 0 1px rgba(0,0,0,.6)}
+.rk.r1{background:radial-gradient(circle at 35% 30%,#fff1b8,#e8bd5a 55%,#8c5f17)}
+.rk.r2{background:radial-gradient(circle at 35% 30%,#ffffff,#c4ccd6 55%,#5f6873)}
+.rk.r3{background:radial-gradient(circle at 35% 30%,#ffd2a8,#c27a3e 55%,#5e3412)}
+.who .nm{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.pn{overflow-wrap:anywhere}
+.tag{color:var(--gold);font-weight:700}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-top:3px}
+.empty{color:var(--muted);text-align:center;padding:20px;font-style:italic}
+/* иконки значков — рамка как у способности */
+.ico{position:relative;display:inline-grid;place-items:center;flex:none;border-radius:4px;
+background:radial-gradient(circle at 32% 26%,var(--c1),var(--c2) 78%);
+box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),inset 0 -12px 16px rgba(0,0,0,.5),0 0 0 2px #070605,0 0 0 3px var(--rim),0 4px 10px rgba(0,0,0,.5)}
+.ico::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(160deg,rgba(255,255,255,.22),transparent 42%)}
+.ico svg{width:80%;height:80%;fill:#fbf1dc;filter:drop-shadow(0 2px 1px rgba(0,0,0,.7))}
+.ico.medal{border-radius:50%}
+.ico.l{width:58px;height:58px}.ico.m{width:40px;height:40px}.ico.s{width:24px;height:24px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 0 0 1px #070605,0 0 0 2px var(--rim)}
+.ico.xs{width:18px;height:18px;border-radius:3px;box-shadow:0 0 0 1px #070605,0 0 0 2px var(--rim)}
+.ico.s.medal,.ico.xs.medal{border-radius:50%}
+.ico.t-champion{animation:glow 2.6s ease-in-out infinite}
+@keyframes glow{50%{box-shadow:inset 0 0 0 1px rgba(255,255,255,.22),inset 0 -12px 16px rgba(0,0,0,.45),0 0 0 2px #070605,0 0 0 3px var(--rim),0 0 22px rgba(255,120,50,.75)}}
+@media (prefers-reduced-motion:reduce){.ico.t-champion{animation:none}}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.tile{display:flex;align-items:center;gap:14px;padding:10px 12px;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line)}
+.t-name{font-weight:700;color:#fff1cf;line-height:1.2}.t-who{color:var(--muted);font-size:13px;margin-top:2px}
+.t-name.t-champion{color:#ffb380}.t-name.t-legend{color:var(--gold)}
+/* архив */
+.arch{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);padding:10px 14px;margin-bottom:8px}
+.a-name{font-family:Forum,Georgia,serif;font-size:19px;color:#fff1cf;margin-bottom:6px}
+.a-row{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--muted);font-size:14px}.a-row+.a-row{margin-top:4px}
+.a-p{display:inline-flex;align-items:center;gap:6px}.a-p .m{color:var(--text);font-variant-numeric:tabular-nums}
+/* сторонники и подвал */
+.tier{margin-bottom:12px}.tier-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--gold2);margin-bottom:6px}
+.names{display:flex;flex-wrap:wrap;gap:8px}.name{padding:5px 12px;border-radius:3px;font-size:14px;background:var(--panel2);border:1px solid var(--line)}
+.name.legend{color:#ffd34d;border-color:#b8901f;background:#2a2212;font-weight:700}.name.ally{color:#cfd8ff;border-color:#4a5a9a}
+div.empty{text-align:left;padding:0}
+footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line)}
 .links{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
-.link{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:10px;text-decoration:none;background:var(--card);border:1px solid var(--line);color:var(--text);font-size:15px;transition:border-color .15s,transform .15s}
-.link:hover{border-color:var(--gold);transform:translateY(-1px)}.link.boosty{border-color:#f15f2c}
+.link{display:inline-flex;align-items:center;padding:10px 18px;text-decoration:none;color:var(--text);font-weight:700;font-size:14px;letter-spacing:.04em;
+background:linear-gradient(180deg,#2a2220,#171312);border:1px solid var(--line2);border-radius:3px;box-shadow:inset 0 1px 0 rgba(255,220,150,.08);transition:border-color .15s,transform .15s}
+.link:hover{border-color:var(--gold);transform:translateY(-1px)}
+.link.boosty{color:#1a1208;border-color:#f3c35a;background:linear-gradient(180deg,#f6cf6a,#c8892a)}
 .copy{text-align:center;color:var(--muted);font-size:12px;margin-top:14px}
-.season{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px 16px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.s-name{font-size:18px;font-weight:700;color:var(--gold)}.s-left{color:var(--muted)}.s-left b{color:var(--text)}
-.trial{font-size:12px;font-weight:600;color:#9fb6ff;border:1px solid #4a5a9a;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:middle}
-.b{margin-right:4px;cursor:help}.live{font-size:12px;color:var(--muted);white-space:nowrap}
-.lgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
-.lg{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
-.lg-i{font-size:20px}.lg-n{font-weight:600;flex:1;min-width:0}.lg-w{color:var(--muted);font-size:12px;white-space:nowrap}
-p.sub.small{font-size:13px;margin-top:10px}.badges .sub{margin-bottom:10px}
-.arch{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
-.a-name{font-weight:700;margin-bottom:4px}.a-row{color:var(--muted);font-size:14px}.a-row .m{color:var(--text);font-variant-numeric:tabular-nums}
-td{overflow-wrap:anywhere}
-@media (max-width:480px){.link{flex:1 1 100%;justify-content:center}th,td{padding:7px 6px}.live{display:block}}
-</style></head><body><main>
-<h1>Arena of Defense</h1><p class="sub">${L('Рейтинг кастомки Dota 2 · обновляется после каждой рейтинговой игры', 'Dota 2 custom game leaderboard · updated after every ranked game')} · <a href="?lang=${en ? 'ru' : 'en'}">${en ? 'По-русски' : 'English'}</a></p>
-${seasonLine}
-<h2>${L('Игроки (соло-ММР)', 'Players (solo MMR)')}</h2><table><tr><th>#</th><th>${L('Игрок', 'Player')}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>
-${soloRows || empty(L('В этом сезоне пока никто не откалиброван', 'Nobody is calibrated this season yet'))}</table>
-<h2>${L('Команды', 'Teams')}</h2><table><tr><th>#</th><th>${L('Команда', 'Team')}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>
-${teamRows || empty(L('В этом сезоне пока не было командных игр 5 на 5', 'No 5v5 team games this season yet'))}</table>
+@media (max-width:520px){
+.title h1{font-size:30px}.b-name,.b-left b{font-size:24px}
+th,td{padding:7px 6px}th.pos,td.pos{width:34px}.link{flex:1 1 100%;justify-content:center}
+.tiles{grid-template-columns:1fr}}
+</style></head><body>${iconSprite()}<main>
+<header class="title"><h1>Arena of Defense</h1><div class="orn">◆</div>
+<p>${L('Рейтинг кастомки Dota 2 · обновляется после каждой рейтинговой игры', 'Dota 2 custom game leaderboard · updated after every ranked game')} · <a href="?lang=${en ? 'ru' : 'en'}">${en ? 'По-русски' : 'English'}</a></p></header>
+${seasonBanner}
+<section class="panel"><h2><span>${L('Игроки', 'Players')}</span></h2>
+<table>${head(L('Игрок', 'Player'))}
+${soloRows || empty(L('В этом сезоне пока никто не откалиброван', 'Nobody is calibrated this season yet'))}</table></section>
+<section class="panel"><h2><span>${L('Команды', 'Teams')}</span></h2>
+<table>${head(L('Команда', 'Team'))}
+${teamRows || empty(L('В этом сезоне пока не было командных игр 5 на 5', 'No 5v5 team games this season yet'))}</table></section>
 ${legend}
 ${archiveBlock}
 ${supportersBlock(L)}
