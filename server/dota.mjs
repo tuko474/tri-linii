@@ -424,7 +424,7 @@ OPS.lobby = (db, b) => {
     if (!sid) continue;
     const p = ensurePlayer(db, sid, x.name);
     const t = teamOf(db, sid);
-    players[sid] = { mmr: p.mmr, calib: p.calib_left, team: t ? t.id : 0 };
+    players[sid] = { mmr: p.mmr, calib: p.calib_left, team: t ? t.id : 0, tag: t ? t.tag : '' };
     if (t) (byTeam[t.id] ||= []).push(sid);
   }
   const full = Object.entries(byTeam).filter(([tid, sids]) =>
@@ -466,6 +466,11 @@ OPS.end = (db, b, test) => {
   else if (Math.min(bySide[2].length, bySide[3].length) < rules.minPerTeam) [reason, reasonEn] = [`меньше ${rules.minPerTeam} игроков в команде`, `fewer than ${rules.minPerTeam} players per team`];
   else if (Math.abs(bySide[2].length - bySide[3].length) > rules.maxDiff) [reason, reasonEn] = ['команды неравные по числу игроков', 'teams have unequal player counts'];
 
+  // режим (карта аддона): standard — без рейтинга, ranked — только соло, team — только команда на команду.
+  // Старые версии аддона режим не шлют — тогда как раньше (команды, если обе полные, иначе соло).
+  const mode = ['standard', 'ranked', 'team'].includes(b.mode) ? b.mode : '';
+  if (!reason && mode === 'standard') [reason, reasonEn] = ['обычная игра — рейтинг не меняется', 'standard game — rating does not change'];
+
   const start = JSON.parse(m.start || '{}');
   const t = now();
   const results = {};
@@ -476,7 +481,10 @@ OPS.end = (db, b, test) => {
     // командная игра: обе стороны — полные составы разных команд (и были ими с начала матча)
     const good = fullTeamOfSide(db, bySide[2].map((x) => x.sid));
     const bad = fullTeamOfSide(db, bySide[3].map((x) => x.sid));
-    if (good && bad && good.id !== bad.id && start.good === good.id && start.bad === bad.id) {
+    const isTeamMatch = !!(good && bad && good.id !== bad.id && start.good === good.id && start.bad === bad.id);
+    if (mode === 'team' && !isTeamMatch) {
+      [reason, reasonEn] = ['командный режим: нужны две полные команды рейтинга по 5', 'team mode: two full rating teams of 5 are required'];
+    } else if (isTeamMatch && mode !== 'ranked') {
       kind = 'team';
       const pair = { 2: good, 3: bad };
       for (const side of [2, 3]) {
