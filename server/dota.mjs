@@ -476,7 +476,9 @@ OPS.start = (db, b) => {
 
 // Экран выбора команд: ММР и команды игроков лобби — для автобаланса.
 // Если в лобби ровно две полные команды по 5 — отдаём их составы (играют команда на команду).
+// mode = "turbo" — в mmr/calib ММР Турбо (строку Турбо не создаём), ответ kind = "turbo".
 OPS.lobby = (db, b) => {
+  const turbo = b.mode === 'turbo';
   const list = (Array.isArray(b.players) ? b.players : []).slice(0, 24);
   const players = {};
   const byTeam = {};
@@ -485,7 +487,8 @@ OPS.lobby = (db, b) => {
     if (!sid) continue;
     const p = ensurePlayer(db, sid, x.name);
     const t = teamOf(db, sid);
-    players[sid] = { mmr: p.mmr, calib: p.calib_left, team: t ? t.id : 0, tag: t ? t.tag : '' };
+    const tv = turbo ? turboView(db, sid) : null;
+    players[sid] = { mmr: tv ? tv.mmr : p.mmr, calib: tv ? tv.calib : p.calib_left, team: t ? t.id : 0, tag: t ? t.tag : '' };
     if (t) (byTeam[t.id] ||= []).push(sid);
   }
   const full = Object.entries(byTeam).filter(([tid, sids]) =>
@@ -495,7 +498,7 @@ OPS.lobby = (db, b) => {
     const [a, b2] = full.map(([tid, sids]) => ({ team: teamShort(db.prepare('SELECT * FROM teams WHERE id = ?').get(Number(tid))), sids }));
     teamMatch = { a, b: b2 };
   }
-  return { ok: true, players, teamMatch };
+  return { ok: true, kind: turbo ? 'turbo' : 'solo', players, teamMatch };
 };
 
 // Итог матча: проверяем, рейтинговый ли, и меняем ММР
