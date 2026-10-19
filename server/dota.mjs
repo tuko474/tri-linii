@@ -1,5 +1,6 @@
 // Рейтинг для кастомки Dota 2 «Arena of Defense» (аддон arena_of_defense в Steam Workshop).
 // Соло-ММР, команды из 5 игроков (капитан + приглашения по Steam-аккаунту) и командный ММР.
+// Режим «Турбо» (mode: "turbo") — отдельная соло-лестница: своя таблица turbo_players, соло и команды не трогает.
 //
 // Как это работает:
 //   • Сервер игры Доты (Lua, rating.lua) шлёт POST /dota/api с JSON { op, ... }.
@@ -133,6 +134,19 @@ function openDb(file) {
       at INTEGER NOT NULL,
       PRIMARY KEY (match, sid)
     );
+    CREATE TABLE IF NOT EXISTS turbo_players (
+      sid INTEGER PRIMARY KEY,           -- ММР ТУРБО: отдельная лестница, создаётся при первой игре в Турбо
+      mmr INTEGER NOT NULL DEFAULT ${DOTA.START_MMR},
+      calib_left INTEGER NOT NULL DEFAULT ${DOTA.CALIB_GAMES},
+      games INTEGER NOT NULL DEFAULT 0,
+      wins INTEGER NOT NULL DEFAULT 0,
+      losses INTEGER NOT NULL DEFAULT 0,
+      abandons INTEGER NOT NULL DEFAULT 0,
+      s_games INTEGER NOT NULL DEFAULT 0,
+      s_wins INTEGER NOT NULL DEFAULT 0,
+      s_peak INTEGER NOT NULL DEFAULT 0,
+      created INTEGER NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS history_sid ON history (sid, at);
     CREATE INDEX IF NOT EXISTS members_team ON members (team);
     CREATE TABLE IF NOT EXISTS meta (
@@ -256,6 +270,14 @@ export function closeSeason(db, seasonId, { dryRun = false, forceBadges = false 
   const out = { season: seasonId, trial: !giveBadges, solo: [], teams: [] };
   const ins = db.prepare(`INSERT OR REPLACE INTO season_results (season, kind, id, name, tag, place, mmr, games, wins, badge)
     VALUES (?,?,?,?,?,?,?,?,?,?)`);
+  // Турбо: архив призёров сезона, значков не выдаём
+  const turbo = db.prepare(`SELECT t.sid, p.name, t.mmr, t.s_games, t.s_wins FROM turbo_players t
+    LEFT JOIN players p ON p.sid = t.sid WHERE t.s_games > 0 ORDER BY t.mmr DESC, t.s_wins DESC, t.sid`).all();
+  out.turbo = [];
+  turbo.forEach((p, i) => {
+    out.turbo.push({ place: i + 1, name: p.name, mmr: p.mmr, games: p.s_games });
+    if (!dryRun) ins.run(seasonId, 'turbo', p.sid, p.name, null, i + 1, p.mmr, p.s_games, p.s_wins, null);
+  });
   solo.forEach((p, i) => {
     const qi = qualified.indexOf(p);
     const badge = giveBadges && qi >= 0 ? badgeForPlace(qi + 1, qualified.length) : null;
@@ -281,6 +303,10 @@ export function closeSeason(db, seasonId, { dryRun = false, forceBadges = false 
   db.prepare(`UPDATE teams SET mmr = CAST(ROUND(? + (mmr - ?) * ?) AS INTEGER),
     calib_left = MAX(calib_left, CASE WHEN games > 0 THEN ? ELSE calib_left END), s_games = 0, s_wins = 0`)
     .run(DOTA.TEAM_START, DOTA.TEAM_START, r, DOTA.TEAM_RECALIB_GAMES);
+  db.prepare(`UPDATE turbo_players SET mmr = CAST(ROUND(? + (mmr - ?) * ?) AS INTEGER),
+    calib_left = MAX(calib_left, CASE WHEN games > 0 THEN ? ELSE calib_left END), s_games = 0, s_wins = 0`)
+    .run(DOTA.START_MMR, DOTA.START_MMR, r, DOTA.RECALIB_GAMES);
+  db.prepare('UPDATE turbo_players SET s_peak = mmr').run();
   return out;
 }
 
@@ -372,8 +398,35 @@ const playerView = (db, p) => ({
   live: liveTier(db, p),
   ...bestBadges(db, p.sid),
 });
+// ---------- ТУРБО: своя соло-лестница ----------
+const getTurbo = (db, sid) => db.prepare('SELECT * FROM turbo_players WHERE sid = ?').get(sid);
+function ensureTurbo(db, sid) {
+  db.prepare('INSERT OR IGNORE INTO turbo_players (sid, mmr, s_peak, calib_left, created) VALUES (?, ?, ?, ?, ?)')
+    .run(sid, DOTA.START_MMR, DOTA.START_MMR, DOTA.CALIB_GAMES, now());
+  return getTurbo(db, sid);
+}
+function turboRank(db, mmr) {
+  return db.prepare('SELECT COUNT(*) AS n FROM turbo_players WHERE games > 0 AND mmr > ?').get(mmr).n + 1;
+}
+// Ответ по Турбо (для start и profile). Игрок без строки Турбо — стартовые значения.
+function turboView(db, sid) {
+  const t = getTurbo(db, sid);
+  if (!t) return { mmr: DOTA.START_MMR, calib: DOTA.CALIB_GAMES, rank: 0, games: 0, wins: 0 };
+  return { mmr: t.mmr, calib: t.calib_left, rank: t.games > 0 ? turboRank(db, t.mmr) : 0, games: t.games, wins: t.wins };
+}
+
 const expected = (a, b) => 1 / (1 + 10 ** ((b - a) / DOTA.SCALE));
 const avg = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
+
+// Изменение соло-ММР за одну игру. Одна формула для соло и Турбо.
+function soloChange({ calibLeft, win, abandoned, meanOwn, meanOpp, leaverInOwn }) {
+  const k = calibLeft > 0 ? DOTA.K_CALIB : DOTA.K;
+  let d = Math.round(k * (win - expected(meanOwn, meanOpp)));
+  d = win ? Math.max(1, d) : Math.min(-1, d);
+  if (abandoned) d = Math.min(d, -Math.round(k * 0.75));                 // ливер теряет заметно
+  else if (!win && leaverInOwn) d = Math.min(-1, Math.round(d / 2));     // из-за ливера — вполовину
+  return d;
+}
 
 // Полная команда стороны: все игроки стороны — это ровно состав одной команды из 5
 function fullTeamOfSide(db, sids) {
@@ -392,6 +445,7 @@ const OPS = {};
 OPS.start = (db, b) => {
   const list = (Array.isArray(b.players) ? b.players : []).slice(0, 24);
   const id = String(b.match || '').slice(0, 40) || crypto.randomBytes(8).toString('hex');
+  const turbo = b.mode === 'turbo';
   const players = {};
   const sides = { 2: [], 3: [] };
   for (const x of list) {
@@ -399,12 +453,19 @@ OPS.start = (db, b) => {
     if (!sid) continue;
     const p = ensurePlayer(db, sid, x.name);
     const t = teamOf(db, sid);
-    players[sid] = { ...playerView(db, p), team: teamShort(t) };
+    const view = playerView(db, p);
+    if (turbo) {
+      // в Турбо — ММР Турбо (mmr, calib, games, rank); остальное — как обычно
+      ensureTurbo(db, sid);
+      const tv = turboView(db, sid);
+      Object.assign(view, { mmr: tv.mmr, calib: tv.calib, games: tv.games, rank: tv.rank });
+    }
+    players[sid] = { ...view, team: teamShort(t) };
     if (sides[x.team]) sides[x.team].push(sid);
   }
   const good = fullTeamOfSide(db, sides[2]);
   const bad = fullTeamOfSide(db, sides[3]);
-  const teamMatch = !!(good && bad && good.id !== bad.id);
+  const teamMatch = !turbo && !!(good && bad && good.id !== bad.id);
   // повторный вызов (например, команду собрали прямо в лобби) обновляет состав, пока матч не окончен
   const startJson = JSON.stringify({ sides, good: good?.id ?? null, bad: bad?.id ?? null });
   const old = db.prepare('SELECT ended FROM matches WHERE id = ?').get(id);
@@ -468,7 +529,12 @@ OPS.end = (db, b, test) => {
 
   // режим (карта аддона): standard — без рейтинга, ranked — только соло, team — только команда на команду.
   // Старые версии аддона режим не шлют — тогда как раньше (команды, если обе полные, иначе соло).
-  const mode = ['standard', 'ranked', 'team'].includes(b.mode) ? b.mode : '';
+  // turbo — отдельная соло-лестница (правила как у ranked, менять только ММР Турбо).
+  const MODES = ['standard', 'ranked', 'team', 'turbo'];
+  const mode = MODES.includes(b.mode) ? b.mode : '';
+  // неизвестный режим (например, из новой версии аддона) — не рейтинговая, а не молча соло
+  if (!reason && typeof b.mode === 'string' && b.mode !== '' && !MODES.includes(b.mode))
+    [reason, reasonEn] = ['неизвестный режим — рейтинг не меняется', 'unknown mode — rating does not change'];
   if (!reason && mode === 'standard') [reason, reasonEn] = ['обычная игра — рейтинг не меняется', 'standard game — rating does not change'];
 
   const start = JSON.parse(m.start || '{}');
@@ -477,7 +543,30 @@ OPS.end = (db, b, test) => {
   let kind = null;
   const teams = {};
 
-  if (!reason) {
+  if (!reason && mode === 'turbo') {
+    // Турбо: только соло-лестница Турбо. Соло-ММР и командный ММР не трогаем.
+    kind = 'turbo';
+    const rows = list.map((x) => ({ x, tr: ensureTurbo(db, x.sid) }));
+    const mean = {
+      2: avg(rows.filter((r) => r.x.side === 2).map((r) => r.tr.mmr)),
+      3: avg(rows.filter((r) => r.x.side === 3).map((r) => r.tr.mmr)),
+    };
+    const leaverIn = { 2: bySide[2].some((x) => x.abandoned), 3: bySide[3].some((x) => x.abandoned) };
+    for (const { x, tr } of rows) {
+      const win = x.side === winner && !x.abandoned ? 1 : 0;   // ушедший — всегда поражение
+      const d = soloChange({
+        calibLeft: tr.calib_left, win, abandoned: x.abandoned,
+        meanOwn: mean[x.side], meanOpp: mean[5 - x.side], leaverInOwn: leaverIn[x.side],
+      });
+      const after = Math.max(0, tr.mmr + d);
+      db.prepare(`UPDATE turbo_players SET mmr = ?, games = games + 1, wins = wins + ?, losses = losses + ?,
+        abandons = abandons + ?, calib_left = MAX(0, calib_left - 1), s_games = s_games + 1, s_wins = s_wins + ?,
+        s_peak = MAX(s_peak, ?) WHERE sid = ?`).run(after, win, 1 - win, x.abandoned ? 1 : 0, win, after, x.sid);
+      db.prepare('INSERT OR REPLACE INTO history (match, sid, side, hero, win, abandoned, delta, kind, at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(id, x.sid, x.side, x.hero, win, x.abandoned ? 1 : 0, d, 'turbo', t);
+      results[x.sid] = { before: tr.mmr, after, delta: d, win, abandoned: x.abandoned, calib: tr.calib_left > 0 };
+    }
+  } else if (!reason) {
     // командная игра: обе стороны — полные составы разных команд (и были ими с начала матча)
     const good = fullTeamOfSide(db, bySide[2].map((x) => x.sid));
     const bad = fullTeamOfSide(db, bySide[3].map((x) => x.sid));
@@ -514,12 +603,10 @@ OPS.end = (db, b, test) => {
         const p = x.p;
         const win = x.side === winner && !x.abandoned ? 1 : 0;   // ушедший — всегда поражение
         const calib = p.calib_left > 0;
-        const k = calib ? DOTA.K_CALIB : DOTA.K;
-        const e = expected(mean[x.side], mean[5 - x.side]);
-        let d = Math.round(k * (win - e));
-        d = win ? Math.max(1, d) : Math.min(-1, d);
-        if (x.abandoned) d = Math.min(d, -Math.round(k * 0.75));          // ливер теряет заметно
-        else if (!win && leaverIn[x.side]) d = Math.min(-1, Math.round(d / 2)); // из-за ливера — вполовину
+        const d = soloChange({
+          calibLeft: p.calib_left, win, abandoned: x.abandoned,
+          meanOwn: mean[x.side], meanOpp: mean[5 - x.side], leaverInOwn: leaverIn[x.side],
+        });
         const after = Math.max(0, p.mmr + d);
         db.prepare(`UPDATE players SET mmr = ?, games = games + 1, wins = wins + ?, losses = losses + ?,
           abandons = abandons + ?, calib_left = MAX(0, calib_left - 1), s_games = s_games + 1, s_wins = s_wins + ?,
@@ -556,7 +643,7 @@ OPS.profile = (db, b) => {
       rank: t.games > 0 ? db.prepare('SELECT COUNT(*) AS n FROM teams WHERE games > 0 AND mmr > ?').get(t.mmr).n + 1 : 0,
     };
   }
-  return { ok: true, player: playerView(db, p), team, invites, history, season: seasonView(seasonOf(now())) };
+  return { ok: true, player: { ...playerView(db, p), turbo: turboView(db, sid) }, team, invites, history, season: seasonView(seasonOf(now())) };
 };
 
 // Таблица текущего сезона: кто играл в этом сезоне и уже откалиброван.
@@ -574,6 +661,18 @@ OPS.top = (db, b) => {
     return { ok: true, kind: 'team', season, list };
   }
   const anyCalib = b.minGames !== undefined && Number(b.minGames) < DOTA.CALIB_GAMES; // тест в Tools — показываем всех
+  if (b.kind === 'turbo') {
+    // Турбо: те же поля, что у соло-топа; значков за Турбо нет, поэтому live = null
+    const trows = db.prepare(`SELECT t.sid, p.name, t.mmr, t.s_games, t.s_wins, tm.tag FROM turbo_players t
+      JOIN players p ON p.sid = t.sid
+      LEFT JOIN members mb ON mb.sid = t.sid LEFT JOIN teams tm ON tm.id = mb.team
+      WHERE t.s_games > 0 ${anyCalib ? '' : 'AND t.calib_left = 0'} ORDER BY t.mmr DESC, t.s_wins DESC LIMIT ?`).all(limit);
+    const tlist = trows.map((p) => ({
+      sid: p.sid, name: p.name, mmr: p.mmr, games: p.s_games, wins: p.s_wins, tag: p.tag,
+      live: null, ...bestBadges(db, p.sid),
+    }));
+    return { ok: true, kind: 'turbo', season, list: tlist };
+  }
   const rows = db.prepare(`SELECT p.*, t.tag FROM players p
     LEFT JOIN members m ON m.sid = p.sid LEFT JOIN teams t ON t.id = m.team
     WHERE p.s_games > 0 ${anyCalib ? '' : 'AND p.calib_left = 0'} ORDER BY p.mmr DESC, p.s_wins DESC LIMIT ?`).all(limit);
@@ -593,6 +692,7 @@ OPS.seasons = (db) => {
       id, ru: s?.ru || id, en: s?.en || id, trial: !!s?.trial,
       solo: db.prepare("SELECT name, place, mmr, games, badge FROM season_results WHERE season = ? AND kind = 'solo' ORDER BY place LIMIT 10").all(id),
       teams: db.prepare("SELECT name, tag, place, mmr, games, badge FROM season_results WHERE season = ? AND kind = 'team' ORDER BY place LIMIT 3").all(id),
+      turbo: db.prepare("SELECT name, place, mmr, games FROM season_results WHERE season = ? AND kind = 'turbo' ORDER BY place LIMIT 3").all(id),
     };
   });
   return { ok: true, list };
@@ -938,6 +1038,7 @@ function leaderboardPage(en = false) {
   const db = dbFor(false);
   const top = OPS.top(db, { kind: 'solo', limit: 100 });
   const solo = top.list;
+  const turbo = OPS.top(db, { kind: 'turbo', limit: 100 }).list;
   const teams = OPS.top(db, { kind: 'team' }).list;
   const season = top.season;
   const archive = OPS.seasons(db).list;
@@ -947,7 +1048,9 @@ function leaderboardPage(en = false) {
   const owned = (b) => (b ? badgeIcon(b.id, 's', bname(b) + (b.season ? ' · ' + b.season : '')) : '');
   const nowRank = (b) => (b && !season.trial ? `<span class="live">${badgeIcon(b.id, 'xs')}${esc(bname(b))}</span>` : '');
   const pos = (i) => `<td class="pos"><span class="rk${i < 3 ? ' r' + (i + 1) : ''}">${i + 1}</span></td>`;
-  const soloRows = solo.map((p, i) => `<tr>${pos(i)}<td class="who"><div class="nm">${owned(p.badge)}${owned(p.gang)}${p.tag ? `<span class="tag">[${esc(p.tag)}]</span>` : ''}<span class="pn">${esc(p.name)}</span></div>${nowRank(p.live)}</td><td class="n mmr">${p.mmr}</td><td class="n">${p.games}</td><td class="n">${wr(p.wins, p.games)}</td></tr>`).join('');
+  const playerRows = (list) => list.map((p, i) => `<tr>${pos(i)}<td class="who"><div class="nm">${owned(p.badge)}${owned(p.gang)}${p.tag ? `<span class="tag">[${esc(p.tag)}]</span>` : ''}<span class="pn">${esc(p.name)}</span></div>${nowRank(p.live)}</td><td class="n mmr">${p.mmr}</td><td class="n">${p.games}</td><td class="n">${wr(p.wins, p.games)}</td></tr>`).join('');
+  const soloRows = playerRows(solo);
+  const turboRows = playerRows(turbo);
   const teamRows = teams.map((t, i) => `<tr>${pos(i)}<td class="who"><div class="nm"><span class="tag">[${esc(t.tag)}]</span><span class="pn">${esc(t.name)}</span></div>${nowRank(t.live)}</td><td class="n mmr">${t.mmr}</td><td class="n">${t.games}</td><td class="n">${wr(t.wins, t.games)}</td></tr>`).join('');
   const empty = (txt) => `<tr><td colspan="5" class="empty">${txt}</td></tr>`;
   const head = (who) => `<tr><th class="pos">#</th><th>${who}</th><th class="n">${L('ММР', 'MMR')}</th><th class="n">${L('Игр', 'Games')}</th><th class="n">${L('Побед', 'Win %')}</th></tr>`;
@@ -987,8 +1090,9 @@ ${tile('gang3', L('3-я команда', 'team #3'))}
   const archiveBlock = archive.length ? `<section class="panel"><h2><span>${L('Прошлые сезоны', 'Past seasons')}</span></h2>${archive.map((a) => {
     const top3 = a.solo.slice(0, 3).map((x) => `<span class="a-p">${x.badge ? badgeIcon(x.badge, 'xs') : ''}${esc(x.name)} <span class="m">${x.mmr}</span></span>`).join('');
     const tm = a.teams.map((x) => `<span class="a-p">${x.badge ? badgeIcon(x.badge, 'xs') : ''}[${esc(x.tag)}] ${esc(x.name)}</span>`).join('');
+    const tb = a.turbo.map((x) => `<span class="a-p">${L('Турбо', 'Turbo')}: ${esc(x.name)} <span class="m">${x.mmr}</span></span>`).join('');
     return `<div class="arch"><div class="a-name">${esc(en ? a.en : a.ru)}${a.trial ? `<span class="trial">${L('пробный', 'trial')}</span>` : ''}</div>
-<div class="a-row">${top3 || L('никто не играл', 'nobody played')}</div>${tm ? `<div class="a-row">${tm}</div>` : ''}</div>`;
+<div class="a-row">${top3 || L('никто не играл', 'nobody played')}</div>${tm ? `<div class="a-row">${tm}</div>` : ''}${tb ? `<div class="a-row">${tb}</div>` : ''}</div>`;
   }).join('')}</section>` : '';
 
   return `<!doctype html><html lang="${en ? 'en' : 'ru'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1089,6 +1193,10 @@ ${seasonBanner}
 <section class="panel"><h2><span>${L('Игроки', 'Players')}</span></h2>
 <table>${head(L('Игрок', 'Player'))}
 ${soloRows || empty(L('В этом сезоне пока никто не откалиброван', 'Nobody is calibrated this season yet'))}</table></section>
+<section class="panel"><h2><span>${L('Турбо', 'Turbo')}</span></h2>
+<p class="sub">${L('Отдельная лестница режима «Турбо». Соло- и командный ММР она не меняет. За Турбо значков нет.', 'A separate ladder for Turbo mode. It does not change solo or team MMR. No badges for Turbo.')}</p>
+<table>${head(L('Игрок', 'Player'))}
+${turboRows || empty(L('В этом сезоне пока никто не откалиброван в Турбо', 'Nobody is calibrated in Turbo this season yet'))}</table></section>
 <section class="panel"><h2><span>${L('Команды', 'Teams')}</span></h2>
 <table>${head(L('Команда', 'Team'))}
 ${teamRows || empty(L('В этом сезоне пока не было командных игр 5 на 5', 'No 5v5 team games this season yet'))}</table></section>

@@ -38,6 +38,8 @@ if (what === 'season') {
     for (const x of r.solo) console.log(`${String(x.place).padStart(3)}. ${x.name.padEnd(24)} ${String(x.mmr).padStart(5)}  ${String(x.games).padStart(3)}  ${show(x.badge)}`);
     console.log('\nКоманды:');
     for (const x of r.teams) console.log(`${String(x.place).padStart(3)}. [${x.tag}] ${x.name.padEnd(20)} ${String(x.mmr).padStart(5)}  ${String(x.games).padStart(3)}  ${show(x.badge)}`);
+    console.log('\nТурбо (без значков):');
+    for (const x of r.turbo) console.log(`${String(x.place).padStart(3)}. ${x.name.padEnd(24)} ${String(x.mmr).padStart(5)}  ${String(x.games).padStart(3)}`);
   }
   process.exit(0);
 }
